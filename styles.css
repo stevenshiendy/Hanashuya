@@ -16,15 +16,15 @@
   --heading: "Cinzel", Georgia, "Times New Roman", serif;
   --body: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  --text-hero: clamp(38px, 5.2vw, 78px);
-  --text-statement: clamp(36px, 5.6vw, 84px);
-  --text-h2: clamp(30px, 3.8vw, 54px);
-  --text-h3: clamp(22px, 2.3vw, 32px);
-  --text-lead: clamp(18px, 1.5vw, 20px);
+  --text-hero: clamp(38px, 5.2vw, 104px);
+  --text-statement: clamp(36px, 5.6vw, 112px);
+  --text-h2: clamp(30px, 3.8vw, 72px);
+  --text-h3: clamp(22px, 2.3vw, 40px);
+  --text-lead: clamp(18px, 1.3vw, 24px);
 
   --gutter: clamp(20px, 4vw, 56px);
   --section: clamp(72px, 9vw, 128px);
-  --container: 1280px;
+  --container: 1720px;
   --ease: cubic-bezier(.2, .7, .2, 1);
 }
 
@@ -56,7 +56,7 @@ address { font-style: normal; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; }
 
 /* Nav */
-.nav { position: absolute; inset: 0 0 auto; z-index: 3; display: flex; justify-content: space-between; align-items: center; padding: 20px var(--gutter); color: var(--nav-ink); }
+.nav { position: absolute; inset: 0 0 auto; z-index: 3; display: flex; justify-content: space-between; align-items: center; padding: 20px max(var(--gutter), calc((100% - var(--container)) / 2 + var(--gutter))); color: var(--nav-ink); }
 .nav-logo { display: block; }
 .nav-logo img { width: clamp(150px, 15vw, 210px); }
 .nav ul { display: flex; align-items: center; gap: clamp(12px, 2.4vw, 32px); }
@@ -77,11 +77,11 @@ address { font-style: normal; }
 .chapter + .chapter { margin-top: clamp(56px, 8vw, 112px); }
 .chapter:nth-child(odd) img { order: 2; }
 .chapter img, .product img, .branch img { outline: 1px solid var(--img-outline); outline-offset: -1px; }
-.chapter img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; }
+.chapter img { width: 100%; aspect-ratio: 4 / 5; max-height: 86svh; object-fit: cover; }
 .chapter.statement { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); align-items: end; }
 .chapter.statement h3 { font-size: var(--text-statement); line-height: 1.08; }
 .chapter.statement p { margin: 0 0 .4em; }
-.chapter h3 { font-size: clamp(26px, 3vw, 42px); line-height: 1.14; }
+.chapter h3 { font-size: clamp(26px, 3vw, 56px); line-height: 1.14; }
 .chapter p { margin-top: 16px; font-size: var(--text-lead); max-width: 28em; }
 
 /* Menu */
@@ -118,13 +118,13 @@ address { font-style: normal; }
 /* Branch */
 .branch { padding-block: var(--section); }
 .branch-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: clamp(32px, 6vw, 96px); align-items: center; }
-.branch img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; object-position: 50% 20%; }
+.branch img { width: 100%; aspect-ratio: 4 / 5; max-height: 86svh; object-fit: cover; object-position: 50% 20%; }
 .branch address { margin: 20px 0 28px; font-size: var(--text-lead); }
 
 /* Footer */
 .foot { border-top: 1px solid var(--rule); padding-block: 36px; font-size: 16px; }
 .foot-grid { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 20px 32px; align-items: center; }
-.foot img { width: 180px; }
+.foot img { width: 200px; }
 .foot ul { display: flex; flex-wrap: wrap; gap: 0 22px; }
 
 /* Privacy page */
@@ -178,8 +178,8 @@ address { font-style: normal; }
 .hero-photo {
   position: absolute; top: -6%; left: 50%; transform: translateX(-50%); height: 132%; width: auto; max-width: none; aspect-ratio: 2 / 3; object-fit: cover;
 }
-.hero-copy { display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: clamp(32px, 5vh, 56px); max-width: 1400px; }
-.hero h1 { position: absolute; left: var(--gutter); right: var(--gutter); top: 40%; display: flex; justify-content: space-between; gap: 34%; font-size: clamp(36px, 4.6vw, 70px); }
+.hero-copy { display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: clamp(32px, 5vh, 56px); max-width: var(--container); }
+.hero h1 { position: absolute; left: var(--gutter); right: var(--gutter); top: 40%; display: flex; justify-content: space-between; gap: 34%; font-size: clamp(36px, 4.6vw, 96px); }
 .hero h1 span { flex: 1 1 0; }
 .hero h1 span:last-child { text-align: right; }
 .hero-side { display: flex; justify-content: space-between; align-items: flex-end; gap: 38%; }
