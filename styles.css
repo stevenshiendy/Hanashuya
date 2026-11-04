@@ -133,6 +133,7 @@ address { font-style: normal; }
 .doc h2 { font-size: var(--text-h3); margin: 36px 0 8px; }
 .doc ul { list-style: disc; padding-left: 1.2em; }
 .doc li + li { margin-top: 6px; }
+.doc-back { margin-top: 40px; }
 
 /* Hover only where a pointer can really hover, so nothing stays stuck after a tap. */
 @media (hover: hover) {
