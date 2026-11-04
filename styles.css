@@ -155,6 +155,10 @@ address { font-style: normal; }
 }
 
 @media (max-width: 860px) {
+  .foot { padding-block: 40px calc(104px + env(safe-area-inset-bottom, 0px)); }
+  .foot-grid { flex-direction: column; align-items: flex-start; gap: 0; }
+  .foot p { order: 1; margin-top: 12px; font-size: var(--text-lead); }
+  .foot ul { order: 2; flex-direction: column; margin-top: 24px; padding-top: 16px; width: 100%; border-top: 1px solid var(--rule); }
   .chapter.statement { grid-template-columns: minmax(0, 1fr); }
   .nav .hide-small { display: none; }
   .chapter, .member-grid, .branch-grid { grid-template-columns: minmax(0, 1fr); }
