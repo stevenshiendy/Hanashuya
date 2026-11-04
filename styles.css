@@ -170,7 +170,6 @@ address { font-style: normal; }
   --nav-ink: var(--frosting); --nav-cta-hover: #5e0000;
   --band: var(--frosting); --band-ink: var(--altar-wine); --band-head: var(--real-red);
   --card-shadow: 0 2px 4px oklch(20% .05 25 / .25), 0 24px 48px -12px oklch(20% .05 25 / .45);
-  --fl-vanilla: #f2e3bf; --fl-choco: #4d2f10; --fl-matcha: #3f6b2c; --fl-strawberry: #c93a3a;
   --shopee: #ee4d2d; --whatsapp: #25d366; --tiktok: #010101;
   --instagram: linear-gradient(45deg, #f09433, #e6683c 30%, #dc2743 55%, #cc2366 75%, #bc1888);
 }
@@ -227,14 +226,8 @@ address { font-style: normal; }
   .channel-tiles { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Menu panel lines and flavours, from the printed menu. */
+/* Menu panel lines. */
 .panel-line { font-size: var(--text-lead); margin-bottom: 24px; }
-.flavours-list { display: flex; flex-wrap: wrap; gap: 20px; }
-.flavours-list li { display: grid; place-items: center; width: 136px; height: 136px; padding: 12px; border-radius: 50%; text-align: center; font-weight: 500; line-height: 1.25; }
-.fl-vanilla { background: var(--fl-vanilla); color: var(--altar-wine); }
-.fl-choco { background: var(--fl-choco); color: var(--frosting); }
-.fl-matcha { background: var(--fl-matcha); color: var(--frosting); }
-.fl-strawberry { background: var(--fl-strawberry); color: var(--frosting); }
 
 /* Motion. One entrance, one reveal, one stamp moment. Transform and opacity only. */
 @media (prefers-reduced-motion: no-preference) {
