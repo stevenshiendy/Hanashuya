@@ -31,7 +31,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 * { margin: 0; }
 html, body { overflow-x: clip; }
-html { scroll-behavior: smooth; scroll-padding-top: 24px; -webkit-text-size-adjust: 100%; }
+html { scroll-behavior: smooth; scroll-padding-top: 68px; -webkit-text-size-adjust: 100%; }
 html { scrollbar-color: var(--muted) var(--ground); }
 ::selection { background: var(--ink); color: var(--ground); }
 body { background: var(--ground); color: var(--ink); font: 400 17px/1.6 var(--body); -webkit-font-smoothing: antialiased; }
@@ -56,7 +56,8 @@ address { font-style: normal; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; }
 
 /* Nav */
-.nav { position: absolute; inset: 0 0 auto; z-index: 3; display: flex; justify-content: space-between; align-items: center; padding: 20px max(var(--gutter), calc((100% - var(--container)) / 2 + var(--gutter))); color: var(--nav-ink); }
+.nav { position: fixed; inset: 0 0 auto; z-index: 9; background: var(--ground); border-bottom: 1px solid transparent; transition: border-color .15s ease-out; display: flex; justify-content: space-between; align-items: center; padding: 12px max(var(--gutter), calc((100% - var(--container)) / 2 + var(--gutter))); color: var(--nav-ink); }
+.nav.is-stuck { border-bottom-color: var(--rule); }
 .nav-logo { display: block; }
 .nav-logo img { width: clamp(150px, 15vw, 210px); }
 .nav ul { display: flex; align-items: center; gap: clamp(12px, 2.4vw, 32px); }

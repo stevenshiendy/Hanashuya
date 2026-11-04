@@ -240,6 +240,14 @@
     pick(tabs[0]);
   })();
 
+  // Menu bar: a thin line appears once the page has scrolled, so the bar reads as separate from the content.
+  (function () {
+    var nav = document.querySelector('.nav');
+    function mark() { nav.classList.toggle('is-stuck', scrollY > 8); }
+    addEventListener('scroll', mark, { passive: true });
+    mark();
+  })();
+
   // Motion: everything is visible until this runs, and none of it runs under reduced motion.
   (function () {
     if (!window.IntersectionObserver || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
