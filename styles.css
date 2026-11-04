@@ -147,8 +147,11 @@ address { font-style: normal; }
   .tabs button:hover { color: var(--ink); }
 }
 
-@media (max-width: 360px) {
-  .nav .nav-logo img { width: 116px; }
+@media (max-width: 400px) {
+  .nav .nav-logo img { width: 104px; }
+  .nav ul { gap: 10px; }
+  .nav ul a { font-size: 15px; }
+  .nav .nav-cta { padding: 0 14px; }
 }
 
 @media (max-width: 860px) {
