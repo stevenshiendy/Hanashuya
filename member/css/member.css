@@ -43,11 +43,14 @@ body.member::before { background: var(--stage-deep); }
 .since { font-size: var(--text-sm); color: var(--color-muted); margin-top: calc(-1 * var(--space-sm)); }
 
 /* the floating card */
-.card3d { --rx: 0deg; --ry: 0deg; --flip: 0deg; --mx: 50%; --my: 30%; perspective: 1100px; margin-block: var(--space-xs); }
-.card3d .float { animation: float 6s var(--ease-in-out) infinite; transform-style: preserve-3d; }
+.card3d { --rx: 0deg; --ry: 0deg; --flip: 0deg; --mx: 50%; --my: 30%; margin-block: var(--space-xs); }
+/* Float and tilt are flat layers around the card, so the card's own 3D setup (flip
+   with hidden back faces) is the one Safari has always drawn correctly. Making the
+   animated float or the tilt part of the 3D scene breaks the back face in Safari. */
+.card3d .float { animation: float 6s var(--ease-in-out) infinite; perspective: 1100px; }
 @keyframes float { 50% { transform: translateY(-6px); } }
 /* Tilt and flip live on separate layers: tilt updates often, the flip runs once per tap. */
-.card3d .tilt { transform-style: preserve-3d; transform: rotateX(var(--rx)) rotateY(var(--ry)); transition: transform var(--dur-long) var(--ease-out); }
+.card3d .tilt { transform: rotateX(var(--rx)) rotateY(var(--ry)); transition: transform var(--dur-long) var(--ease-out); }
 .card3d.is-moving .tilt { transition: transform 80ms linear; }
 .card3d .card { border-radius: 16px; transform: rotateY(var(--flip)); transition: transform var(--dur-long) var(--ease-out); touch-action: pan-y; }
 .card3d.is-front .card { --flip: 180deg; }
