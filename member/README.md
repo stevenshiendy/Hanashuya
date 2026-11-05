@@ -44,9 +44,9 @@ Then open `/member/pemilik.html` and sign in with that username or number and pa
 
 Use a different WhatsApp number for your own member card: staff and owner accounts can't collect stamps.
 
-## 4. Demo data (optional)
+## 4. Clear test data and add the demo account
 
-Run `supabase/seed-demo.sql` to fill the dashboard with 60 days of made-up sales. Every demo row is marked (numbers starting `628000000`, receipts `DEMO-…`). Remove it with `supabase/seed-demo-remove.sql` before real use.
+Before launch, run `supabase/cleanup-keep-owner.sql` once in the SQL Editor. It removes every account except the owner, plus all sales, redemptions and logs, and creates a demo member account (username `hanashuya`, password `testingmantap88`) for showing the card. Don't run it after real members have signed up.
 
 ## 5. Deploy
 
@@ -116,9 +116,8 @@ Members are then asked to read and accept the new version the next time they ope
 ## Not in this MVP yet
 
 - **WhatsApp verification at sign-up.** Every profile has an empty `whatsapp_verified_at` column and the app already reads it (`whoami().whatsapp_verified`). Once `wa-reset` is live, the same code path can confirm numbers: show a banner to unverified members, send a code, and set `whatsapp_verified_at` when it matches.
-- **Birthday reward.** Birth dates are stored; the free Mini Choux box isn't tracked yet.
+- **Birthday reward in the app.** The birthday box is part of the program and staff give it by hand; birth dates are stored, but the app doesn't show or track it yet.
 - Bot check (Cloudflare Turnstile) on the sign-up form.
 - Importing existing VireoPOS members and their points, once the export format is known.
 - Flavour tracking, wallet passes, more than one brand.
-- The shared privacy policy (`../kebijakan-privasi.html`) needs review, including how long inactive accounts are kept.
-- The landing page also promises 20% off the first purchase and a birthday box of Mini Choux. The app does not track either yet; staff handle them by hand.
+- The 20% first-purchase discount is also handled by hand by staff; the app doesn't track it yet.
