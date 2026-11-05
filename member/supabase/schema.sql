@@ -98,8 +98,8 @@ create trigger consent_log_append_only before update or delete on public.consent
 -- ---------------------------------------------------------------- activity
 create table if not exists public.sales (
   id bigint generated always as identity primary key,
-  receipt_no text not null,
-  receipt_key text generated always as (upper(regexp_replace(receipt_no, '[^A-Za-z0-9]', '', 'g'))) stored unique,
+  receipt_no text,
+  receipt_key text generated always as (upper(regexp_replace(receipt_no, '[^A-Za-z0-9]', '', 'g'))) stored,
   total int not null check (total > 0),
   member_id uuid references public.profiles (id) on delete set null,
   staff_id uuid references public.profiles (id) on delete set null,
@@ -115,6 +115,16 @@ create table if not exists public.sales (
 );
 create index if not exists sales_member_idx on public.sales (member_id, created_at);
 create index if not exists sales_created_idx on public.sales (created_at);
+-- Cashiers no longer type the VireoPOS number: each stamp is matched to an imported
+-- VireoPOS receipt by day, total, time and customer name (_match_stamps). receipt_no
+-- stays for sales recorded with one; it is unique per day when present.
+alter table public.sales alter column receipt_no drop not null;
+alter table public.sales add column if not exists sale_day date;
+update public.sales set sale_day = (created_at at time zone 'Asia/Jakarta')::date where sale_day is null;
+alter table public.sales alter column sale_day set default ((now() at time zone 'Asia/Jakarta')::date);
+alter table public.sales alter column sale_day set not null;
+alter table public.sales drop constraint if exists sales_receipt_key_key;
+create unique index if not exists sales_receipt_day_once on public.sales (receipt_key, sale_day);
 
 create table if not exists public.redemptions (
   id bigint generated always as identity primary key,
@@ -171,6 +181,8 @@ create table if not exists public.pos_receipts (
   total int,
   imported_at timestamptz not null default now()
 );
+alter table public.pos_receipts add column if not exists customer text;
+create index if not exists pos_receipts_total_idx on public.pos_receipts (total, sold_at);
 
 create table if not exists public.campaigns (
   id bigint generated always as identity primary key,
@@ -720,17 +732,26 @@ declare
   staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
   s settings := public._cfg();
   tk scan_tickets; m profiles; n int := 0; today int; f text[] := '{}';
-  key text := upper(regexp_replace(coalesce(p_receipt_no, ''), '[^A-Za-z0-9]', '', 'g'));
+  raw text := replace(upper(regexp_replace(coalesce(p_receipt_no, ''), '[^A-Za-z0-9]', '', 'g')), 'O', '0');
+  key text; v_day date := public._local(now())::date;
   lt time := public._local(now())::time; prev sales; sid bigint; v_total int;
   g text := nullif(p_gender, ''); a text := nullif(p_age_range, '');
 begin
-  if key = '' then raise exception 'Isi nomor struk VireoPOS.'; end if;
+  -- The receipt number is optional. When one is sent it must look like VireoPOS:
+  -- the last 6 characters, or the whole number (TRX- plus 13 characters, 0-9 and A-F).
+  if raw = '' then key := null;
+  elsif raw ~ '^TRX[0-9A-F]{13}$' then key := right(raw, 6);
+  elsif raw ~ '^[0-9A-F]{6}$' then key := raw;
+  else raise exception 'Nomor struk tidak sesuai format VireoPOS.';
+  end if;
   if p_total is null or p_total <= 0 then raise exception 'Isi total belanja sesuai struk.'; end if;
   if p_total > 20000000 then raise exception 'Total belanja terlalu besar. Periksa lagi angkanya.'; end if;
   if jsonb_typeof(coalesce(p_items, '[]')) <> 'array' then raise exception 'Daftar produk tidak valid.'; end if;
-  select * into prev from sales where receipt_key = key;
-  if prev.id is not null then
-    raise exception 'Struk % sudah dicatat pada %.', p_receipt_no, to_char(public._local(prev.created_at), 'DD-MM-YYYY HH24:MI');
+  if key is not null then
+    select * into prev from sales where receipt_key = key and sale_day = v_day;
+    if prev.id is not null then
+      raise exception 'Struk % sudah dicatat hari ini pukul %.', key, to_char(public._local(prev.created_at), 'HH24:MI');
+    end if;
   end if;
 
   if p_ticket is not null then
@@ -752,6 +773,14 @@ begin
     if today + n > s.max_stamps_per_day then
       raise exception 'Batas % stempel per hari untuk satu kartu sudah tercapai (sudah % hari ini).', s.max_stamps_per_day, today;
     end if;
+    -- A double tap: the same card and the same total again within 10 minutes.
+    select * into prev from sales
+     where member_id = m.id and total = p_total and reversed_at is null and created_at > now() - interval '10 minutes'
+     order by created_at desc limit 1;
+    if prev.id is not null then
+      raise exception 'Penjualan % untuk kartu ini sudah dicatat pukul %. Kalau ini pembelian baru, minta pemilik mencatatnya.',
+        'Rp' || replace(to_char(p_total, 'FM999,999,999'), ',', '.'), to_char(public._local(prev.created_at), 'HH24:MI');
+    end if;
     if tk.via = 'kode' then f := array_append(f, 'kode_diketik'); end if;
     if (select count(*) from sales where member_id = m.id and staff_id = staff
           and created_at > now() - interval '7 days' and reversed_at is null) >= 3 then
@@ -766,10 +795,10 @@ begin
   if g is not null and g not in ('perempuan', 'laki-laki', 'tidak_disebut') then raise exception 'Jenis kelamin tidak valid.'; end if;
   if a is not null and a not in ('<17', '17-24', '25-34', '35-44', '45+', 'tidak_disebut') then raise exception 'Rentang usia tidak valid.'; end if;
 
-  insert into sales (receipt_no, total, member_id, staff_id, stamps, items, gender, age_range, via, flags)
-  values (trim(p_receipt_no), p_total, m.id, staff, n, coalesce(p_items, '[]'), g, a, tk.via, f)
+  insert into sales (receipt_no, sale_day, total, member_id, staff_id, stamps, items, gender, age_range, via, flags)
+  values (key, v_day, p_total, m.id, staff, n, coalesce(p_items, '[]'), g, a, tk.via, f)
   returning id into sid;
-  perform public._log('penjualan', jsonb_build_object('sale', sid, 'receipt', trim(p_receipt_no), 'total', p_total,
+  perform public._log('penjualan', jsonb_build_object('sale', sid, 'receipt', key, 'total', p_total,
     'member', m.id, 'stamps', n, 'flags', f));
 
   if m.id is null then
@@ -868,6 +897,52 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------- owner functions
+-- True when both names are filled in and share no word of 3 or more letters, for
+-- example "Aliya" on the VireoPOS receipt against member "Steven Glenn" (username steven).
+create or replace function public._name_differs(a text, b text) returns boolean
+language sql immutable
+as $$
+  select coalesce(trim(a), '') <> '' and coalesce(trim(b), '') <> '' and not exists (
+    select 1 from regexp_split_to_table(lower(a), '[^a-z0-9]+') x
+    join regexp_split_to_table(lower(b), '[^a-z0-9]+') y on x = y
+    where length(x) >= 3)
+$$;
+
+-- Pairs every stamp with one imported VireoPOS receipt: same total, closest time within
+-- settings.late_minutes, and each receipt covers one stamp only, so a sale stamped twice
+-- leaves one stamp without a receipt. Only days with imported receipts are checked.
+create or replace function public._match_stamps(p_since timestamptz)
+returns table (sale_id bigint, pos_key text, problem text)
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  st settings := public._cfg(); r record; pk text; pcust text; used text[] := '{}';
+begin
+  for r in
+    select x.id, x.created_at, x.total, coalesce(pf.full_name, '') || ' ' || coalesce(pf.username, '') as names
+    from sales x left join profiles pf on pf.id = x.member_id
+    where x.member_id is not null and x.reversed_at is null and x.created_at >= p_since
+      and public._local(x.created_at)::date in (select distinct public._local(sold_at)::date from pos_receipts)
+    order by x.created_at
+  loop
+    select pr.receipt_key, pr.customer into pk, pcust from pos_receipts pr
+     where pr.total = r.total
+       and abs(extract(epoch from (pr.sold_at - r.created_at))) <= st.late_minutes * 60
+       and not (pr.receipt_key = any (used))
+     order by abs(extract(epoch from (pr.sold_at - r.created_at)))
+     limit 1;
+    sale_id := r.id;
+    pos_key := pk;
+    if pk is null then
+      problem := 'tidak_ada_struk_cocok';
+    else
+      used := used || pk;
+      problem := case when public._name_differs(pcust, r.names) then 'nama_beda' end;
+    end if;
+    return next;
+  end loop;
+end $$;
+
 create or replace function public.owner_dashboard(p_days int default 30) returns json
 language plpgsql stable security definer set search_path = public
 as $$
@@ -896,15 +971,12 @@ begin
     where member_id is not null and reversed_at is null group by member_id
   ),
   matched as (
-    select sl.id, sl.receipt_no, sl.created_at, sl.total, p.receipt_no as pos_no, p.sold_at, p.total as pos_total,
-      case
-        when p.receipt_key is null then 'struk_tidak_ada_di_vireopos'
-        when abs(extract(epoch from (sl.created_at - p.sold_at))) > s.late_minutes * 60 then 'waktu_beda'
-        when p.total is not null and p.total <> sl.total then 'total_beda'
-      end as problem
-    from sl left join pos_receipts p on p.receipt_key = sl.receipt_key
-    where sl.member_id is not null
-      and public._local(sl.created_at)::date in (select distinct public._local(sold_at)::date from pos_receipts)
+    select sl.id, sl.created_at, sl.total, sl.stamps, pm.full_name as member,
+           p.receipt_no as pos_no, p.sold_at, p.total as pos_total, p.customer as pos_customer, mt.problem
+    from public._match_stamps(since) mt
+    join sl on sl.id = mt.sale_id
+    left join pos_receipts p on p.receipt_key = mt.pos_key
+    left join profiles pm on pm.id = sl.member_id
   )
   select json_build_object(
     'days', extract(day from now() - since)::int,
@@ -984,12 +1056,13 @@ as $$
 declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); n int;
 begin
   if jsonb_typeof(p_rows) <> 'array' then raise exception 'Data struk tidak valid.'; end if;
-  insert into pos_receipts (receipt_key, receipt_no, sold_at, total)
+  insert into pos_receipts (receipt_key, receipt_no, sold_at, total, customer)
   select upper(regexp_replace(e->>'receipt_no', '[^A-Za-z0-9]', '', 'g')), trim(e->>'receipt_no'),
-         (e->>'sold_at')::timestamptz, nullif(e->>'total', '')::int
+         (e->>'sold_at')::timestamptz, nullif(e->>'total', '')::int, nullif(trim(coalesce(e->>'customer', '')), '')
   from jsonb_array_elements(p_rows) e
   where coalesce(e->>'receipt_no', '') <> '' and coalesce(e->>'sold_at', '') <> ''
-  on conflict (receipt_key) do update set sold_at = excluded.sold_at, total = excluded.total, imported_at = now();
+  on conflict (receipt_key) do update set sold_at = excluded.sold_at, total = excluded.total,
+    customer = excluded.customer, imported_at = now();
   get diagnostics n = row_count;
   perform public._log('impor_struk', jsonb_build_object('rows', n));
   return json_build_object('imported', n);

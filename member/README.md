@@ -7,7 +7,7 @@ Digital version of the Hanashuya loyalty card: 1 stamp per Rp50.000, 10% off at 
 | Page | Who | What |
 | --- | --- | --- |
 | `/member/` | Members | Sign up or sign in (username or WhatsApp number + password), forgot password by WhatsApp code; four tabs: Kartu (card, stamps, QR), Hadiah (redeem with Ya/Tidak, voucher), Riwayat (visits), Akun (details, password, delete) |
-| `/member/staf.html` | Cashiers | Scan QR (camera, photo or typed code), record a sale with receipt number and items, tag walk-ins, check today's redemptions, request undo |
+| `/member/staf.html` | Cashiers | Scan QR (camera, photo or typed code) and see the member's stamps and ready rewards, record a sale with its total and items, tag walk-ins, see today's sales and redemptions in Hari ini, request undo |
 | `/member/pemilik.html` | Owner | Busy-hours heatmap, top items, customer mix, staff activity, flagged stamps, VireoPOS receipt matching, undo approvals, add and remove staff, reset codes (Bantuan akun), rules, menu, promos |
 
 Plain HTML, CSS and JavaScript with no build step. Supabase holds the data, login and every rule (`supabase/schema.sql`).
@@ -103,11 +103,11 @@ Members are then asked to read and accept the new version the next time they ope
 
 ## Rules the database enforces
 
-- One sale per VireoPOS receipt number (spaces and dashes ignored).
+- Cashiers do not type a receipt number, only the total. The same card with the same total again within 10 minutes is refused as a double tap. In Cocokkan struk the owner uploads the VireoPOS *Laporan Penjualan Rinci* (.xls or .csv); each stamp is paired with one receipt of the same total within 15 minutes (a receipt covers one stamp only), and stamps without a receipt or with a different customer name on the receipt are listed.
 - The member QR changes every 30 seconds; a scan is valid for 10 minutes while the cashier fills in the sale.
 - Staff and owner accounts can't hold stamps. One WhatsApp number or username is one account.
 - Stamps only between opening and closing time, and at most 6 stamps per card per day (both editable in **Pengaturan**).
-- Members redeem from their own phone: **Tukar** asks *Yakin mau tukar?* with Ya or Tidak, then shows a red voucher with a running clock for the cashier. Each reward redeems once, and the cashier's **Tukar hadiah** tab lists today's redemptions to check against.
+- Members redeem from their own phone: **Tukar** asks *Yakin mau tukar?* with Ya or Tidak, then shows a red voucher with a running clock for the cashier. Each reward redeems once, and the cashier's **Hari ini** tab lists today's redemptions to check against. After scanning a card, the cashier sees which rewards are ready and the VireoPOS code for each.
 - Cashiers can't delete anything. They request an undo with a reason (sales or redemptions); the owner approves or rejects it.
 - Typed card codes and a cashier stamping the same card 3+ times a week are flagged for the owner.
 - Members who fill in gender and age keep their own answers; cashiers tag walk-ins.

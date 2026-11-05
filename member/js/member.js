@@ -295,12 +295,12 @@ function viewCard(c, ready, fresh) {
   <div class="stage"><div class="wrap stage-inner">
     <h1 class="hello" id="h-kartu" tabindex="-1">Halo, ${esc(first)}</h1>
     <p class="since">Member sejak ${esc(monthYear(c.member_since))}</p>
-    <div class="card3d" id="c3d"><div class="float">
+    <div class="card3d" id="c3d"><div class="float"><div class="tilt">
       <button class="card" type="button" id="card" aria-pressed="false" aria-label="Kartu member, ${c.position} dari ${c.card_size} stempel. Ketuk untuk membalik.">
         <span class="card-face back"><img class="art" src="img/card-back.webp" width="900" height="514" alt="">${slots(c, fresh)}</span>
         <span class="card-face front"><img class="art" src="img/card-front.webp" width="900" height="514" alt=""></span>
       </button>
-    </div></div>
+    </div></div></div>
     <p class="card-hint">Ketuk kartu untuk membalik</p>
     <div class="count"><b>${c.position}</b><span>dari ${c.card_size} stempel</span></div>
     <div class="track" style="--p:${c.position / c.card_size}" aria-hidden="true"><i></i>${miles}</div>
@@ -474,26 +474,46 @@ function wireCard() {
     wrap.classList.add('is-moving');
     tilt((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
   });
-  const rest = () => { wrap.classList.remove('is-moving'); tilt(0.5, 0.3); };
+  const rest = () => { wrap.classList.remove('is-moving'); if (!motionOn) tilt(0.5, 0.5); };
   wrap.addEventListener('pointerleave', rest);
   wrap.addEventListener('pointercancel', rest);
   if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission !== 'function') listenMotion();
 }
+// The tilt sits on .tilt and the flip on .card, so phone motion never restarts the flip.
 function tilt(x, y) {
   const wrap = $('#c3d'); if (!wrap) return;
-  wrap.style.setProperty('--ry', `${(x - 0.5) * 18}deg`);
-  wrap.style.setProperty('--rx', `${(0.5 - y) * 14}deg`);
+  wrap.style.setProperty('--ry', `${(x - 0.5) * 16}deg`);
+  wrap.style.setProperty('--rx', `${(0.5 - y) * 12}deg`);
   wrap.style.setProperty('--mx', `${x * 100}%`);
-  wrap.style.setProperty('--my', `${y * 100}%`);
+  wrap.style.setProperty('--my', `${y * 100 - 20}%`);
 }
-let motionOn = false;
+// Phone motion: the angle the phone is held at counts as level, readings are
+// smoothed once per frame, and the jump when the phone passes upright is ignored.
+let motionOn = false, motionFrame = 0, base = null, lastGamma = null;
+const motionNow = { x: 0.5, y: 0.5 }, motionGoal = { x: 0.5, y: 0.5 };
+const clamp01 = (n) => Math.min(1, Math.max(0, n));
 function listenMotion() {
   if (motionOn) return;
   motionOn = true;
   window.addEventListener('deviceorientation', (e) => {
-    if (e.gamma == null || $('#v-kartu')?.hidden) return;
-    tilt(Math.min(1, Math.max(0, 0.5 + e.gamma / 50)), Math.min(1, Math.max(0, 0.5 + (e.beta - 45) / 60)));
+    const wrap = $('#c3d');
+    if (!wrap || e.beta == null || e.gamma == null || $('#v-kartu')?.hidden || wrap.classList.contains('is-moving')) return;
+    if (lastGamma != null && Math.abs(e.gamma - lastGamma) > 40) { base = null; lastGamma = e.gamma; return; }
+    lastGamma = e.gamma;
+    if (!base) base = { b: e.beta, g: e.gamma };
+    base.b += (e.beta - base.b) * 0.01;
+    base.g += (e.gamma - base.g) * 0.01;
+    motionGoal.x = clamp01(0.5 + (e.gamma - base.g) / 40);
+    motionGoal.y = clamp01(0.5 + (e.beta - base.b) / 40);
+    if (!motionFrame) motionFrame = requestAnimationFrame(motionStep);
   });
+}
+function motionStep() {
+  motionFrame = 0;
+  motionNow.x += (motionGoal.x - motionNow.x) * 0.18;
+  motionNow.y += (motionGoal.y - motionNow.y) * 0.18;
+  tilt(motionNow.x, motionNow.y);
+  if (Math.abs(motionGoal.x - motionNow.x) + Math.abs(motionGoal.y - motionNow.y) > 0.002) motionFrame = requestAnimationFrame(motionStep);
 }
 async function askMotion() {
   if (reduced || motionOn || !window.DeviceOrientationEvent || typeof DeviceOrientationEvent.requestPermission !== 'function') return;

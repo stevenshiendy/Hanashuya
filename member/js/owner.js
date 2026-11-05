@@ -3,7 +3,7 @@ import { sb, configured, $, $$, esc, rpc, busy, notice, toast, rupiah, when, day
 const app = $('#app');
 const DAYS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
 const FLAG = { kode_diketik: 'Kode kartu diketik', staf_sama_sering: 'Staf yang sama sering memberi stempel ke kartu ini' };
-const PROBLEM = { struk_tidak_ada_di_vireopos: 'Tidak ada di VireoPOS', waktu_beda: 'Jam beda dari struk', total_beda: 'Total beda dari struk' };
+const PROBLEM = { tidak_ada_struk_cocok: 'Tidak ada struk dengan total dan jam yang sama', nama_beda: 'Nama pelanggan di VireoPOS beda' };
 const LABEL = { perempuan: 'Perempuan', 'laki-laki': 'Laki-laki', tidak_disebut: 'Tidak disebut', kosong: 'Tidak diisi', '<17': 'Di bawah 17' };
 let range = Number(new URLSearchParams(location.search).get('hari')) || 30;
 
@@ -65,7 +65,7 @@ async function summary() {
   </div>
   ${d.undo.length ? `<section class="panel stack" aria-labelledby="undo-title">
     <h2 id="undo-title">Permintaan pembatalan (${d.undo.length})</h2>
-    <ul class="list">${d.undo.map((u) => `<li><span class="grow"><strong>${esc(u.kind === 'penjualan' ? `Struk ${u.receipt_no}, ${u.stamps} stempel` : u.reward_label)}</strong> untuk ${esc(u.member)}<br>
+    <ul class="list">${d.undo.map((u) => `<li><span class="grow"><strong>${esc(u.kind === 'penjualan' ? `${u.receipt_no ? 'Struk ' + u.receipt_no : 'Penjualan ' + rupiah(u.total || 0)}, ${u.stamps} stempel` : u.reward_label)}</strong> untuk ${esc(u.member)}<br>
       <span class="muted small">${esc(u.requested_by || 'Staf')}, ${esc(when(u.created_at))}: ${esc(u.reason)}</span></span>
       <span class="row"><button class="btn" type="button" data-undo="${u.id}" data-ok="1">Setujui</button><button class="btn btn-quiet" type="button" data-undo="${u.id}" data-ok="0">Tolak</button></span></li>`).join('')}</ul>
   </section>` : ''}
@@ -107,7 +107,7 @@ async function summary() {
   <section class="panel stack" aria-labelledby="flag-title">
     <h2 id="flag-title">Perlu dicek</h2>
     ${d.flags.length ? `<div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Struk</th><th>Member</th><th>Kasir</th><th class="num">Stempel</th><th>Catatan</th></tr></thead><tbody>
-      ${d.flags.map((f) => `<tr><td class="tnum">${esc(when(f.created_at))}</td><td>${esc(f.receipt_no)}</td><td>${esc(f.member)}</td><td>${esc(f.staff || '')}</td><td class="num">${f.stamps}</td><td>${f.flags.map((x) => esc(FLAG[x] || x)).join('<br>')}</td></tr>`).join('')}
+      ${d.flags.map((f) => `<tr><td class="tnum">${esc(when(f.created_at))}</td><td>${esc(f.receipt_no || '–')}</td><td>${esc(f.member)}</td><td>${esc(f.staff || '')}</td><td class="num">${f.stamps}</td><td>${f.flags.map((x) => esc(FLAG[x] || x)).join('<br>')}</td></tr>`).join('')}
     </tbody></table></div>` : '<p class="muted">Tidak ada stempel yang ditandai. Kode kartu yang diketik manual dan pola stempel yang aneh muncul di sini.</p>'}
     ${d.matched_days ? `<p>${d.mismatches.length ? `<strong>${d.mismatches.length} stempel</strong> tidak cocok dengan struk VireoPOS. Lihat tab Cocokkan struk.` : 'Semua stempel cocok dengan struk VireoPOS yang sudah diimpor.'}</p>`
       : '<p class="muted small">Impor struk VireoPOS di tab Cocokkan struk untuk mengecek setiap stempel dengan struk aslinya.</p>'}
@@ -169,7 +169,7 @@ async function sales() {
   try { rows = await rpc('owner_sales', { p_limit: 300 }); } catch (e) { return failed(p, e, sales); }
   p.innerHTML = `<div class="panel stack"><h2>300 penjualan terakhir</h2>
   ${rows.length ? `<div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Struk</th><th>Member</th><th>Kasir</th><th class="num">Total</th><th class="num">Stempel</th><th>Produk</th><th>Catatan</th></tr></thead><tbody>
-  ${rows.map((r) => `<tr class="${r.reversed_at ? 'is-reversed' : ''}"><td class="tnum">${esc(when(r.created_at))}</td><td>${esc(r.receipt_no)}</td><td>${esc(r.member || '–')}</td><td>${esc(r.staff || '')}</td>
+  ${rows.map((r) => `<tr class="${r.reversed_at ? 'is-reversed' : ''}"><td class="tnum">${esc(when(r.created_at))}</td><td>${esc(r.receipt_no || '–')}</td><td>${esc(r.member || '–')}</td><td>${esc(r.staff || '')}</td>
     <td class="num">${rupiah(r.total)}</td><td class="num">${r.stamps}</td><td>${esc((r.items || []).map((i) => i.qty + '× ' + i.name).join(', '))}</td>
     <td>${r.reversed_at ? 'Dibatalkan' : r.flags.map((x) => esc(FLAG[x] || x)).join(', ')}</td></tr>`).join('')}</tbody></table></div>`
     : '<p class="muted">Belum ada penjualan.</p>'}</div>`;
@@ -192,9 +192,31 @@ function parseCSV(text) {
   return rows.filter((r) => r.some((c) => c.trim()));
 }
 
+// VireoPOS gives .xls files (Laporan Penjualan Rinci). SheetJS reads them in the browser;
+// the sheet "Rangkuman" has one row per receipt, under a few title rows.
+function loadSheetJS() {
+  if (window.XLSX) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = res; s.onerror = () => rej(new Error('Pembaca file Excel gagal dimuat. Periksa internet, atau simpan file sebagai CSV.'));
+    document.head.append(s);
+  });
+}
+async function readRows(file) {
+  if (/\.csv$/i.test(file.name)) return parseCSV(await file.text());
+  await loadSheetJS();
+  const book = window.XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const sheet = book.Sheets['Rangkuman'] || book.Sheets[book.SheetNames[0]];
+  const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' })
+    .map((r) => r.map((c) => String(c ?? '')));
+  const head = rows.findIndex((r) => r.some((c) => /nomor struk|no\.?\s*struk|receipt/i.test(c)));
+  return (head > 0 ? rows.slice(head) : rows).filter((r) => r.some((c) => c.trim()));
+}
+
 function parseWhen(dateStr, timeStr) {
-  let s = (dateStr || '').trim();
-  if (timeStr) s += ' ' + timeStr.trim();
+  let s = String(dateStr ?? '').trim();
+  if (timeStr) s += ' ' + String(timeStr).trim();
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}T${m[4].padStart(2, '0')}:${m[5]}:${m[6] || '00'}+07:00`;
   m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})[ T,]+(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?/);
@@ -213,16 +235,17 @@ async function match() {
   p.innerHTML = `
   <div class="panel stack">
     <h1>Cocokkan struk</h1>
-    <p>Ekspor laporan penjualan harian dari VireoPOS sebagai CSV, lalu unggah di sini. Setiap stempel dicek dengan struk aslinya: nomornya harus ada, jamnya selisih paling lama 15 menit, dan totalnya sama.</p>
-    <label class="field"><span>File CSV dari VireoPOS</span><input type="file" id="csv" accept=".csv,text/csv"></label>
+    <p>Di VireoPOS, unduh <strong>Laporan Penjualan Rinci</strong> lalu unggah filenya di sini (.xls atau .csv). Setiap stempel dipasangkan dengan satu struk VireoPOS yang totalnya sama dan jamnya paling dekat, selisih paling lama 15 menit. Satu struk hanya bisa dipakai satu stempel, dan nama pelanggan di struk ikut dicek.</p>
+    <label class="field"><span>File laporan dari VireoPOS</span><input type="file" id="csv" accept=".xls,.xlsx,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
     <div class="notice" id="csv-msg" hidden></div>
     <div id="map" class="stack" hidden></div>
   </div>
   <div class="panel stack" id="mm"><div class="skeleton"></div></div>`;
   $('#csv').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    const rows = parseCSV(await f.text());
-    if (rows.length < 2) { notice($('#csv-msg'), 'File kosong atau bukan CSV.'); return; }
+    let rows;
+    try { rows = await readRows(f); } catch (err) { notice($('#csv-msg'), err.message || 'File tidak bisa dibaca.'); return; }
+    if (rows.length < 2) { notice($('#csv-msg'), 'File kosong atau bukan laporan penjualan.'); return; }
     notice($('#csv-msg'), '');
     mapColumns(rows);
   });
@@ -233,10 +256,13 @@ function mapColumns(rows) {
   const head = rows[0].map((h) => h.trim());
   const guess = (re) => head.findIndex((h) => re.test(h));
   const g = {
-    no: guess(/struk|receipt|invoice|nota|no\.?\s*trans|nomor|^no$/i),
-    date: guess(/tanggal|date|waktu|time/i),
+    // "Nomor Struk" first: VireoPOS also has a "No" column that only counts the rows.
+    no: [/nomor struk|no\.?\s*struk/i, /receipt|invoice|nota|no\.?\s*trans/i, /struk|nomor/i].map(guess).find((i) => i >= 0) ?? -1,
+    date: guess(/^tanggal$|tanggal|date|waktu|time/i),
     time: guess(/^jam$|^time$|^waktu$/i),
-    total: guess(/grand|total|jumlah|amount|nominal/i),
+    total: head.findIndex((h) => /^total$/i.test(h)) >= 0 ? head.findIndex((h) => /^total$/i.test(h)) : guess(/grand|total|jumlah|amount|nominal/i),
+    customer: guess(/pelanggan|customer|nama/i),
+    status: guess(/^status$/i),
   };
   if (g.time === g.date) g.time = -1;
   const opts = (sel, none) => `${none ? '<option value="-1">Tidak ada</option>' : ''}${head.map((h, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${esc(h || 'Kolom ' + (i + 1))}</option>`).join('')}`;
@@ -248,26 +274,33 @@ function mapColumns(rows) {
       <label class="field"><span>Nomor struk</span><select id="c-no">${opts(g.no)}</select></label>
       <label class="field"><span>Tanggal dan jam</span><select id="c-date">${opts(g.date)}</select></label>
       <label class="field"><span>Jam, jika kolomnya terpisah</span><select id="c-time">${opts(g.time, true)}</select></label>
-      <label class="field"><span>Total</span><select id="c-total">${opts(g.total, true)}</select></label>
+      <label class="field"><span>Total</span><select id="c-total">${opts(g.total)}</select></label>
+      <label class="field"><span>Nama pelanggan</span><select id="c-cust">${opts(g.customer, true)}</select></label>
     </div>
     <div id="prev"></div>
     <button class="btn" type="button" id="imp">Impor struk</button>`;
   const read = () => {
-    const ix = { no: +$('#c-no').value, date: +$('#c-date').value, time: +$('#c-time').value, total: +$('#c-total').value };
+    const ix = { no: +$('#c-no').value, date: +$('#c-date').value, time: +$('#c-time').value, total: +$('#c-total').value, cust: +$('#c-cust').value };
     const out = [], bad = [];
+    let cancelled = 0, free = 0;
     rows.slice(1).forEach((r, i) => {
+      // Cancelled receipts never count as a sale; Rp0 receipts (free products) earn no
+      // stamp; a row without a number is the TOTAL line at the bottom of the report.
+      if (g.status >= 0 && /cancel|batal|void/i.test(r[g.status] || '')) { cancelled++; return; }
       const sold = parseWhen(r[ix.date], ix.time >= 0 ? r[ix.time] : '');
-      const no = (r[ix.no] || '').trim();
-      if (!no || !sold) { bad.push(i + 2); return; }
-      out.push({ receipt_no: no, sold_at: sold, total: ix.total >= 0 ? parseMoney(r[ix.total]) : null });
+      const no = (r[ix.no] || '').trim(), total = parseMoney(r[ix.total]);
+      if (!no) return;
+      if (total === 0) { free++; return; }
+      if (!sold || !total) { bad.push(i + 2); return; }
+      out.push({ receipt_no: no, sold_at: sold, total, customer: ix.cust >= 0 ? (r[ix.cust] || '').trim() : '' });
     });
-    return { out, bad };
+    return { out, bad, cancelled, free };
   };
   const show = () => {
-    const { out, bad } = read();
-    $('#prev').innerHTML = `<p>${out.length} struk siap diimpor.${bad.length ? ` <span class="tag tag-warn">${bad.length} baris dilewati</span> (baris ${bad.slice(0, 8).join(', ')}${bad.length > 8 ? ', …' : ''}), tanggal atau nomornya tidak terbaca.` : ''}</p>
-      ${out.length ? `<div class="table-wrap"><table><thead><tr><th>Struk</th><th>Waktu</th><th class="num">Total</th></tr></thead><tbody>
-      ${out.slice(0, 5).map((o) => `<tr><td>${esc(o.receipt_no)}</td><td class="tnum">${esc(when(o.sold_at))}</td><td class="num">${o.total == null ? '–' : rupiah(o.total)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+    const { out, bad, cancelled, free } = read();
+    $('#prev').innerHTML = `<p>${out.length} struk siap diimpor.${cancelled || free ? ` Dilewati: ${[cancelled ? cancelled + ' struk batal' : '', free ? free + ' struk Rp0' : ''].filter(Boolean).join(', ')}.` : ''}${bad.length ? ` <span class="tag tag-warn">${bad.length} baris dilewati</span> (baris ${bad.slice(0, 8).join(', ')}${bad.length > 8 ? ', …' : ''}), tanggal, nomor, atau totalnya tidak terbaca.` : ''}</p>
+      ${out.length ? `<div class="table-wrap"><table><thead><tr><th>Struk</th><th>Waktu</th><th>Pelanggan</th><th class="num">Total</th></tr></thead><tbody>
+      ${out.slice(0, 5).map((o) => `<tr><td>${esc(o.receipt_no)}</td><td class="tnum">${esc(when(o.sold_at))}</td><td>${esc(o.customer || '–')}</td><td class="num">${rupiah(o.total)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
     $('#imp').disabled = !out.length;
   };
   $$('select', m).forEach((s) => s.addEventListener('change', show));
@@ -291,10 +324,10 @@ async function loadMismatches() {
     box.innerHTML = `<h2>Hasil pengecekan, 90 hari</h2>
     ${!d.matched_days ? '<p class="muted">Belum ada struk yang diimpor.</p>'
       : d.mismatches.length ? `<p>${d.mismatches.length} stempel perlu dicek, dari ${d.matched_days} hari yang struknya sudah diimpor.</p>
-      <div class="table-wrap"><table><thead><tr><th>Waktu stempel</th><th>Struk</th><th class="num">Total stempel</th><th>Waktu di VireoPOS</th><th class="num">Total VireoPOS</th><th>Masalah</th></tr></thead><tbody>
-      ${d.mismatches.map((x) => `<tr><td class="tnum">${esc(when(x.created_at))}</td><td>${esc(x.receipt_no)}</td><td class="num">${rupiah(x.total)}</td>
-        <td class="tnum">${x.sold_at ? esc(when(x.sold_at)) : '–'}</td><td class="num">${x.pos_total == null ? '–' : rupiah(x.pos_total)}</td>
-        <td><span class="tag tag-bad">${esc(PROBLEM[x.problem] || x.problem)}</span></td></tr>`).join('')}</tbody></table></div>`
+      <div class="table-wrap"><table><thead><tr><th>Waktu stempel</th><th>Member</th><th class="num">Total</th><th class="num">Stempel</th><th>Struk VireoPOS</th><th>Pelanggan di VireoPOS</th><th>Masalah</th></tr></thead><tbody>
+      ${d.mismatches.map((x) => `<tr><td class="tnum">${esc(when(x.created_at))}</td><td>${esc(x.member || '–')}</td><td class="num">${rupiah(x.total)}</td><td class="num">${x.stamps}</td>
+        <td>${x.pos_no ? `${esc(x.pos_no)}<br><span class="muted tnum">${esc(when(x.sold_at))}</span>` : '–'}</td><td>${esc(x.pos_customer || '–')}</td>
+        <td><span class="tag ${x.problem === 'nama_beda' ? 'tag-warn' : 'tag-bad'}">${esc(PROBLEM[x.problem] || x.problem)}</span></td></tr>`).join('')}</tbody></table></div>`
       : `<p><span class="tag tag-ok">Cocok</span> Semua stempel cocok dengan struk VireoPOS dari ${d.matched_days} hari yang sudah diimpor.</p>`}`;
   } catch (e) { box.innerHTML = `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`; }
 }

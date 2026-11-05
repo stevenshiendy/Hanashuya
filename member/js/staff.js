@@ -6,6 +6,7 @@ let member = null;      // { ticket, first_name, ... } or { walkin: true }
 let qty = {};
 let stream = null, scanning = false;
 let settingsRupiah = 50000;
+let rewards = [];       // [{ slot, label }] from the rewards table
 
 const GENDERS = [['perempuan', 'Perempuan'], ['laki-laki', 'Laki-laki']];
 const AGES = [['<17', 'Di bawah 17'], ['17-24', '17–24'], ['25-34', '25–34'], ['35-44', '35–44'], ['45+', '45+']];
@@ -29,8 +30,12 @@ async function boot() {
     $('#reload').addEventListener('click', signOut);
     return;
   }
-  const { data } = await sb.from('menu_items').select('id, name, price').order('sort');
+  const [{ data }, { data: rw }] = await Promise.all([
+    sb.from('menu_items').select('id, name, price').order('sort'),
+    sb.from('rewards').select('slot, label').order('slot'),
+  ]);
   menu = data || [];
+  rewards = rw || [];
   render();
 }
 
@@ -38,68 +43,65 @@ function render() {
   app.innerHTML = `
   <div class="stack-lg">
     <div class="tabs" role="tablist" aria-label="Kasir">
-      <button role="tab" id="t-sale" aria-controls="p-sale" data-tab="penjualan">Penjualan</button>
-      <button role="tab" id="t-redeem" aria-controls="p-redeem" data-tab="tukar">Tukar hadiah</button>
+      <button role="tab" id="t-sale" aria-controls="p-sale" data-tab="penjualan">Kasir</button>
       <button role="tab" id="t-today" aria-controls="p-today" data-tab="hari-ini">Hari ini</button>
     </div>
     <section id="p-sale" role="tabpanel" aria-labelledby="t-sale" class="stack-lg"></section>
-    <section id="p-redeem" role="tabpanel" aria-labelledby="t-redeem" class="stack-lg" hidden></section>
     <section id="p-today" role="tabpanel" aria-labelledby="t-today" class="stack" hidden></section>
   </div>`;
   saleForm();
   tabs(app, (t) => {
-    clearInterval(redeemTimer);
     if (t === 'hari-ini') loadToday();
-    if (t === 'tukar') { loadRedeemed(); redeemTimer = setInterval(loadRedeemed, 15000); }
     if (t !== 'penjualan') stopCamera();
   });
 }
 
-/* ---------------- sale */
+/* ---------------- sale: 1 find the card, 2 enter the purchase, 3 done */
+// VireoPOS codes for each reward, from SOP Bab 9. Stamp 10 has no code: it goes through "tukar poin".
+const POS_CODE = { 3: 'Kode VireoPOS DISKONSTAMP1', 7: 'Kode VireoPOS DISKONSTAMP2', 10: 'Tukar poin di VireoPOS' };
+
 function saleForm() {
   member = null; qty = {};
   const p = $('#p-sale');
   p.innerHTML = `
-  <div class="panel stack" aria-labelledby="m-title">
-    <h2 id="m-title">Kartu member</h2>
+  <section class="panel stack" aria-labelledby="m-title">
+    <h2 id="m-title" class="step"><span class="step-n" aria-hidden="true">1</span>Kartu member</h2>
     <div id="m-pick" class="stack">
-      <div class="row">
-        <button class="btn" type="button" id="scan">Scan QR</button>
-        <button class="btn btn-quiet" type="button" id="photo-btn">Foto QR</button>
-        <input type="file" id="photo" accept="image/*" capture="environment" hidden>
-        <button class="btn btn-quiet" type="button" id="type">Ketik kode</button>
-      </div>
-      <button class="btn btn-text" type="button" id="walkin">Pembeli tanpa kartu member</button>
+      <button class="btn btn-block btn-big" type="button" id="scan">Scan QR member</button>
       <div class="scan-view" id="cam" hidden><video id="video" playsinline muted></video><span class="frame" aria-hidden="true"></span></div>
-      <button class="btn btn-quiet" type="button" id="cam-stop" hidden>Tutup kamera</button>
-      <form id="code-form" class="row" hidden novalidate>
-        <label class="field" style="flex:1 1 12rem"><span>Kode kartu</span>
-          <input type="text" id="card-code" autocomplete="off" autocapitalize="characters" placeholder="ABCD-2345" maxlength="9"></label>
-        <button class="btn" type="submit">Cari</button>
+      <button class="btn btn-quiet btn-block" type="button" id="cam-stop" hidden>Tutup kamera</button>
+      <form id="code-form" class="code-row" novalidate>
+        <label class="field"><span>Atau ketik kode kartu</span>
+          <input type="text" id="card-code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD-2345" maxlength="9"></label>
+        <button class="btn btn-quiet" type="submit">Cari</button>
       </form>
       <div class="notice" id="m-msg" hidden></div>
+      <div class="row-between alt-row">
+        <button class="btn btn-text" type="button" id="photo-btn">Scan dari foto</button>
+        <input type="file" id="photo" accept="image/*" capture="environment" hidden>
+        <button class="btn btn-text" type="button" id="walkin">Pembeli tanpa kartu</button>
+      </div>
     </div>
-    <div id="m-chip" hidden></div>
-  </div>
+    <div id="m-chip" class="stack" hidden></div>
+  </section>
 
-  <form class="panel stack-lg" id="sale" novalidate aria-labelledby="s-title">
-    <h2 id="s-title">Belanja</h2>
-    <div>${menu.map((m) => `
-      <div class="menu-item">
-        <span><span>${esc(m.name)}</span><br><span class="muted small num">${rupiah(m.price)}</span></span>
-        <span class="stepper" data-id="${m.id}">
-          <button type="button" data-d="-1" aria-label="Kurangi ${esc(m.name)}">−</button>
-          <output aria-live="polite" id="q-${m.id}">0</output>
-          <button type="button" data-d="1" aria-label="Tambah ${esc(m.name)}">+</button>
-        </span>
-      </div>`).join('') || '<p class="muted">Belum ada produk. Pemilik bisa menambahkannya di Pengaturan.</p>'}</div>
-    <div class="form-grid">
-      <label class="field"><span>Nomor struk VireoPOS</span>
-        <input type="text" id="receipt" autocomplete="off" required></label>
-      <label class="field"><span>Total di struk (Rp)</span>
-        <input type="number" id="total" inputmode="numeric" min="1" step="1" required></label>
+  <form class="panel stack-lg" id="sale" novalidate aria-labelledby="s-title" hidden>
+    <h2 id="s-title" class="step"><span class="step-n" aria-hidden="true">2</span>Belanja</h2>
+    <div class="stack-sm">
+      <p class="muted small">Ketuk produknya kalau mau, total terisi otomatis. Boleh langsung isi total.</p>
+      <div>${menu.map((m) => `
+        <div class="menu-item">
+          <span><span>${esc(m.name)}</span><br><span class="muted small num">${rupiah(m.price)}</span></span>
+          <span class="stepper" data-id="${m.id}">
+            <button type="button" data-d="-1" aria-label="Kurangi ${esc(m.name)}">−</button>
+            <output aria-live="polite" id="q-${m.id}">0</output>
+            <button type="button" data-d="1" aria-label="Tambah ${esc(m.name)}">+</button>
+          </span>
+        </div>`).join('') || '<p class="muted">Belum ada produk. Pemilik bisa menambahkannya di Pengaturan.</p>'}</div>
     </div>
-    <p class="muted small" id="stamp-preview"></p>
+    <label class="field"><span>Total di struk VireoPOS (Rp)</span>
+      <input type="number" id="total" inputmode="numeric" min="1" step="1" required></label>
+    <p class="stamp-preview" id="stamp-preview" aria-live="polite"></p>
     <div id="demo" class="stack" hidden>
       <fieldset class="field"><legend>Jenis kelamin pembeli <span class="hint">perkiraan, boleh dilewati</span></legend>
         <div class="choices">${GENDERS.map(([v, l]) => `<label class="choice"><input type="radio" name="gender" value="${v}"><span>${l}</span></label>`).join('')}</div></fieldset>
@@ -107,14 +109,13 @@ function saleForm() {
         <div class="choices" id="ages"></div></fieldset>
     </div>
     <div class="notice" id="s-msg" hidden></div>
-    <button class="btn btn-block" type="submit" id="save" disabled>Pilih kartu member dulu</button>
+    <button class="btn btn-block btn-big" type="submit" id="save">Simpan penjualan</button>
   </form>`;
 
   $('#scan').addEventListener('click', startCamera);
   $('#cam-stop').addEventListener('click', stopCamera);
   $('#photo-btn').addEventListener('click', () => $('#photo').click());
   $('#photo').addEventListener('change', fromPhoto);
-  $('#type').addEventListener('click', () => { $('#code-form').hidden = false; $('#card-code').focus(); });
   $('#code-form').addEventListener('submit', (e) => { e.preventDefault(); lookup($('#card-code').value); });
   $('#walkin').addEventListener('click', () => choose({ walkin: true }));
   $$('.stepper').forEach((s) => s.addEventListener('click', (e) => {
@@ -129,6 +130,21 @@ function saleForm() {
   $('#sale').addEventListener('submit', saveSale);
 }
 
+// The member's card as staff see it: ten slots, rewards marked, and what is ready to use.
+function stampRow(position, size) {
+  let html = '';
+  for (let i = 1; i <= size; i++) {
+    const r = rewards.find((x) => x.slot === i);
+    html += `<span class="sdot${i <= position ? ' on' : ''}${r ? ' gift' : ''}">${r ? `<small>${esc(shortLabel(r.label))}</small>` : ''}</span>`;
+  }
+  return `<div class="srow" style="--n:${size}" role="img" aria-label="${position} dari ${size} stempel">${html}</div>`;
+}
+function shortLabel(label) { return label.replace(/^Diskon\s*/i, '').replace(/^Gratis.*/i, 'Gratis'); }
+function nextGoal(position) {
+  const r = rewards.find((x) => x.slot > position);
+  return r ? `${r.slot - position} stempel lagi menuju ${r.label}` : '';
+}
+
 function choose(m) {
   member = m;
   if (m.rupiah_per_stamp) settingsRupiah = m.rupiah_per_stamp;
@@ -137,39 +153,53 @@ function choose(m) {
   const chip = $('#m-chip');
   chip.hidden = false;
   if (m.walkin) {
-    chip.innerHTML = `<div class="member-chip"><span><strong>Tanpa kartu member</strong><br><span class="muted small">Penjualan dicatat tanpa stempel.</span></span>
-      <button class="btn btn-quiet" type="button" id="change">Ganti</button></div>`;
+    chip.innerHTML = `<div class="mem"><div class="mem-head"><span><strong class="mem-name">Tanpa kartu member</strong>
+      <span class="muted small">Penjualan dicatat tanpa stempel.</span></span>
+      <button class="btn btn-quiet" type="button" id="change">Ganti</button></div></div>`;
   } else {
-    chip.innerHTML = `<div class="member-chip"><span><strong>${esc(m.first_name)}</strong><br>
-      <span class="muted small num">${m.position} dari ${m.card_size} stempel, kode ${esc(m.card_code)}</span></span>
-      <button class="btn btn-quiet" type="button" id="change">Ganti</button></div>
-      ${m.rewards.length ? `<p class="notice notice-warn">Punya hadiah: ${esc(m.rewards.map((r) => r.label).join(', '))}. Member bisa menukarnya sendiri dari HP lewat tab Hadiah di kartunya.</p>` : ''}
-      ${m.via === 'kode' ? '<p class="muted small">Kode diketik manual. Pemilik akan melihat catatan ini.</p>' : ''}`;
+    const ready = m.rewards || [];
+    chip.innerHTML = `<div class="mem">
+      <div class="mem-head"><span><strong class="mem-name">${esc(m.first_name)}</strong>
+        <span class="muted small num">Kartu ${esc(m.card_code)}</span></span>
+        <button class="btn btn-quiet" type="button" id="change">Ganti</button></div>
+      ${stampRow(m.position, m.card_size)}
+      <p class="mem-count"><b class="num">${m.position}</b> dari ${m.card_size} stempel<span class="muted">${nextGoal(m.position) ? ' · ' + esc(nextGoal(m.position)) : ''}</span></p>
+    </div>
+    ${ready.length ? `<div class="ready">
+      <h3>Hadiah siap dipakai</h3>
+      <ul class="list">${ready.map((r) => `<li><strong>${esc(r.label)}</strong><span class="muted small">${esc(POS_CODE[r.slot] || 'Tukar di VireoPOS')}</span></li>`).join('')}</ul>
+      <p class="muted small">Kalau member mau memakainya hari ini, minta ia menekan Tukar di tab Hadiah pada kartunya, lalu masukkan kodenya di VireoPOS.</p>
+    </div>` : '<p class="muted small">Belum ada hadiah yang siap dipakai.</p>'}
+    ${m.via === 'kode' ? '<p class="muted small">Kode diketik manual. Pemilik akan melihat catatan ini.</p>' : ''}`;
   }
-  $('#change').addEventListener('click', () => { member = null; $('#m-chip').hidden = true; $('#m-pick').hidden = false; preview(); });
+  $('#change').addEventListener('click', () => {
+    member = null; $('#m-chip').hidden = true; $('#m-pick').hidden = false; $('#sale').hidden = true; preview();
+  });
   const needDemo = m.walkin || !m.has_demography;
   $('#demo').hidden = !needDemo;
   $('#ages').innerHTML = AGES.filter(([v]) => m.walkin || v !== '<17')
     .map(([v, l]) => `<label class="choice"><input type="radio" name="age" value="${v}"><span>${l}</span></label>`).join('');
+  $('#sale').hidden = false;
   preview();
-  $('#receipt').focus();
+  $('#total').focus({ preventScroll: true });
+  $('#m-title').scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 function preview() {
-  const btn = $('#save');
+  const btn = $('#save'), out = $('#stamp-preview');
+  if (!member) return;
   const total = Number($('#total').value || 0);
-  if (!member) { btn.disabled = true; btn.textContent = 'Pilih kartu member dulu'; $('#stamp-preview').textContent = ''; return; }
-  btn.disabled = false;
-  if (member.walkin) { btn.textContent = 'Simpan penjualan'; $('#stamp-preview').textContent = ''; return; }
+  btn.disabled = !(total > 0);
+  if (member.walkin) { btn.textContent = 'Simpan penjualan'; out.textContent = ''; return; }
   const n = Math.floor(total / settingsRupiah);
   btn.textContent = n > 0 ? `Simpan dan beri ${n} stempel` : 'Simpan penjualan';
-  $('#stamp-preview').textContent = total ? `${n} stempel untuk ${member.first_name}. Setiap ${rupiah(settingsRupiah)} dapat 1 stempel.` : '';
+  out.textContent = total ? (n > 0 ? `${member.first_name} dapat ${n} stempel.` : `Belum dapat stempel. 1 stempel setiap ${rupiah(settingsRupiah)}.`) : '';
 }
 
 async function lookup(raw) {
   const msg = $('#m-msg');
   notice(msg, '');
-  if (!raw || !raw.trim()) { notice(msg, 'Tulis kode kartu dari layar member.'); return; }
+  if (!raw || !raw.trim()) { notice(msg, 'Tulis kode kartu dari layar member.'); $('#card-code').focus(); return; }
   try {
     const m = await rpc('staff_lookup', { p_scan: raw });
     choose(m);
@@ -179,24 +209,37 @@ async function lookup(raw) {
 async function saveSale(e) {
   e.preventDefault();
   const msg = $('#s-msg'), btn = $('#save');
-  const receipt = $('#receipt').value.trim(), total = Number($('#total').value);
-  if (!receipt) { notice(msg, 'Isi nomor struk VireoPOS.'); $('#receipt').focus(); return; }
+  const total = Number($('#total').value);
   if (!total || total <= 0) { notice(msg, 'Isi total belanja sesuai struk.'); $('#total').focus(); return; }
   const items = menu.filter((m) => qty[m.id] > 0).map((m) => ({ name: m.name, qty: qty[m.id] }));
   const g = $('input[name="gender"]:checked'), a = $('input[name="age"]:checked');
   busy(btn, true, 'Menyimpan…');
   try {
     const r = await rpc('staff_record_sale', {
-      p_ticket: member.walkin ? null : member.ticket, p_receipt_no: receipt, p_total: total, p_items: items,
+      p_ticket: member.walkin ? null : member.ticket, p_receipt_no: null, p_total: total, p_items: items,
       p_gender: g ? g.value : null, p_age_range: a ? a.value : null,
     });
-    const done = r.member
-      ? `${r.first_name} dapat ${r.stamps} stempel. Sekarang ${r.position} dari ${r.card_size}.${r.rewards.length ? ' Hadiah tersedia: ' + r.rewards.join(', ') + '.' : ''}`
-      : `Penjualan ${receipt} tersimpan.`;
-    saleForm();
-    notice($('#m-msg'), done, 'ok');
-    toast('Tersimpan');
+    done(r, total);
   } catch (err) { notice(msg, err.message); busy(btn, false); }
+}
+
+function done(r, total) {
+  stopCamera();
+  const p = $('#p-sale');
+  p.innerHTML = `
+  <section class="panel stack done" aria-labelledby="d-title" tabindex="-1" id="done">
+    <h2 id="d-title" class="step"><span class="step-n is-ok" aria-hidden="true">✓</span>Tersimpan</h2>
+    ${r.member ? `
+      <p class="done-big">${esc(r.first_name)} dapat <b class="num">${r.stamps}</b> stempel</p>
+      ${stampRow(r.position, r.card_size)}
+      <p class="mem-count"><b class="num">${r.position}</b> dari ${r.card_size} stempel<span class="muted">${nextGoal(r.position) ? ' · ' + esc(nextGoal(r.position)) : ''}</span></p>
+      ${r.rewards.length ? `<p class="notice notice-ok">Hadiah siap dipakai: ${esc(r.rewards.join(', '))}.</p>` : ''}`
+      : `<p class="done-big">Penjualan tanpa kartu member</p>`}
+    <p class="muted small num">Total ${rupiah(total)}</p>
+    <button class="btn btn-block btn-big" type="button" id="next">Pembeli berikutnya</button>
+  </section>`;
+  $('#next').addEventListener('click', () => { saleForm(); $('#scan').focus(); });
+  $('#done').focus();
 }
 
 /* ---------------- QR reading */
@@ -270,28 +313,6 @@ async function fromPhoto(e) {
   } catch (err) { notice(msg, err.message); }
 }
 
-/* ---------------- rewards redeemed from members' phones */
-let redeemTimer;
-async function loadRedeemed() {
-  const p = $('#p-redeem');
-  if (!p.children.length) p.innerHTML = '<div class="panel stack" aria-busy="true"><div class="skeleton"></div><div class="skeleton"></div></div>';
-  let d;
-  try { d = await rpc('staff_today'); }
-  catch (e) { p.innerHTML = `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`; return; }
-  const fresh = (iso) => Date.now() - Date.parse(iso) < 10 * 60000;
-  p.innerHTML = `
-  <div class="panel stack">
-    <h2>Hadiah ditukar hari ini</h2>
-    <p class="muted small">Member menekan Tukar di HP-nya, lalu menunjukkan layar voucher merah dengan jam yang berjalan. Cocokkan nama dan jamnya di sini, lalu berikan hadiahnya.</p>
-    ${d.redemptions.length ? `<ul class="list">${d.redemptions.map((x) => `
-      <li><span class="grow"><strong>${esc(x.reward_label)}</strong> untuk ${esc(x.member || 'Member')}<br>
-        <span class="muted small num">${esc(time(x.created_at))}${x.card_code ? ', kartu ' + esc(x.card_code) : ''}</span></span>
-        ${x.reversed ? '<span class="tag tag-bad">Dibatalkan</span>' : x.undo_pending ? '<span class="tag tag-warn">Menunggu pemilik</span>' : fresh(x.created_at) ? '<span class="tag tag-ok">Baru</span>' : ''}</li>`).join('')}</ul>`
-      : '<p class="muted">Belum ada hadiah yang ditukar hari ini.</p>'}
-    <p class="muted small">Salah tukar? Minta pembatalan di tab Hari ini.</p>
-  </div>`;
-}
-
 /* ---------------- today */
 async function loadToday() {
   const p = $('#p-today');
@@ -306,7 +327,7 @@ async function loadToday() {
   <div class="panel stack">
     <h2>Penjualan saya hari ini</h2>
     ${d.sales.length ? `<ul class="list">${d.sales.map((x) => `
-      <li><span class="grow"><strong class="num">${esc(time(x.created_at))}</strong> struk ${esc(x.receipt_no)}<br>
+      <li><span class="grow"><strong class="num">${esc(time(x.created_at))}</strong>${x.receipt_no ? ' struk ' + esc(x.receipt_no) : ''}<br>
         <span class="muted small">${esc(x.member || 'Tanpa member')}, ${rupiah(x.total)}, ${x.stamps} stempel</span></span>
         ${status(x)}${undoBtn(x, 'sale')}</li>`).join('')}</ul>` : '<p class="muted">Belum ada penjualan hari ini.</p>'}
   </div>
