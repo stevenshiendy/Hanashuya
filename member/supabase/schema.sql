@@ -1,0 +1,1215 @@
+-- Hanashuya Member Card: tables, rules and functions for Supabase.
+-- Run the whole file once in Supabase > SQL Editor. Re-running is safe:
+-- tables are only created when missing and functions are replaced.
+--
+-- Every write goes through a function below. The tables allow members to read
+-- only their own rows, and nobody can insert, update or delete them directly,
+-- so the stamping rules cannot be skipped from the browser.
+
+create extension if not exists pgcrypto with schema extensions;
+
+-- ---------------------------------------------------------------- settings
+create table if not exists public.settings (
+  id int primary key default 1 check (id = 1),
+  open_time time not null default '09:00',
+  close_time time not null default '22:00',
+  rupiah_per_stamp int not null default 50000 check (rupiah_per_stamp > 0),
+  card_size int not null default 10 check (card_size between 1 and 50),
+  max_stamps_per_day int not null default 6 check (max_stamps_per_day > 0),
+  late_minutes int not null default 15 check (late_minutes > 0),
+  tz text not null default 'Asia/Jakarta',
+  token_secret text not null default encode(extensions.gen_random_bytes(32), 'hex')
+);
+insert into public.settings (id) values (1) on conflict do nothing;
+-- Logins are <whatsapp number>@auth_domain. Keep it equal to AUTH_EMAIL_DOMAIN in js/config.js.
+alter table public.settings add column if not exists auth_domain text not null default 'member.hanashuya.id';
+-- Current versions of syarat-ketentuan.html and kebijakan-privasi.html. Change these
+-- when you publish a new version, so new acceptances are recorded against it.
+alter table public.settings add column if not exists terms_version text not null default '2026-11-05';
+alter table public.settings add column if not exists privacy_version text not null default '2026-11-05';
+
+-- Rewards printed on the card: slot 3, slot 7 and slot 10.
+create table if not exists public.rewards (
+  slot int primary key check (slot > 0),
+  label text not null
+);
+insert into public.rewards (slot, label) values
+  (3, 'Diskon 10%'), (7, 'Diskon 20%'), (10, 'Gratis 1 produk')
+on conflict do nothing;
+
+create table if not exists public.menu_items (
+  id serial primary key,
+  name text not null unique,
+  price int not null check (price >= 0),
+  sort int not null default 0,
+  active boolean not null default true
+);
+insert into public.menu_items (name, price, sort) values
+  ('Signature 1 pc', 20000, 1),
+  ('Signature box isi 6', 120000, 2),
+  ('Mini choux box isi 8', 68000, 3),
+  ('Mini choux box isi 15', 120000, 4)
+on conflict do nothing;
+
+-- ---------------------------------------------------------------- people
+create table if not exists public.profiles (
+  id uuid primary key references auth.users (id) on delete cascade,
+  role text not null default 'member' check (role in ('member', 'staff', 'owner')),
+  email text,
+  full_name text,
+  whatsapp text,
+  gender text check (gender in ('perempuan', 'laki-laki', 'tidak_disebut')),
+  age_range text check (age_range in ('17-24', '25-34', '35-44', '45+', 'tidak_disebut')),
+  adult_confirmed boolean not null default false,
+  card_code text not null unique,
+  created_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+-- Empty until WhatsApp verification is switched on later.
+alter table public.profiles add column if not exists whatsapp_verified_at timestamptz;
+create unique index if not exists profiles_whatsapp_once on public.profiles (whatsapp) where deleted_at is null;
+alter table public.profiles add column if not exists username text;
+alter table public.profiles add column if not exists birth_date date;
+create unique index if not exists profiles_username_once on public.profiles (username) where deleted_at is null;
+-- WhatsApp promos only go to members who ticked the separate promo box.
+alter table public.profiles add column if not exists marketing_opt_in boolean not null default false;
+
+-- Which version of the terms and privacy policy each member accepted, and every
+-- promo opt-in or opt-out, with time and where it happened. Rows are only ever
+-- added. user_id has no foreign key on purpose, so the record outlives a deleted
+-- account (it then holds only an id, no name or number).
+create table if not exists public.consent_log (
+  id bigint generated always as identity primary key,
+  user_id uuid not null,
+  document text not null check (document in ('syarat', 'privasi', 'promo_whatsapp')),
+  version text not null,
+  accepted boolean not null,
+  method text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.consent_log enable row level security;
+create index if not exists consent_log_user on public.consent_log (user_id, created_at);
+create or replace function public._consent_log_append_only() returns trigger
+language plpgsql as $$ begin raise exception 'Catatan persetujuan tidak bisa diubah atau dihapus.'; end $$;
+drop trigger if exists consent_log_append_only on public.consent_log;
+create trigger consent_log_append_only before update or delete on public.consent_log
+  for each row execute function public._consent_log_append_only();
+
+-- ---------------------------------------------------------------- activity
+create table if not exists public.sales (
+  id bigint generated always as identity primary key,
+  receipt_no text not null,
+  receipt_key text generated always as (upper(regexp_replace(receipt_no, '[^A-Za-z0-9]', '', 'g'))) stored unique,
+  total int not null check (total > 0),
+  member_id uuid references public.profiles (id) on delete set null,
+  staff_id uuid references public.profiles (id) on delete set null,
+  stamps int not null default 0 check (stamps >= 0),
+  items jsonb not null default '[]',
+  gender text check (gender in ('perempuan', 'laki-laki', 'tidak_disebut')),
+  age_range text check (age_range in ('<17', '17-24', '25-34', '35-44', '45+', 'tidak_disebut')),
+  via text check (via in ('qr', 'kode')),
+  flags text[] not null default '{}',
+  created_at timestamptz not null default now(),
+  reversed_at timestamptz,
+  reversed_by uuid references public.profiles (id) on delete set null
+);
+create index if not exists sales_member_idx on public.sales (member_id, created_at);
+create index if not exists sales_created_idx on public.sales (created_at);
+
+create table if not exists public.redemptions (
+  id bigint generated always as identity primary key,
+  member_id uuid references public.profiles (id) on delete set null,
+  staff_id uuid references public.profiles (id) on delete set null,
+  cycle int not null,
+  slot int not null,
+  reward_label text not null,
+  created_at timestamptz not null default now(),
+  reversed_at timestamptz,
+  reversed_by uuid references public.profiles (id) on delete set null
+);
+create unique index if not exists redemptions_once
+  on public.redemptions (member_id, cycle, slot) where reversed_at is null;
+
+create table if not exists public.redeem_codes (
+  id bigint generated always as identity primary key,
+  code text not null,
+  member_id uuid not null references public.profiles (id) on delete cascade,
+  cycle int not null,
+  slot int not null,
+  expires_at timestamptz not null,
+  used_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.scan_tickets (
+  id uuid primary key default gen_random_uuid(),
+  staff_id uuid not null references public.profiles (id) on delete cascade,
+  member_id uuid not null references public.profiles (id) on delete cascade,
+  via text not null check (via in ('qr', 'kode')),
+  expires_at timestamptz not null,
+  used_at timestamptz
+);
+
+create table if not exists public.undo_requests (
+  id bigint generated always as identity primary key,
+  sale_id bigint references public.sales (id) on delete cascade,
+  redemption_id bigint references public.redemptions (id) on delete cascade,
+  requested_by uuid references public.profiles (id) on delete set null,
+  reason text not null,
+  status text not null default 'menunggu' check (status in ('menunggu', 'disetujui', 'ditolak')),
+  decided_by uuid references public.profiles (id) on delete set null,
+  decided_at timestamptz,
+  created_at timestamptz not null default now(),
+  check ((sale_id is null) <> (redemption_id is null))
+);
+
+-- Receipts imported from the VireoPOS sales export, for the nightly check.
+create table if not exists public.pos_receipts (
+  receipt_key text primary key,
+  receipt_no text not null,
+  sold_at timestamptz not null,
+  total int,
+  imported_at timestamptz not null default now()
+);
+
+create table if not exists public.campaigns (
+  id bigint generated always as identity primary key,
+  title text not null,
+  body text not null default '',
+  starts_on date not null default current_date,
+  ends_on date not null default (current_date + 30),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.audit_log (
+  id bigint generated always as identity primary key,
+  actor uuid,
+  action text not null,
+  detail jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------- row security
+alter table public.settings enable row level security;
+alter table public.rewards enable row level security;
+alter table public.menu_items enable row level security;
+alter table public.profiles enable row level security;
+alter table public.sales enable row level security;
+alter table public.redemptions enable row level security;
+alter table public.redeem_codes enable row level security;
+alter table public.scan_tickets enable row level security;
+alter table public.undo_requests enable row level security;
+alter table public.pos_receipts enable row level security;
+alter table public.campaigns enable row level security;
+alter table public.audit_log enable row level security;
+
+drop policy if exists "read rewards" on public.rewards;
+create policy "read rewards" on public.rewards for select to authenticated using (true);
+drop policy if exists "read menu" on public.menu_items;
+create policy "read menu" on public.menu_items for select to authenticated using (active);
+drop policy if exists "read own profile" on public.profiles;
+create policy "read own profile" on public.profiles for select to authenticated using (id = auth.uid());
+drop policy if exists "read own sales" on public.sales;
+create policy "read own sales" on public.sales for select to authenticated
+  using (member_id = auth.uid() and reversed_at is null);
+drop policy if exists "read own redemptions" on public.redemptions;
+create policy "read own redemptions" on public.redemptions for select to authenticated
+  using (member_id = auth.uid() and reversed_at is null);
+drop policy if exists "read live campaigns" on public.campaigns;
+create policy "read live campaigns" on public.campaigns for select to authenticated
+  using (active and current_date between starts_on and ends_on);
+
+-- ---------------------------------------------------------------- helpers
+create or replace function public._cfg() returns public.settings
+language sql stable security definer set search_path = public
+as $$ select * from settings where id = 1 $$;
+
+create or replace function public._local(ts timestamptz) returns timestamp
+language sql stable security definer set search_path = public
+as $$ select ts at time zone (select tz from settings where id = 1) $$;
+
+create or replace function public._require(roles text[], msg text) returns uuid
+language plpgsql stable security definer set search_path = public
+as $$
+declare r text;
+begin
+  select role into r from profiles where id = auth.uid() and deleted_at is null;
+  if r is null or not (r = any (roles)) then
+    raise exception '%', msg using errcode = '42501';
+  end if;
+  return auth.uid();
+end $$;
+
+create or replace function public._log(action text, detail jsonb) returns void
+language sql security definer set search_path = public
+as $$ insert into audit_log (actor, action, detail) values (auth.uid(), action, detail) $$;
+
+create or replace function public._wa(raw text) returns text
+language sql immutable
+as $$
+  select case
+    when d is null or d = '' then null
+    when d like '62%' then d
+    when d like '0%' then '62' || substr(d, 2)
+    when d like '8%' then '62' || d
+    else d end
+  from (select regexp_replace(coalesce(raw, ''), '\D', '', 'g') as d) x
+$$;
+
+create or replace function public._first_name(n text) returns text
+language sql immutable
+as $$ select coalesce(nullif(split_part(trim(coalesce(n, '')), ' ', 1), ''), 'Member') $$;
+
+create or replace function public._new_card_code() returns text
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare
+  a constant text := '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  b bytea; c text; i int;
+begin
+  loop
+    b := extensions.gen_random_bytes(8);
+    c := '';
+    for i in 0..7 loop
+      c := c || substr(a, (get_byte(b, i) % 32) + 1, 1);
+    end loop;
+    c := substr(c, 1, 4) || '-' || substr(c, 5, 4);
+    exit when not exists (select 1 from profiles where card_code = c);
+  end loop;
+  return c;
+end $$;
+
+create or replace function public._token_sig(code text, win bigint) returns text
+language sql stable security definer set search_path = public, extensions
+as $$
+  select left(encode(extensions.hmac(code || '.' || win::text, (select token_secret from settings where id = 1), 'sha256'), 'hex'), 12)
+$$;
+
+create or replace function public._total(p uuid) returns int
+language sql stable security definer set search_path = public
+as $$ select coalesce(sum(stamps), 0)::int from sales where member_id = p and reversed_at is null $$;
+
+-- Every reward the member has passed, on this card and earlier ones.
+create or replace function public._rewards(p uuid)
+returns table (cycle int, slot int, label text, status text)
+language sql stable security definer set search_path = public
+as $$
+  with t as (select public._total(p) as total, (select card_size from settings where id = 1) as size),
+  cyc as (select generate_series(0, t.total / t.size) as c from t)
+  select cyc.c, r.slot, r.label,
+    case
+      when exists (select 1 from redemptions d where d.member_id = p and d.cycle = cyc.c
+                   and d.slot = r.slot and d.reversed_at is null) then 'ditukar'
+      when cyc.c * t.size + r.slot <= t.total then 'tersedia'
+      else 'terkunci'
+    end
+  from cyc cross join t cross join rewards r
+  where r.slot <= t.size
+  order by cyc.c, r.slot
+$$;
+
+-- True when the card belongs to a staff member or shares their WhatsApp or email.
+create or replace function public._staff_conflict(p uuid) returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (select 1 from profiles where id = p and role in ('staff', 'owner'))
+      or exists (
+        select 1 from profiles m join profiles s
+          on s.role in ('staff', 'owner') and s.id <> m.id and s.deleted_at is null
+         and ((m.whatsapp is not null and m.whatsapp = s.whatsapp)
+           or (m.email is not null and lower(m.email) = lower(s.email)))
+        where m.id = p)
+$$;
+
+-- ---------------------------------------------------------------- sign-up and login
+-- Everyone signs in with a username or WhatsApp number plus a password. Behind the
+-- scenes each account has a random login address, u-xxxx@auth_domain, which no one
+-- sees and no email is sent to. login_handle() turns a username or number into it.
+
+-- Age range for the dashboard, worked out from the birth date.
+create or replace function public._age_range(b date) returns text
+language sql stable
+as $$
+  select case
+    when b is null then null
+    when age(current_date, b) < interval '25 years' then '17-24'
+    when age(current_date, b) < interval '35 years' then '25-34'
+    when age(current_date, b) < interval '45 years' then '35-44'
+    else '45+' end
+$$;
+
+create or replace function public._clean_username(u text) returns text
+language sql immutable
+as $$ select nullif(lower(trim(coalesce(u, ''))), '') $$;
+
+-- Saves acceptance of the current terms and privacy versions, and the promo choice.
+create or replace function public._record_consent(p_user uuid, p_method text, p_marketing boolean) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare st settings := (select s from settings s where id = 1);
+begin
+  insert into consent_log (user_id, document, version, accepted, method) values
+    (p_user, 'syarat', st.terms_version, true, p_method),
+    (p_user, 'privasi', st.privacy_version, true, p_method);
+  if p_marketing is not null then
+    insert into consent_log (user_id, document, version, accepted, method)
+    values (p_user, 'promo_whatsapp', st.privacy_version, p_marketing, p_method);
+  end if;
+end $$;
+
+create or replace function public._handle_new_user() returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare
+  meta jsonb := coalesce(new.raw_user_meta_data, '{}');
+  wa text := coalesce(public._wa(meta->>'whatsapp'), public._wa(new.phone));
+  un text := public._clean_username(meta->>'username');
+  bd date;
+  nm text := nullif(trim(coalesce(meta->>'full_name', '')), '');
+begin
+  if wa is null and split_part(new.email, '@', 1) ~ '^[0-9]+$' then wa := public._wa(split_part(new.email, '@', 1)); end if;
+  if wa is null or wa !~ '^628[0-9]{8,12}$' then raise exception 'Nomor WhatsApp tidak valid.'; end if;
+  if exists (select 1 from profiles where whatsapp = wa and deleted_at is null) then raise exception 'Nomor WhatsApp sudah terdaftar.'; end if;
+  if un is not null then
+    if un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username tidak valid.'; end if;
+    if exists (select 1 from profiles where username = un and deleted_at is null) then raise exception 'Username sudah dipakai.'; end if;
+  end if;
+  begin bd := nullif(meta->>'birth_date', '')::date; exception when others then raise exception 'Tanggal lahir tidak valid.'; end;
+  if bd is not null and age(current_date, bd) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
+  insert into profiles (id, email, whatsapp, username, full_name, birth_date, age_range, gender, adult_confirmed, marketing_opt_in, card_code)
+  values (new.id, lower(new.email), wa, un, nm, bd, public._age_range(bd),
+          nullif(meta->>'gender', ''), coalesce((meta->>'consent')::boolean, false) and bd is not null,
+          coalesce((meta->>'marketing')::boolean, false), public._new_card_code())
+  on conflict (id) do nothing;
+  if coalesce((meta->>'consent')::boolean, false) then
+    perform public._record_consent(new.id, 'daftar', coalesce((meta->>'marketing')::boolean, false));
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created after insert on auth.users
+  for each row execute function public._handle_new_user();
+
+create or replace function public._find_login(p_login text) returns profiles
+language sql stable security definer set search_path = public
+as $$
+  select * from profiles
+  where deleted_at is null
+    and (username = public._clean_username(p_login)
+      or (public._wa(p_login) ~ '^628[0-9]{8,12}$' and whatsapp = public._wa(p_login)))
+  limit 1
+$$;
+
+-- Turns a username or WhatsApp number into the hidden login address, for the login form.
+create or replace function public.login_handle(p_login text) returns text
+language sql stable security definer set search_path = public
+as $$ select (public._find_login(p_login)).email $$;
+
+-- Tells the sign-up form which fields are already taken, before the account is made.
+create or replace function public.signup_check(p_username text, p_phone text) returns json
+language sql stable security definer set search_path = public
+as $$
+  select json_build_object(
+    'username_taken', exists (select 1 from profiles where username = public._clean_username(p_username) and deleted_at is null),
+    'phone_taken', exists (select 1 from profiles where whatsapp = public._wa(p_phone) and deleted_at is null))
+$$;
+
+-- Creates a login with a hidden address and the given password. Used for staff
+-- accounts and the first owner; members sign up themselves on the card page.
+create or replace function public._create_login(p_wa text, p_password text, p_username text, p_name text) returns uuid
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare
+  uid uuid := gen_random_uuid();
+  em text := 'u-' || substr(replace(uid::text, '-', ''), 1, 16) || '@' || (select auth_domain from settings where id = 1);
+begin
+  insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+    confirmation_token, recovery_token, email_change_token_new, email_change)
+  values ('00000000-0000-0000-0000-000000000000', uid, 'authenticated', 'authenticated', em,
+    extensions.crypt(p_password, extensions.gen_salt('bf')), now(),
+    '{"provider":"email","providers":["email"]}',
+    jsonb_build_object('whatsapp', p_wa, 'username', p_username, 'full_name', p_name), now(), now(), '', '', '', '');
+  insert into auth.identities (id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+  values (gen_random_uuid(), uid, uid::text,
+    jsonb_build_object('sub', uid::text, 'email', em, 'email_verified', true), 'email', now(), now(), now());
+  return uid;
+end $$;
+
+create or replace function public._set_password(p_user uuid, p_password text) returns void
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+begin
+  if length(coalesce(p_password, '')) < 8 then raise exception 'Password minimal 8 karakter.'; end if;
+  update auth.users set encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')), updated_at = now()
+  where id = p_user;
+end $$;
+
+-- Run once in the SQL Editor to create the first owner account:
+--   select public._setup_owner('Glenn', 'glenn', '0812 3456 7890', 'password-anda');
+create or replace function public._setup_owner(p_name text, p_username text, p_phone text, p_password text) returns text
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare wa text := public._wa(p_phone); un text := public._clean_username(p_username); uid uuid;
+begin
+  if exists (select 1 from profiles where role = 'owner' and deleted_at is null) then
+    raise exception 'Akun pemilik sudah ada. Tambah staf dari dasbor pemilik.';
+  end if;
+  if length(coalesce(p_password, '')) < 8 then raise exception 'Password minimal 8 karakter.'; end if;
+  uid := public._create_login(wa, p_password, un, trim(p_name));
+  update profiles set role = 'owner', adult_confirmed = true where id = uid;
+  return 'Akun pemilik dibuat. Masuk di /member/pemilik.html dengan username ' || un || ' atau nomor ' || wa || '.';
+end $$;
+
+-- ---------------------------------------------------------------- password reset by WhatsApp
+-- "Lupa password" sends a 6-digit code to the account's WhatsApp number. The code is
+-- made here and sent by the wa-reset Edge Function through the WhatsApp Cloud API
+-- (an authentication template; Meta does not allow links in those). The owner can
+-- also make a code from the dashboard and send it by hand. Only a hash is stored.
+create table if not exists public.password_resets (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  code_hash text not null,
+  attempts int not null default 0,
+  created_by uuid references public.profiles (id) on delete set null,
+  expires_at timestamptz not null,
+  used_at timestamptz,
+  created_at timestamptz not null default now()
+);
+alter table public.password_resets enable row level security;
+
+-- Makes a new code for an account: at most 3 an hour, each valid 15 minutes.
+-- Returns the number to send it to, or nothing when the account does not exist.
+create or replace function public._issue_reset_code(p_login text, p_by uuid default null) returns json
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare p profiles := public._find_login(p_login); code text;
+begin
+  if p.id is null then return null; end if;
+  if (select count(*) from password_resets where user_id = p.id and created_at > now() - interval '1 hour') >= 3 then
+    raise exception 'Sudah 3 kode dalam 1 jam terakhir. Coba lagi nanti.';
+  end if;
+  code := lpad(((('x' || encode(extensions.gen_random_bytes(4), 'hex'))::bit(32)::bigint) % 1000000)::text, 6, '0');
+  update password_resets set expires_at = now() where user_id = p.id and used_at is null and expires_at > now();
+  insert into password_resets (user_id, code_hash, created_by, expires_at)
+  values (p.id, encode(extensions.digest(p.id::text || ':' || code, 'sha256'), 'hex'), p_by, now() + interval '15 minutes');
+  insert into audit_log (actor, action, detail) values (p_by, 'kode_reset', jsonb_build_object('akun', p.id, 'oleh', case when p_by is null then 'whatsapp' else 'pemilik' end));
+  return json_build_object('whatsapp', p.whatsapp, 'code', code, 'full_name', p.full_name, 'username', p.username);
+end $$;
+
+-- The member types the code and a new password. Five wrong tries cancel the code.
+create or replace function public.reset_with_code(p_login text, p_code text, p_password text) returns text
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare p profiles := public._find_login(p_login); r password_resets;
+begin
+  if p.id is null then raise exception 'Kode salah atau sudah kedaluwarsa.'; end if;
+  select * into r from password_resets
+  where user_id = p.id and used_at is null and expires_at > now() order by created_at desc limit 1 for update;
+  if r.id is null then raise exception 'Kode sudah kedaluwarsa. Minta kode baru.'; end if;
+  if r.attempts >= 5 then raise exception 'Terlalu banyak percobaan. Minta kode baru.'; end if;
+  if r.code_hash <> encode(extensions.digest(p.id::text || ':' || trim(coalesce(p_code, '')), 'sha256'), 'hex') then
+    update password_resets set attempts = attempts + 1 where id = r.id;
+    return null;
+  end if;
+  perform public._set_password(p.id, p_password);
+  update password_resets set used_at = now() where user_id = p.id and used_at is null;
+  insert into audit_log (actor, action, detail) values (p.id, 'reset_password', jsonb_build_object('reset', r.id));
+  return p.email;
+end $$;
+
+-- ---------------------------------------------------------------- member functions
+create or replace function public.whoami() returns json
+language sql stable security definer set search_path = public
+as $$
+  select json_build_object('id', id, 'role', role, 'full_name', full_name, 'username', username, 'whatsapp', whatsapp,
+    'whatsapp_verified', whatsapp_verified_at is not null,
+    'profile_complete', (full_name is not null and birth_date is not null and username is not null and adult_confirmed),
+    -- false when the member has not accepted the current terms and privacy versions
+    'terms_ok', role <> 'member' or (
+      exists (select 1 from consent_log c join settings s on s.id = 1 where c.user_id = profiles.id
+              and c.accepted and c.document = 'syarat' and c.version = s.terms_version)
+      and exists (select 1 from consent_log c join settings s on s.id = 1 where c.user_id = profiles.id
+              and c.accepted and c.document = 'privasi' and c.version = s.privacy_version)))
+  from profiles where id = auth.uid() and deleted_at is null
+$$;
+
+-- Members change their name, username, birth date and gender here. The WhatsApp
+-- number stays fixed; Hanashuya changes it on request.
+drop function if exists public.update_my_profile(text, text, text, text, boolean);
+drop function if exists public.update_my_profile(text, text, date, text, boolean);
+drop function if exists public.update_my_profile(text, text, text, boolean);
+create or replace function public.update_my_profile(
+  p_full_name text, p_username text, p_birth_date date, p_gender text, p_adult boolean, p_marketing boolean default null
+) returns json
+language plpgsql security definer set search_path = public
+as $$
+declare un text := public._clean_username(p_username);
+begin
+  if auth.uid() is null then raise exception 'Silakan masuk dulu.'; end if;
+  if coalesce(trim(p_full_name), '') = '' then raise exception 'Isi nama lengkap.'; end if;
+  if un is null or un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'; end if;
+  if exists (select 1 from profiles where username = un and id <> auth.uid() and deleted_at is null) then raise exception 'Username sudah dipakai.'; end if;
+  if p_birth_date is null then raise exception 'Isi tanggal lahir.'; end if;
+  if age(current_date, p_birth_date) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
+  if not coalesce(p_adult, false) then raise exception 'Setujui syarat dan ketentuan untuk melanjutkan.'; end if;
+  -- Record acceptance when the current terms version has not been accepted yet,
+  -- and record the promo choice whenever it changes.
+  if not coalesce((public.whoami()->>'terms_ok')::boolean, false) then
+    perform public._record_consent(auth.uid(), 'ubah data', null);
+  end if;
+  if p_marketing is not null and p_marketing is distinct from (select marketing_opt_in from profiles where id = auth.uid()) then
+    insert into consent_log (user_id, document, version, accepted, method)
+    values (auth.uid(), 'promo_whatsapp', (select privacy_version from settings where id = 1), p_marketing, 'ubah data');
+  end if;
+  update profiles set
+    full_name = trim(p_full_name), username = un, birth_date = p_birth_date,
+    age_range = public._age_range(p_birth_date), gender = nullif(p_gender, ''), adult_confirmed = true,
+    marketing_opt_in = coalesce(p_marketing, marketing_opt_in)
+  where id = auth.uid() and deleted_at is null;
+  return public.whoami();
+end $$;
+
+create or replace function public.my_card() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  me profiles; s settings := public._cfg(); v_total int;
+begin
+  select * into me from profiles where id = auth.uid() and deleted_at is null;
+  if me.id is null then raise exception 'Silakan masuk dulu.'; end if;
+  v_total := public._total(me.id);
+  return json_build_object(
+    'full_name', me.full_name, 'email', me.email, 'whatsapp', me.whatsapp,
+    'gender', me.gender, 'age_range', me.age_range, 'card_code', me.card_code, 'member_since', me.created_at,
+    'username', me.username, 'birth_date', me.birth_date, 'marketing_opt_in', me.marketing_opt_in,
+    'total_stamps', v_total, 'card_size', s.card_size,
+    'cycle', v_total / s.card_size, 'position', v_total % s.card_size,
+    'rupiah_per_stamp', s.rupiah_per_stamp,
+    'rewards', coalesce((select json_agg(json_build_object('cycle', cycle, 'slot', slot, 'label', label, 'status', status))
+                         from public._rewards(me.id)), '[]'),
+    'visits', coalesce((select json_agg(v) from (
+        select created_at, stamps, total, items from sales
+        where member_id = me.id and reversed_at is null
+        order by created_at desc limit 20) v), '[]'),
+    'redeemed', coalesce((select json_agg(r) from (
+        select id, created_at, reward_label, slot from redemptions
+        where member_id = me.id and reversed_at is null
+        order by created_at desc limit 50) r), '[]'),
+    'visit_count', (select count(*) from sales where member_id = me.id and reversed_at is null)
+  );
+end $$;
+
+-- The QR changes every 30 seconds so a shared screenshot stops working.
+create or replace function public.card_token() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare code text; win bigint := floor(extract(epoch from now()) / 30);
+begin
+  select replace(card_code, '-', '') into code from profiles where id = auth.uid() and deleted_at is null;
+  if code is null then raise exception 'Silakan masuk dulu.'; end if;
+  return json_build_object(
+    'token', 'HS1.' || code || '.' || win || '.' || public._token_sig(code, win),
+    'expires_in', 30 - (floor(extract(epoch from now()))::bigint % 30));
+end $$;
+
+create or replace function public.create_redeem_code(p_cycle int, p_slot int) returns json
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare me uuid := auth.uid(); c text; r record;
+begin
+  if me is null then raise exception 'Silakan masuk dulu.'; end if;
+  select * into r from public._rewards(me) x where x.cycle = p_cycle and x.slot = p_slot;
+  if r.status is distinct from 'tersedia' then raise exception 'Hadiah ini belum bisa ditukar.'; end if;
+  update redeem_codes set expires_at = now() where member_id = me and used_at is null and expires_at > now();
+  loop
+    c := lpad(((('x' || encode(extensions.gen_random_bytes(4), 'hex'))::bit(32)::bigint) % 1000000)::text, 6, '0');
+    exit when not exists (select 1 from redeem_codes where code = c and used_at is null and expires_at > now());
+  end loop;
+  insert into redeem_codes (code, member_id, cycle, slot, expires_at)
+  values (c, me, p_cycle, p_slot, now() + interval '2 minutes');
+  return json_build_object('code', c, 'label', r.label, 'expires_in', 120);
+end $$;
+
+-- The member taps Tukar and confirms; the reward is marked as redeemed at once and
+-- the phone shows a live voucher for the cashier. Each reward redeems only once.
+create or replace function public.member_redeem(p_cycle int, p_slot int) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me profiles; r record; rid bigint; at timestamptz;
+begin
+  select * into me from profiles where id = auth.uid() and deleted_at is null;
+  if me.id is null then raise exception 'Silakan masuk dulu.'; end if;
+  if me.role <> 'member' then raise exception 'Akun staf tidak bisa menukar hadiah.'; end if;
+  select * into r from public._rewards(me.id) x where x.cycle = p_cycle and x.slot = p_slot;
+  if r.status is distinct from 'tersedia' then raise exception 'Hadiah ini sudah ditukar atau belum tersedia.'; end if;
+  insert into redemptions (member_id, staff_id, cycle, slot, reward_label)
+  values (me.id, null, p_cycle, p_slot, r.label) returning id, created_at into rid, at;
+  perform public._log('tukar_hadiah', jsonb_build_object('redemption', rid, 'member', me.id, 'reward', r.label, 'oleh', 'member'));
+  return json_build_object('id', rid, 'label', r.label, 'slot', p_slot, 'created_at', at,
+    'first_name', public._first_name(me.full_name), 'card_code', me.card_code);
+end $$;
+
+-- Removes the member's personal data. Past purchases stay as anonymous sales.
+create or replace function public.delete_my_account() returns void
+language plpgsql security definer set search_path = public
+as $$
+declare me uuid := auth.uid();
+begin
+  if me is null then raise exception 'Silakan masuk dulu.'; end if;
+  if (select role from profiles where id = me) <> 'member' then
+    raise exception 'Akun staf dihapus oleh pemilik.';
+  end if;
+  update sales set member_id = null where member_id = me;
+  update redemptions set member_id = null where member_id = me;
+  perform public._log('hapus_akun', jsonb_build_object('member', me));
+  delete from auth.users where id = me;
+end $$;
+
+-- ---------------------------------------------------------------- staff functions
+create or replace function public.staff_lookup(p_scan text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
+  raw text := upper(trim(coalesce(p_scan, '')));
+  parts text[]; code text; win bigint; now_win bigint := floor(extract(epoch from now()) / 30);
+  m profiles; via text; t uuid; v_total int; s settings := public._cfg();
+begin
+  if raw like 'HS1.%' then
+    parts := string_to_array(raw, '.');
+    if array_length(parts, 1) <> 4 then raise exception 'QR tidak dikenali.'; end if;
+    code := parts[2];
+    begin win := parts[3]::bigint; exception when others then raise exception 'QR tidak dikenali.'; end;
+    if win < now_win - 2 or win > now_win + 1 then
+      raise exception 'QR sudah kedaluwarsa. Minta member membuka ulang kartunya.';
+    end if;
+    if lower(parts[4]) <> public._token_sig(code, win) then raise exception 'QR tidak valid.'; end if;
+    via := 'qr';
+  else
+    code := regexp_replace(raw, '[^A-Z0-9]', '', 'g');
+    if length(code) <> 8 then raise exception 'Kode kartu terdiri dari 8 huruf dan angka.'; end if;
+    via := 'kode';
+  end if;
+  select * into m from profiles where replace(card_code, '-', '') = code and deleted_at is null;
+  if m.id is null then raise exception 'Kartu tidak ditemukan.'; end if;
+  if m.id = staff then raise exception 'Tidak bisa memakai kartu sendiri.'; end if;
+  if public._staff_conflict(m.id) then
+    raise exception 'Kartu ini terhubung dengan akun staf, jadi tidak bisa diberi stempel atau hadiah di sini.';
+  end if;
+  insert into scan_tickets (staff_id, member_id, via, expires_at)
+  values (staff, m.id, via, now() + interval '10 minutes') returning id into t;
+  v_total := public._total(m.id);
+  return json_build_object(
+    'ticket', t, 'via', via, 'first_name', public._first_name(m.full_name),
+    'card_code', m.card_code, 'total_stamps', v_total, 'position', v_total % s.card_size,
+    'card_size', s.card_size, 'rupiah_per_stamp', s.rupiah_per_stamp,
+    'has_demography', (m.gender is not null and m.age_range is not null),
+    'rewards', coalesce((select json_agg(json_build_object('label', x.label, 'cycle', x.cycle, 'slot', x.slot))
+                         from public._rewards(m.id) x where x.status = 'tersedia'), '[]'));
+end $$;
+
+create or replace function public.staff_record_sale(
+  p_ticket uuid, p_receipt_no text, p_total int, p_items jsonb, p_gender text, p_age_range text
+) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
+  s settings := public._cfg();
+  tk scan_tickets; m profiles; n int := 0; today int; f text[] := '{}';
+  key text := upper(regexp_replace(coalesce(p_receipt_no, ''), '[^A-Za-z0-9]', '', 'g'));
+  lt time := public._local(now())::time; prev sales; sid bigint; v_total int;
+  g text := nullif(p_gender, ''); a text := nullif(p_age_range, '');
+begin
+  if key = '' then raise exception 'Isi nomor struk VireoPOS.'; end if;
+  if p_total is null or p_total <= 0 then raise exception 'Isi total belanja sesuai struk.'; end if;
+  if p_total > 20000000 then raise exception 'Total belanja terlalu besar. Periksa lagi angkanya.'; end if;
+  if jsonb_typeof(coalesce(p_items, '[]')) <> 'array' then raise exception 'Daftar produk tidak valid.'; end if;
+  select * into prev from sales where receipt_key = key;
+  if prev.id is not null then
+    raise exception 'Struk % sudah dicatat pada %.', p_receipt_no, to_char(public._local(prev.created_at), 'DD-MM-YYYY HH24:MI');
+  end if;
+
+  if p_ticket is not null then
+    select * into tk from scan_tickets where id = p_ticket and staff_id = staff and used_at is null and expires_at > now();
+    if tk.id is null then raise exception 'Scan kartu sudah lewat 10 menit. Scan ulang kartunya.'; end if;
+    select * into m from profiles where id = tk.member_id and deleted_at is null;
+    if m.id is null then raise exception 'Kartu tidak ditemukan.'; end if;
+    if m.id = staff or public._staff_conflict(m.id) then
+      raise exception 'Kartu ini terhubung dengan akun staf, jadi tidak bisa diberi stempel.';
+    end if;
+    if lt < s.open_time or lt > s.close_time then
+      raise exception 'Stempel hanya bisa diberikan pada jam buka (% sampai %).',
+        to_char(s.open_time, 'HH24:MI'), to_char(s.close_time, 'HH24:MI');
+    end if;
+    n := p_total / s.rupiah_per_stamp;
+    select coalesce(sum(stamps), 0) into today from sales
+     where member_id = m.id and reversed_at is null
+       and public._local(created_at)::date = public._local(now())::date;
+    if today + n > s.max_stamps_per_day then
+      raise exception 'Batas % stempel per hari untuk satu kartu sudah tercapai (sudah % hari ini).', s.max_stamps_per_day, today;
+    end if;
+    if tk.via = 'kode' then f := array_append(f, 'kode_diketik'); end if;
+    if (select count(*) from sales where member_id = m.id and staff_id = staff
+          and created_at > now() - interval '7 days' and reversed_at is null) >= 3 then
+      f := array_append(f, 'staf_sama_sering');
+    end if;
+    -- A member who filled in their own gender and age keeps those values.
+    if m.gender is not null then g := m.gender; end if;
+    if m.age_range is not null then a := m.age_range; end if;
+    update scan_tickets set used_at = now() where id = tk.id;
+  end if;
+
+  if g is not null and g not in ('perempuan', 'laki-laki', 'tidak_disebut') then raise exception 'Jenis kelamin tidak valid.'; end if;
+  if a is not null and a not in ('<17', '17-24', '25-34', '35-44', '45+', 'tidak_disebut') then raise exception 'Rentang usia tidak valid.'; end if;
+
+  insert into sales (receipt_no, total, member_id, staff_id, stamps, items, gender, age_range, via, flags)
+  values (trim(p_receipt_no), p_total, m.id, staff, n, coalesce(p_items, '[]'), g, a, tk.via, f)
+  returning id into sid;
+  perform public._log('penjualan', jsonb_build_object('sale', sid, 'receipt', trim(p_receipt_no), 'total', p_total,
+    'member', m.id, 'stamps', n, 'flags', f));
+
+  if m.id is null then
+    return json_build_object('sale_id', sid, 'member', false);
+  end if;
+  v_total := public._total(m.id);
+  return json_build_object('sale_id', sid, 'member', true, 'first_name', public._first_name(m.full_name),
+    'stamps', n, 'total_stamps', v_total, 'position', v_total % s.card_size, 'card_size', s.card_size,
+    'rewards', coalesce((select json_agg(x.label) from public._rewards(m.id) x where x.status = 'tersedia'), '[]'));
+end $$;
+
+create or replace function public.staff_check_code(p_code text) returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
+  rc redeem_codes; m profiles; r record;
+begin
+  select * into rc from redeem_codes where code = trim(p_code) and used_at is null and expires_at > now()
+   order by created_at desc limit 1;
+  if rc.id is null then raise exception 'Kode tidak ditemukan atau sudah lewat 2 menit. Minta member membuat kode baru.'; end if;
+  select * into m from profiles where id = rc.member_id;
+  if m.id = staff or public._staff_conflict(m.id) then raise exception 'Hadiah untuk akun staf tidak bisa ditukar di sini.'; end if;
+  select * into r from public._rewards(m.id) x where x.cycle = rc.cycle and x.slot = rc.slot;
+  return json_build_object('first_name', public._first_name(m.full_name), 'label', r.label, 'status', r.status);
+end $$;
+
+create or replace function public.staff_redeem(p_code text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
+  rc redeem_codes; m profiles; r record; rid bigint;
+begin
+  select * into rc from redeem_codes where code = trim(p_code) and used_at is null and expires_at > now()
+   order by created_at desc limit 1 for update;
+  if rc.id is null then raise exception 'Kode tidak ditemukan atau sudah lewat 2 menit. Minta member membuat kode baru.'; end if;
+  select * into m from profiles where id = rc.member_id;
+  if m.id = staff or public._staff_conflict(m.id) then raise exception 'Hadiah untuk akun staf tidak bisa ditukar di sini.'; end if;
+  select * into r from public._rewards(m.id) x where x.cycle = rc.cycle and x.slot = rc.slot;
+  if r.status is distinct from 'tersedia' then raise exception 'Hadiah ini sudah ditukar atau belum tersedia.'; end if;
+  insert into redemptions (member_id, staff_id, cycle, slot, reward_label)
+  values (m.id, staff, rc.cycle, rc.slot, r.label) returning id into rid;
+  update redeem_codes set used_at = now() where id = rc.id;
+  perform public._log('tukar_hadiah', jsonb_build_object('redemption', rid, 'member', m.id, 'reward', r.label));
+  return json_build_object('redemption_id', rid, 'first_name', public._first_name(m.full_name), 'label', r.label);
+end $$;
+
+create or replace function public.staff_today() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf.');
+begin
+  return json_build_object(
+    'sales', coalesce((select json_agg(x order by x.created_at desc) from (
+      select s.id, s.receipt_no, s.total, s.stamps, s.created_at, s.reversed_at is not null as reversed,
+             case when s.member_id is not null then public._first_name(p.full_name) end as member,
+             exists (select 1 from undo_requests u where u.sale_id = s.id and u.status = 'menunggu') as undo_pending
+      from sales s left join profiles p on p.id = s.member_id
+      where s.staff_id = staff and public._local(s.created_at)::date = public._local(now())::date) x), '[]'),
+    'redemptions', coalesce((select json_agg(x order by x.created_at desc) from (
+      select d.id, d.reward_label, d.created_at, d.reversed_at is not null as reversed,
+             public._first_name(p.full_name) as member, p.card_code, d.staff_id is null as by_member,
+             exists (select 1 from undo_requests u where u.redemption_id = d.id and u.status = 'menunggu') as undo_pending
+      from redemptions d left join profiles p on p.id = d.member_id
+      where (d.staff_id = staff or d.staff_id is null)
+        and public._local(d.created_at)::date = public._local(now())::date) x), '[]'));
+end $$;
+
+create or replace function public.staff_request_undo(p_kind text, p_id bigint, p_reason text) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf.');
+begin
+  if coalesce(trim(p_reason), '') = '' then raise exception 'Tulis alasan pembatalan.'; end if;
+  if p_kind = 'sale' then
+    if not exists (select 1 from sales where id = p_id and staff_id = staff and reversed_at is null) then
+      raise exception 'Penjualan ini tidak bisa dibatalkan.';
+    end if;
+    if exists (select 1 from undo_requests where sale_id = p_id and status = 'menunggu') then
+      raise exception 'Permintaan untuk penjualan ini sudah dikirim.';
+    end if;
+    insert into undo_requests (sale_id, requested_by, reason) values (p_id, staff, trim(p_reason));
+  elsif p_kind = 'redemption' then
+    if not exists (select 1 from redemptions where id = p_id and (staff_id = staff or staff_id is null) and reversed_at is null) then
+      raise exception 'Penukaran ini tidak bisa dibatalkan.';
+    end if;
+    if exists (select 1 from undo_requests where redemption_id = p_id and status = 'menunggu') then
+      raise exception 'Permintaan untuk penukaran ini sudah dikirim.';
+    end if;
+    insert into undo_requests (redemption_id, requested_by, reason) values (p_id, staff, trim(p_reason));
+  else
+    raise exception 'Jenis pembatalan tidak dikenal.';
+  end if;
+  perform public._log('minta_batal', jsonb_build_object('kind', p_kind, 'id', p_id, 'reason', p_reason));
+end $$;
+
+-- ---------------------------------------------------------------- owner functions
+create or replace function public.owner_dashboard(p_days int default 30) returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+  s settings := public._cfg();
+  since timestamptz := now() - make_interval(days => greatest(1, least(coalesce(p_days, 30), 366)));
+begin
+  return (
+  with sl as (
+    select x.*, public._local(x.created_at) as lt from sales x
+    where x.created_at >= since and x.reversed_at is null
+  ),
+  rd as (select * from redemptions where created_at >= since and reversed_at is null),
+  item_rows as (
+    select sl.member_id, e->>'name' as name, greatest(coalesce((e->>'qty')::int, 1), 1) as qty
+    from sl cross join lateral jsonb_array_elements(sl.items) e
+  ),
+  visits as (
+    select member_id, created_at,
+           created_at - lag(created_at) over (partition by member_id order by created_at) as gap
+    from sales where member_id is not null and reversed_at is null
+  ),
+  last_visit as (
+    select member_id, max(created_at) as last_at, count(*) as n from sales
+    where member_id is not null and reversed_at is null group by member_id
+  ),
+  matched as (
+    select sl.id, sl.receipt_no, sl.created_at, sl.total, p.receipt_no as pos_no, p.sold_at, p.total as pos_total,
+      case
+        when p.receipt_key is null then 'struk_tidak_ada_di_vireopos'
+        when abs(extract(epoch from (sl.created_at - p.sold_at))) > s.late_minutes * 60 then 'waktu_beda'
+        when p.total is not null and p.total <> sl.total then 'total_beda'
+      end as problem
+    from sl left join pos_receipts p on p.receipt_key = sl.receipt_key
+    where sl.member_id is not null
+      and public._local(sl.created_at)::date in (select distinct public._local(sold_at)::date from pos_receipts)
+  )
+  select json_build_object(
+    'days', extract(day from now() - since)::int,
+    'settings', json_build_object('rupiah_per_stamp', s.rupiah_per_stamp, 'late_minutes', s.late_minutes),
+    'totals', json_build_object(
+      'sales', (select count(*) from sl),
+      'member_sales', (select count(*) from sl where member_id is not null),
+      'revenue', (select coalesce(sum(total), 0) from sl),
+      'stamps', (select coalesce(sum(stamps), 0) from sl),
+      'redemptions', (select count(*) from rd),
+      'new_members', (select count(*) from profiles where role = 'member' and deleted_at is null and created_at >= since),
+      'members', (select count(*) from profiles where role = 'member' and deleted_at is null),
+      'active_members', (select count(distinct member_id) from sl where member_id is not null),
+      'avg_days_between_visits', (select round((extract(epoch from avg(gap)) / 86400)::numeric, 1) from visits where gap is not null and created_at >= since)
+    ),
+    'heatmap', coalesce((select json_agg(json_build_object('dow', d, 'hour', h, 'n', n)) from (
+      select extract(isodow from lt)::int as d, extract(hour from lt)::int as h, count(*) as n
+      from sl group by 1, 2) hm), '[]'),
+    'top_items', coalesce((select json_agg(t order by t.qty desc) from (
+      select name, sum(qty) as qty,
+        (select count(*) from (select member_id from item_rows i2 where i2.name = i.name and i2.member_id is not null
+                               group by member_id having count(*) >= 2) rr) as regulars
+      from item_rows i group by name) t), '[]'),
+    'gender', coalesce((select json_agg(json_build_object('key', coalesce(gender, 'kosong'), 'n', n)) from (
+      select gender, count(*) as n from sl group by gender) g), '[]'),
+    'age', coalesce((select json_agg(json_build_object('key', coalesce(age_range, 'kosong'), 'n', n)) from (
+      select age_range, count(*) as n from sl group by age_range) a), '[]'),
+    'staff', coalesce((select json_agg(st order by st.sales desc) from (
+      select p.full_name, p.email, p.whatsapp,
+        (select count(*) from sl where sl.staff_id = p.id) as sales,
+        (select coalesce(sum(stamps), 0) from sl where sl.staff_id = p.id) as stamps,
+        (select count(*) from rd where rd.staff_id = p.id) as redemptions,
+        (select count(*) from sl where sl.staff_id = p.id and cardinality(sl.flags) > 0) as flagged
+      from profiles p where p.role in ('staff', 'owner') and p.deleted_at is null) st), '[]'),
+    'lapsed', coalesce((select json_agg(l order by l.last_at) from (
+      select p.full_name, case when p.marketing_opt_in then p.whatsapp end as whatsapp, lv.last_at, lv.n as visits
+      from last_visit lv join profiles p on p.id = lv.member_id
+      where p.deleted_at is null and lv.last_at < now() - interval '30 days'
+        and lv.last_at >= now() - interval '120 days'
+      limit 50) l), '[]'),
+    'flags', coalesce((select json_agg(fl order by fl.created_at desc) from (
+      select sl.id, sl.receipt_no, sl.total, sl.stamps, sl.created_at, sl.flags,
+             public._first_name(m.full_name) as member, st.full_name as staff
+      from sl left join profiles m on m.id = sl.member_id left join profiles st on st.id = sl.staff_id
+      where cardinality(sl.flags) > 0 order by sl.created_at desc limit 50) fl), '[]'),
+    'mismatches', coalesce((select json_agg(mm order by mm.created_at desc) from (
+      select * from matched where problem is not null limit 100) mm), '[]'),
+    'matched_days', (select count(distinct public._local(sold_at)::date) from pos_receipts where sold_at >= since),
+    'undo', coalesce((select json_agg(u order by u.created_at) from (
+      select u.id, u.reason, u.created_at, rq.full_name as requested_by,
+        case when u.sale_id is not null then 'penjualan' else 'penukaran' end as kind,
+        coalesce(sa.receipt_no, '') as receipt_no, sa.total, sa.stamps, d.reward_label,
+        public._first_name(coalesce(ms.full_name, md.full_name)) as member
+      from undo_requests u
+      left join profiles rq on rq.id = u.requested_by
+      left join sales sa on sa.id = u.sale_id left join profiles ms on ms.id = sa.member_id
+      left join redemptions d on d.id = u.redemption_id left join profiles md on md.id = d.member_id
+      where u.status = 'menunggu') u), '[]')
+  ));
+end $$;
+
+create or replace function public.owner_sales(p_limit int default 100) returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+begin
+  return coalesce((select json_agg(x order by x.created_at desc) from (
+    select s.id, s.receipt_no, s.total, s.stamps, s.items, s.gender, s.age_range, s.via, s.flags,
+           s.created_at, s.reversed_at, m.full_name as member, st.full_name as staff
+    from sales s left join profiles m on m.id = s.member_id left join profiles st on st.id = s.staff_id
+    order by s.created_at desc limit least(greatest(coalesce(p_limit, 100), 1), 1000)) x), '[]');
+end $$;
+
+create or replace function public.owner_import_receipts(p_rows jsonb) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); n int;
+begin
+  if jsonb_typeof(p_rows) <> 'array' then raise exception 'Data struk tidak valid.'; end if;
+  insert into pos_receipts (receipt_key, receipt_no, sold_at, total)
+  select upper(regexp_replace(e->>'receipt_no', '[^A-Za-z0-9]', '', 'g')), trim(e->>'receipt_no'),
+         (e->>'sold_at')::timestamptz, nullif(e->>'total', '')::int
+  from jsonb_array_elements(p_rows) e
+  where coalesce(e->>'receipt_no', '') <> '' and coalesce(e->>'sold_at', '') <> ''
+  on conflict (receipt_key) do update set sold_at = excluded.sold_at, total = excluded.total, imported_at = now();
+  get diagnostics n = row_count;
+  perform public._log('impor_struk', jsonb_build_object('rows', n));
+  return json_build_object('imported', n);
+end $$;
+
+create or replace function public.owner_decide_undo(p_id bigint, p_approve boolean) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); u undo_requests;
+begin
+  select * into u from undo_requests where id = p_id and status = 'menunggu' for update;
+  if u.id is null then raise exception 'Permintaan ini sudah diputuskan.'; end if;
+  if p_approve then
+    if u.sale_id is not null then
+      update sales set reversed_at = now(), reversed_by = me where id = u.sale_id and reversed_at is null;
+    else
+      update redemptions set reversed_at = now(), reversed_by = me where id = u.redemption_id and reversed_at is null;
+    end if;
+  end if;
+  update undo_requests set status = case when p_approve then 'disetujui' else 'ditolak' end,
+    decided_by = me, decided_at = now() where id = u.id;
+  perform public._log(case when p_approve then 'setujui_batal' else 'tolak_batal' end, jsonb_build_object('request', u.id));
+end $$;
+
+create or replace function public.owner_people() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+begin
+  return coalesce((select json_agg(x order by x.role desc, x.full_name) from (
+    select id, role, full_name, username, email, whatsapp, created_at, id = me as is_me
+    from profiles where role in ('staff', 'owner') and deleted_at is null) x), '[]');
+end $$;
+
+drop function if exists public.owner_set_role(text, text);
+create or replace function public.owner_set_role(p_phone text, p_role text) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); p profiles;
+begin
+  if p_role not in ('member', 'staff', 'owner') then raise exception 'Peran tidak dikenal.'; end if;
+  select * into p from profiles where whatsapp = public._wa(p_phone) and deleted_at is null;
+  if p.id is null then
+    raise exception 'Nomor % belum pernah masuk. Minta orangnya masuk sekali di halaman kasir, lalu coba lagi.', trim(p_phone);
+  end if;
+  if p.id = me and p_role <> 'owner' then raise exception 'Anda tidak bisa mencabut akses pemilik dari akun sendiri.'; end if;
+  if p_role <> 'member' and public._total(p.id) > 0 then
+    raise exception 'Nomor ini punya stempel member. Staf perlu memakai nomor lain untuk akun kerja.';
+  end if;
+  update profiles set role = p_role where id = p.id;
+  perform public._log('ubah_peran', jsonb_build_object('whatsapp', p.whatsapp, 'role', p_role));
+end $$;
+
+-- The owner creates a cashier (or second owner) account with a name, username,
+-- WhatsApp number and starting password. A removed number is switched back on.
+drop function if exists public.owner_add_staff(text, text, text, text);
+create or replace function public.owner_add_staff(p_name text, p_username text, p_phone text, p_password text, p_role text default 'staff') returns json
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare
+  me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+  wa text := public._wa(p_phone); un text := public._clean_username(p_username); p profiles; uid uuid;
+begin
+  if coalesce(trim(p_name), '') = '' then raise exception 'Isi nama staf.'; end if;
+  if un is null or un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'; end if;
+  if wa is null or wa !~ '^628[0-9]{8,12}$' then raise exception 'Nomor WhatsApp tidak valid. Contoh: 0812 3456 7890.'; end if;
+  if length(coalesce(p_password, '')) < 8 then raise exception 'Password minimal 8 karakter.'; end if;
+  if p_role not in ('staff', 'owner') then raise exception 'Peran tidak dikenal.'; end if;
+  select * into p from profiles where whatsapp = wa order by deleted_at nulls first limit 1;
+  if p.id is not null and p.deleted_at is null then
+    if p.role = 'member' then raise exception 'Nomor ini sudah dipakai kartu member. Pakai nomor lain untuk akun staf.'; end if;
+    raise exception 'Nomor ini sudah terdaftar sebagai staf.';
+  end if;
+  if exists (select 1 from profiles where username = un and deleted_at is null) then raise exception 'Username sudah dipakai.'; end if;
+  if p.id is not null then
+    update profiles set deleted_at = null, role = p_role, full_name = trim(p_name), username = un where id = p.id;
+    update auth.users set banned_until = null where id = p.id;
+    perform public._set_password(p.id, p_password);
+    uid := p.id;
+  else
+    uid := public._create_login(wa, p_password, un, trim(p_name));
+    update profiles set role = p_role, adult_confirmed = true where id = uid;
+  end if;
+  perform public._log('tambah_staf', jsonb_build_object('whatsapp', wa, 'username', un, 'role', p_role));
+  return json_build_object('id', uid, 'whatsapp', wa, 'username', un);
+end $$;
+
+-- Removes a staff account's access. The account is switched off, not deleted, so
+-- past sales still show who recorded them.
+create or replace function public.owner_remove_staff(p_phone text) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); p profiles;
+begin
+  select * into p from profiles where whatsapp = public._wa(p_phone) and deleted_at is null and role in ('staff', 'owner');
+  if p.id is null then raise exception 'Akun staf dengan nomor itu tidak ditemukan.'; end if;
+  if p.id = me then raise exception 'Anda tidak bisa menghapus akun sendiri.'; end if;
+  update profiles set deleted_at = now() where id = p.id;
+  update auth.users set banned_until = now() + interval '100 years' where id = p.id;
+  perform public._log('hapus_staf', jsonb_build_object('whatsapp', p.whatsapp));
+end $$;
+
+-- Sets a new password for a staff or owner account.
+drop function if exists public.owner_reset_pin(text, text);
+create or replace function public.owner_reset_password(p_phone text, p_password text) returns void
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); p profiles;
+begin
+  select * into p from profiles where whatsapp = public._wa(p_phone) and deleted_at is null and role in ('staff', 'owner');
+  if p.id is null then raise exception 'Akun staf dengan nomor itu tidak ditemukan.'; end if;
+  perform public._set_password(p.id, p_password);
+  perform public._log('ganti_password_staf', jsonb_build_object('whatsapp', p.whatsapp));
+end $$;
+
+-- Finds accounts by name, username or WhatsApp number, for the "Bantuan akun" tab.
+create or replace function public.owner_find_account(p_query text) returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); q text := lower(trim(coalesce(p_query, '')));
+begin
+  if length(q) < 3 then return '[]'; end if;
+  return coalesce((select json_agg(x) from (
+    select full_name, username, whatsapp, role, created_at from profiles
+    where deleted_at is null
+      and (username like '%' || q || '%' or lower(full_name) like '%' || q || '%'
+        or (length(regexp_replace(q, '\D', '', 'g')) >= 4 and whatsapp like '%' || regexp_replace(public._wa(q), '^62', '') || '%'))
+    order by full_name limit 10) x), '[]');
+end $$;
+
+-- The owner makes a reset code to send by hand when the automatic WhatsApp is not set up.
+create or replace function public.owner_issue_reset_code(p_login text) returns json
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); r json;
+begin
+  r := public._issue_reset_code(p_login, me);
+  if r is null then raise exception 'Akun tidak ditemukan.'; end if;
+  return r;
+end $$;
+
+create or replace function public.owner_settings() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); s settings := public._cfg();
+begin
+  return json_build_object('open_time', to_char(s.open_time, 'HH24:MI'), 'close_time', to_char(s.close_time, 'HH24:MI'),
+    'rupiah_per_stamp', s.rupiah_per_stamp, 'max_stamps_per_day', s.max_stamps_per_day, 'late_minutes', s.late_minutes,
+    'menu', coalesce((select json_agg(m order by m.sort, m.id) from menu_items m), '[]'),
+    'campaigns', coalesce((select json_agg(c order by c.starts_on desc) from campaigns c), '[]'));
+end $$;
+
+create or replace function public.owner_save_settings(
+  p_open text, p_close text, p_rupiah int, p_max int, p_late int
+) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+begin
+  if p_open::time >= p_close::time then raise exception 'Jam tutup harus setelah jam buka.'; end if;
+  update settings set open_time = p_open::time, close_time = p_close::time,
+    rupiah_per_stamp = p_rupiah, max_stamps_per_day = p_max, late_minutes = p_late where id = 1;
+  perform public._log('ubah_pengaturan', jsonb_build_object('open', p_open, 'close', p_close, 'rupiah', p_rupiah, 'max', p_max, 'late', p_late));
+end $$;
+
+create or replace function public.owner_save_menu_item(p_id int, p_name text, p_price int, p_active boolean) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+begin
+  if coalesce(trim(p_name), '') = '' then raise exception 'Isi nama produk.'; end if;
+  if p_id is null then
+    insert into menu_items (name, price, sort, active)
+    values (trim(p_name), p_price, coalesce((select max(sort) + 1 from menu_items), 1), coalesce(p_active, true));
+  else
+    update menu_items set name = trim(p_name), price = p_price, active = coalesce(p_active, true) where id = p_id;
+  end if;
+end $$;
+
+create or replace function public.owner_save_campaign(
+  p_id bigint, p_title text, p_body text, p_starts date, p_ends date, p_active boolean
+) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+begin
+  if coalesce(trim(p_title), '') = '' then raise exception 'Isi judul kampanye.'; end if;
+  if p_ends < p_starts then raise exception 'Tanggal selesai harus setelah tanggal mulai.'; end if;
+  if p_id is null then
+    insert into campaigns (title, body, starts_on, ends_on, active)
+    values (trim(p_title), coalesce(p_body, ''), p_starts, p_ends, coalesce(p_active, true));
+  else
+    update campaigns set title = trim(p_title), body = coalesce(p_body, ''), starts_on = p_starts,
+      ends_on = p_ends, active = coalesce(p_active, true) where id = p_id;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------- permissions
+-- Helpers are only for the functions above, never for the browser.
+do $$
+declare f record;
+begin
+  for f in
+    select p.oid::regprocedure as sig, p.proname from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prokind = 'f'
+  loop
+    execute format('revoke all on function %s from public, anon', f.sig);
+    if left(f.proname, 1) = '_' then
+      execute format('revoke all on function %s from authenticated', f.sig);
+    else
+      execute format('grant execute on function %s to authenticated', f.sig);
+    end if;
+  end loop;
+end $$;
+
+-- The login, sign-up and reset forms run before anyone is signed in.
+grant execute on function public.login_handle(text), public.signup_check(text, text), public.reset_with_code(text, text, text) to anon;
+-- The wa-reset Edge Function makes codes with the service role key.
+grant execute on function public._issue_reset_code(text, uuid) to service_role;
+
+revoke all on public.settings, public.redeem_codes, public.scan_tickets, public.undo_requests,
+  public.pos_receipts, public.audit_log, public.password_resets, public.consent_log from anon, authenticated;
