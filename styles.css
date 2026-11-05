@@ -284,6 +284,5 @@ address { font-style: normal; }
 .member .actions { margin-top: 28px; }
 .member-hello { margin-top: 24px; padding: 14px 18px; border-radius: 4px; background: color-mix(in oklab, var(--real-red) 8%, var(--frosting)); color: var(--altar-wine); font-weight: 500; }
 @media (hover: hover) { .member .btn:hover { color: var(--frosting); } }
-/* Phones and tablets: "Pesan" stays the one filled button, "Daftar / Masuk" is a
-   plain link beside it. The location section and footer carry the Maps link. */
-@media (max-width: 860px) { .nav .nav-maps { display: none; } }
+/* Header: "Pesan" is the one filled button, "Daftar / Masuk" a plain link beside it.
+   The location section and footer carry the Maps link. */
