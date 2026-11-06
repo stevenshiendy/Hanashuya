@@ -195,6 +195,8 @@ body.member::before { background: var(--stage-deep); }
 .welcome .lead { color: var(--color-muted); }
 .welcome .card3d { max-width: 22rem; margin-inline: auto; width: 100%; }
 .welcome .card3d .card { transform: none; cursor: default; }
+/* The sign-in / sign-up card stays still: Glenn found the endless float looked generic (7 Nov 2026). */
+.welcome .card3d .float { animation: none; }
 .sheet-paper { background: var(--color-paper); border-radius: 20px 20px 0 0; box-shadow: 0 -1px 0 var(--color-rule); }
 .sheet-paper > div { max-width: calc(var(--measure-app) + 2 * var(--gutter)); margin-inline: auto; padding-left: max(var(--gutter), env(safe-area-inset-left, 0px)); padding-right: max(var(--gutter), env(safe-area-inset-right, 0px)); padding-block: var(--space-xl) calc(var(--space-xl) + env(safe-area-inset-bottom, 0px)); display: grid; gap: var(--space-md); }
 .page-pad { padding-block: var(--space-xl) var(--space-2xl); }
