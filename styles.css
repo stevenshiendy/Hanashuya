@@ -36,6 +36,8 @@ html { scrollbar-color: var(--muted) var(--ground); }
 ::selection { background: var(--ink); color: var(--ground); }
 body { background: var(--ground); color: var(--ink); font: 400 17px/1.6 var(--body); -webkit-font-smoothing: antialiased; }
 img { display: block; max-width: 100%; height: auto; }
+/* Pictures: no drag, no long-press save menu on iPhone (see img-guard.js) */
+img, svg { -webkit-user-drag: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 a { color: inherit; }
 ul { list-style: none; padding: 0; }
 h1, h2, h3 { font-family: var(--heading); font-weight: 500; overflow-wrap: break-word; min-width: 0; text-wrap: balance; color: var(--head); }
