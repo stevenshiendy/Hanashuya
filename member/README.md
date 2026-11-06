@@ -122,3 +122,7 @@ Members are then asked to read and accept the new version the next time they ope
 - Importing existing VireoPOS members and their points, once the export format is known.
 - Flavour tracking, wallet passes, more than one brand.
 - The 20% first-purchase discount is also handled by hand by staff; the app doesn't track it yet.
+
+## Backups
+
+Supabase Free keeps no automatic backups. In the owner dashboard, **Pengaturan > Cadangan data > Unduh cadangan** downloads everything (accounts, sales, used rewards, filled cards, consent records, undo requests, imported VireoPOS receipts, promos, products, activity log) as one Excel file, a sheet per table. It leaves out secrets (password hashes, reset codes, the QR signing key). Do it weekly and keep the file somewhere private; it holds members' personal data. Ringkasan reminds the owner after 7 days. Supabase Pro adds daily automatic backups.

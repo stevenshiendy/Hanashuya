@@ -56,7 +56,10 @@ async function summary() {
   let d;
   try { d = await rpc('owner_dashboard', { p_days: range }); } catch (e) { return failed(p, e, summary); }
   const t = d.totals;
+  const backupDays = d.last_backup ? Math.floor((Date.now() - Date.parse(d.last_backup)) / 864e5) : null;
   p.innerHTML = `
+  ${backupDays === null || backupDays >= 7 ? `<p class="notice notice-warn">${backupDays === null ? 'Data member belum pernah dicadangkan.' : `Cadangan data terakhir ${backupDays} hari lalu.`}
+    <a href="#pengaturan" data-goto="t-set">Unduh cadangan di Pengaturan</a>.</p>` : ''}
   <div class="row-between">
     <h1>Ringkasan</h1>
     <fieldset><legend class="visually-hidden">Rentang waktu</legend><div class="choices" id="range">
@@ -120,6 +123,7 @@ async function summary() {
       : '<p class="muted">Tidak ada member yang absen 30 sampai 120 hari.</p>'}
     ${d.lapsed.length ? '<p class="muted small">Tombol WhatsApp hanya muncul untuk member yang mau menerima info promo.</p>' : ''}
   </section>`;
+  $$('[data-goto]', p).forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); $('#' + a.dataset.goto).click(); }));
   $$('#range input').forEach((r) => r.addEventListener('change', () => {
     range = Number(r.value);
     const u = new URL(location.href); u.searchParams.set('hari', range); history.replaceState(null, '', u);
@@ -470,6 +474,36 @@ function help() {
   $('#find-q').focus();
 }
 
+/* ---------------- backup: one Excel file, a sheet per table */
+const BACKUP_SHEETS = [
+  ['akun', 'Akun'], ['penjualan', 'Penjualan'], ['hadiah_dipakai', 'Hadiah dipakai'], ['kartu_penuh', 'Kartu penuh'],
+  ['persetujuan', 'Persetujuan'], ['pembatalan', 'Pembatalan'], ['struk_vireopos', 'Struk VireoPOS'],
+  ['promo', 'Promo'], ['produk', 'Produk'], ['aturan_hadiah', 'Aturan hadiah'], ['catatan_aktivitas', 'Catatan aktivitas'],
+];
+async function downloadBackup(e) {
+  const btn = e.currentTarget, msg = $('#backup-msg');
+  notice(msg, '');
+  busy(btn, true, 'Menyiapkan…');
+  try {
+    await loadSheetJS();
+    const d = await rpc('owner_backup');
+    const X = window.XLSX, book = X.utils.book_new();
+    // Lists and objects inside a row (products bought, flags) are kept as text.
+    const flat = (row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, v !== null && typeof v === 'object' ? JSON.stringify(v) : v]));
+    const info = [['Cadangan Hanashuya', ''], ['Dibuat', d.dibuat], ['Versi', d.versi],
+      ...Object.entries(d.pengaturan || {}).map(([k, v]) => [k, v])];
+    X.utils.book_append_sheet(book, X.utils.aoa_to_sheet(info), 'Info');
+    BACKUP_SHEETS.forEach(([key, name]) => {
+      const rows = (d[key] || []).map(flat);
+      X.utils.book_append_sheet(book, rows.length ? X.utils.json_to_sheet(rows) : X.utils.aoa_to_sheet([['Kosong']]), name);
+    });
+    const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
+    X.writeFile(book, `hanashuya-cadangan-${ymd}.xlsx`);
+    notice(msg, `Tersimpan: ${(d.akun || []).length} akun, ${(d.penjualan || []).length} penjualan. Pindahkan file ke Google Drive atau iCloud pribadi.`, 'ok');
+  } catch (err) { notice(msg, err.message); }
+  busy(btn, false);
+}
+
 /* ---------------- settings */
 async function settings() {
   const p = $('#p-set');
@@ -477,6 +511,14 @@ async function settings() {
   let s;
   try { s = await rpc('owner_settings'); } catch (e) { return failed(p, e, settings); }
   p.innerHTML = `
+  <section class="panel stack" aria-labelledby="backup-title">
+    <h2 id="backup-title">Cadangan data</h2>
+    <p>${s.last_backup ? `Terakhir diunduh ${esc(when(s.last_backup))}.` : 'Belum pernah diunduh.'}</p>
+    <p class="muted small">Supabase versi gratis tidak menyimpan cadangan otomatis. Unduh seminggu sekali dan simpan di Google Drive atau iCloud pribadi. File ini berisi data pribadi member, jadi jangan dibagikan.</p>
+    <div class="notice" id="backup-msg" hidden></div>
+    <button class="btn" type="button" id="backup">Unduh cadangan</button>
+  </section>
+
   <form class="panel stack" id="rules" novalidate>
     <h1>Aturan kartu</h1>
     <div class="form-grid">
@@ -526,6 +568,7 @@ async function settings() {
   $('#camp-start').value = ymd(Date.now());
   $('#camp-end').value = ymd(Date.now() + 14 * 864e5);
 
+  $('#backup').addEventListener('click', downloadBackup);
   $('#rules').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('button[type="submit"]', e.currentTarget);

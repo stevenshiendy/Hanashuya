@@ -25,8 +25,12 @@ insert into public.settings (id) values (1) on conflict do nothing;
 alter table public.settings add column if not exists auth_domain text not null default 'member.hanashuya.id';
 -- Current versions of syarat-ketentuan.html and kebijakan-privasi.html. Change these
 -- when you publish a new version, so new acceptances are recorded against it.
-alter table public.settings add column if not exists terms_version text not null default '2026-11-05';
-alter table public.settings add column if not exists privacy_version text not null default '2026-11-05';
+alter table public.settings add column if not exists terms_version text not null default '2026-11-06';
+alter table public.settings add column if not exists privacy_version text not null default '2026-11-06';
+-- Version of 6 November 2026 (standard layout, kasir redeems, card cycles, VireoPOS
+-- import, backups). Moving forward only, so re-running never undoes a later version.
+update public.settings set terms_version = '2026-11-06' where id = 1 and terms_version < '2026-11-06';
+update public.settings set privacy_version = '2026-11-06' where id = 1 and privacy_version < '2026-11-06';
 
 -- Rewards printed on the card: slot 3, slot 7 and slot 10.
 create table if not exists public.rewards (
@@ -1119,6 +1123,7 @@ begin
     'mismatches', coalesce((select json_agg(mm order by mm.created_at desc) from (
       select * from matched where problem is not null limit 100) mm), '[]'),
     'matched_days', (select count(distinct public._local(sold_at)::date) from pos_receipts where sold_at >= since),
+    'last_backup', (select max(created_at) from audit_log where action = 'unduh_cadangan'),
     'undo', coalesce((select json_agg(u order by u.created_at) from (
       select u.id, u.reason, u.created_at, rq.full_name as requested_by,
         case when u.sale_id is not null then 'penjualan' else 'penukaran' end as kind,
@@ -1300,6 +1305,40 @@ begin
   return r;
 end $$;
 
+-- Everything needed to rebuild the member program, for the owner's weekly download
+-- (Pengaturan > Cadangan data). Supabase Free keeps no automatic backups. Leaves out
+-- secrets: password hashes live in auth, reset codes and the QR signing key are skipped.
+create or replace function public.owner_backup() returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); out json;
+begin
+  out := json_build_object(
+    'dibuat', now(), 'versi', 1,
+    'pengaturan', (select json_build_object('card_size', card_size, 'rupiah_per_stamp', rupiah_per_stamp,
+      'max_stamps_per_day', max_stamps_per_day, 'open_time', open_time, 'close_time', close_time,
+      'late_minutes', late_minutes, 'tz', tz, 'auth_domain', auth_domain,
+      'terms_version', terms_version, 'privacy_version', privacy_version) from settings where id = 1),
+    'aturan_hadiah', coalesce((select json_agg(r order by r.slot) from rewards r), '[]'),
+    'produk', coalesce((select json_agg(m order by m.id) from menu_items m), '[]'),
+    'akun', coalesce((select json_agg(json_build_object('id', p.id, 'role', p.role, 'full_name', p.full_name,
+      'username', p.username, 'whatsapp', p.whatsapp, 'birth_date', p.birth_date, 'gender', p.gender,
+      'age_range', p.age_range, 'card_code', p.card_code, 'marketing_opt_in', p.marketing_opt_in,
+      'adult_confirmed', p.adult_confirmed, 'created_at', p.created_at, 'deleted_at', p.deleted_at)
+      order by p.created_at) from profiles p), '[]'),
+    'penjualan', coalesce((select json_agg(x order by x.id) from sales x), '[]'),
+    'hadiah_dipakai', coalesce((select json_agg(x order by x.id) from redemptions x), '[]'),
+    'kartu_penuh', coalesce((select json_agg(x order by x.member_id, x.cycle) from card_cycles x), '[]'),
+    'persetujuan', coalesce((select json_agg(x order by x.id) from consent_log x), '[]'),
+    'pembatalan', coalesce((select json_agg(x order by x.id) from undo_requests x), '[]'),
+    'struk_vireopos', coalesce((select json_agg(x order by x.sold_at) from pos_receipts x), '[]'),
+    'promo', coalesce((select json_agg(x order by x.id) from campaigns x), '[]'),
+    'catatan_aktivitas', coalesce((select json_agg(x order by x.id) from audit_log x), '[]'));
+  perform public._log('unduh_cadangan', jsonb_build_object(
+    'akun', (select count(*) from profiles), 'penjualan', (select count(*) from sales)));
+  return out;
+end $$;
+
 create or replace function public.owner_settings() returns json
 language plpgsql stable security definer set search_path = public
 as $$
@@ -1308,7 +1347,8 @@ begin
   return json_build_object('open_time', to_char(s.open_time, 'HH24:MI'), 'close_time', to_char(s.close_time, 'HH24:MI'),
     'rupiah_per_stamp', s.rupiah_per_stamp, 'max_stamps_per_day', s.max_stamps_per_day, 'late_minutes', s.late_minutes,
     'menu', coalesce((select json_agg(m order by m.sort, m.id) from menu_items m), '[]'),
-    'campaigns', coalesce((select json_agg(c order by c.starts_on desc) from campaigns c), '[]'));
+    'campaigns', coalesce((select json_agg(c order by c.starts_on desc) from campaigns c), '[]'),
+    'last_backup', (select max(created_at) from audit_log where action = 'unduh_cadangan'));
 end $$;
 
 create or replace function public.owner_save_settings(

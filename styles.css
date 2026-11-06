@@ -137,6 +137,23 @@ address { font-style: normal; }
 .doc ul { list-style: disc; padding-left: 1.2em; }
 .doc li + li { margin-top: 6px; }
 .doc-back { margin-top: 40px; }
+/* Terms and privacy: summary box, contents, numbered sections, tables */
+.doc p + p { margin-top: 10px; }
+.doc a { text-underline-offset: 3px; }
+.doc-meta { color: var(--muted); font-size: 15px; }
+.doc-summary { margin-top: 28px; padding: 20px 24px; border: 1px solid var(--rule); border-radius: 4px; }
+.doc-summary h2 { margin-top: 0; }
+.doc-summary p { margin-top: 12px; color: var(--muted); font-size: 15px; }
+.doc-toc { margin-top: 28px; }
+.doc-toc ol { list-style: decimal; padding-left: 1.4em; columns: 2 16rem; column-gap: 32px; }
+.doc-toc li { break-inside: avoid; }
+.doc-toc li + li { margin-top: 4px; }
+.doc h2[id] { scroll-margin-top: 96px; }
+.doc-table { overflow-x: auto; margin-top: 12px; }
+.doc table { width: 100%; border-collapse: collapse; font-size: 15px; line-height: 1.5; }
+.doc th, .doc td { text-align: left; vertical-align: top; padding: 10px 12px 10px 0; border-bottom: 1px solid var(--rule); }
+.doc th { font-weight: 500; color: var(--muted); }
+.doc td:first-child { min-width: 10rem; }
 
 /* Hover only where a pointer can really hover, so nothing stays stuck after a tap. */
 @media (hover: hover) {

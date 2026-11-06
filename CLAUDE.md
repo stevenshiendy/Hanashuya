@@ -13,11 +13,11 @@ Landing page and digital loyalty card for Hanashuya, a choux pastry booth at Pap
 ## Layout
 
 - `index.html`, `styles.css`: landing page. The nav and member section read `localStorage['hs-member']` (written by the member app) to show "Kartu saya" and a hello line.
-- `syarat-ketentuan.html`, `kebijakan-privasi.html`: terms and privacy, version 5 November 2026.
+- `syarat-ketentuan.html`, `kebijakan-privasi.html`: terms and privacy, version 6 November 2026: summary box, table of contents, numbered sections, tables (privacy follows UU PDP: purposes with legal basis, processors, transfers abroad, retention, 3 x 24 hour breach notice, rights). When either changes, bump `terms_version` / `privacy_version` in schema.sql so members re-accept.
 - `member/`: the loyalty app. Read `member/README.md` for setup, login, rules the database enforces, and what isn't built.
   - `index.html` + `js/member.js`: member card with Kartu, Hadiah, Riwayat, Akun tabs.
   - `staf.html` + `js/staff.js`: cashier in three steps: find the card (scan QR, photo or typed code) and see its stamps and ready rewards, tap Pakai to use a reward (then enter its VireoPOS code), enter the total, then a done screen. Tabs: Kasir and Hari ini (today's sales and redemptions, undo requests).
-  - `pemilik.html` + `js/owner.js`: owner dashboard (Ringkasan, Penjualan, Cocokkan struk, Staf, Bantuan akun, Pengaturan).
+  - `pemilik.html` + `js/owner.js`: owner dashboard (Ringkasan, Penjualan, Cocokkan struk, Staf, Bantuan akun, Pengaturan). Pengaturan > Cadangan data downloads `owner_backup()` as one .xlsx (a sheet per table, no secrets); Ringkasan warns when the last backup is 7+ days old. Supabase Free has no automatic backups.
   - `js/lib.js`: Supabase client, login/sign-up/forgot-password forms, helpers. `js/config.js`: project URL and publishable key (public by design).
   - `css/tokens.css` holds every colour and size; other CSS uses tokens only.
   - `supabase/schema.sql`: the whole database (tables, RLS, security-definer functions). Re-runnable; run it again after any change.
