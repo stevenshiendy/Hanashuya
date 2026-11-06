@@ -303,14 +303,3 @@ address { font-style: normal; }
 @media (hover: hover) { .member .btn:hover { color: var(--frosting); } }
 /* Header: "Pesan" is the one filled button, "Daftar / Masuk" a plain link beside it.
    The location section and footer carry the Maps link. */
-
-/* ShopeeFood on a computer: a QR code to open the shop on a phone */
-.shopee-dialog { margin: auto; max-height: calc(100dvh - 32px); overflow: auto; width: min(22rem, calc(100% - 32px)); padding: 28px 24px; border: 0; border-radius: 6px; background: var(--frosting); color: var(--altar-wine); text-align: center; --btn-bg: var(--real-red); --btn-ink: var(--frosting); --btn-hover: #8a0006; }
-.shopee-dialog::backdrop { background: rgb(40 0 2 / .65); }
-.shopee-dialog h2 { font-family: var(--heading); font-size: 26px; font-weight: 500; line-height: 1.2; color: var(--altar-wine); }
-.shopee-dialog p { margin-top: 10px; font-size: 16px; line-height: 1.5; }
-.shopee-dialog img { display: block; width: 220px; height: 220px; margin: 18px auto 0; image-rendering: pixelated; }
-.shopee-dialog .sd-alt a { color: var(--real-red); text-underline-offset: 3px; }
-.shopee-dialog .btn { margin-top: 18px; width: 100%; }
-.shopee-dialog .btn:focus-visible { outline: 2px solid var(--altar-wine); outline-offset: 2px; }
-@media (hover: hover) { .shopee-dialog .btn:hover { background: var(--btn-hover); } }
