@@ -14,7 +14,6 @@ const fmt = (opts) => (iso) => new Intl.DateTimeFormat('id-ID', { timeZone: TZ, 
 const monthYear = fmt({ month: 'long', year: 'numeric' });
 const shortDay = fmt({ weekday: 'short', day: 'numeric', month: 'short' });
 const clock = fmt({ hour: '2-digit', minute: '2-digit' });
-const clockSec = fmt({ hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const longDay = (ymd) => ymd ? new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(ymd + 'T00:00:00Z')) : 'Belum diisi';
 const imgFor = (slot) => REWARD_IMG[slot] || REWARD_IMG[10];
 
@@ -28,8 +27,7 @@ const ICONS = {
 const NAMES = { kartu: 'Kartu', hadiah: 'Hadiah', riwayat: 'Riwayat', akun: 'Akun' };
 
 let card = null;
-let tokenTimer, pollTimer, voucherTimer, wakeLock = null;
-let pending = null; // the reward waiting for a yes or no
+let tokenTimer, pollTimer, fastPoll, wakeLock = null;
 
 function choices(name, list, current) {
   return `<div class="choices">${list.map(([v, l]) => `
@@ -179,40 +177,23 @@ function shell() {
     </div>
   </dialog>
 
-  <dialog class="ask" id="ask" aria-labelledby="ask-title" aria-describedby="ask-text">
-    <img id="ask-img" src="" alt="" width="384" height="216">
-    <div class="ask-body">
-      <h2 id="ask-title">Yakin mau tukar hadiah ini?</h2>
-      <p id="ask-text">Tekan Ya saat Kakak sudah di depan kasir. Hadiah yang sudah ditukar tidak bisa dibatalkan.</p>
-      <div class="notice" id="ask-msg" hidden></div>
-      <div class="ask-actions">
-        <button class="btn btn-quiet" type="button" id="ask-no">Tidak</button>
-        <button class="btn" type="button" id="ask-yes">Ya, tukar</button>
-      </div>
-    </div>
-  </dialog>
-
   <dialog class="sheet voucher" id="voucher" aria-labelledby="vc-title">
     <div class="sheet-inner">
-      <div class="sheet-head"><h2 id="vc-title">Hadiah ditukar</h2><button class="btn btn-quiet" type="button" data-close>Tutup</button></div>
+      <div class="sheet-head"><h2 id="vc-title">Hadiah dipakai</h2><button class="btn btn-quiet" type="button" data-close>Tutup</button></div>
       <div class="sheet-mid" aria-live="polite">
         <img class="photo" id="vc-img" src="" alt="" width="148" height="148">
         <span class="label" id="vc-label"></span>
         <span class="meta" id="vc-meta"></span>
-        <span class="clock"><i aria-hidden="true"></i><span id="vc-clock" class="num"></span></span>
       </div>
       <div class="stack-sm">
-        <p class="note">Tunjukkan layar ini ke kasir. Jam di atas berjalan, jadi kasir tahu ini bukan tangkapan layar.</p>
+        <p class="note" id="vc-note"></p>
         <button class="btn done btn-block" type="button" data-close>Selesai</button>
       </div>
     </div>
   </dialog>`;
   $$('[data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
   $('#qr-sheet').addEventListener('close', closeQR);
-  $('#voucher').addEventListener('close', () => { clearInterval(voucherTimer); route(false); });
-  $('#ask-no').addEventListener('click', () => $('#ask').close());
-  $('#ask').addEventListener('close', () => { pending = null; });
-  $('#ask-yes').addEventListener('click', confirmRedeem);
+  $('#voucher').addEventListener('close', () => route(false));
   if (!shell.wired) { window.addEventListener('hashchange', () => route(true)); shell.wired = true; }
 }
 
@@ -247,11 +228,7 @@ function render(fresh) {
     if (navigator.vibrate) navigator.vibrate([30, 40, 30]);
   }
   $('#show-qr').addEventListener('click', openQR);
-  $$('[data-redeem]').forEach((b) => b.addEventListener('click', () => askRedeem(b)));
-  $$('[data-voucher]').forEach((b) => b.addEventListener('click', () => {
-    const r = c.redeemed.find((x) => String(x.id) === b.dataset.voucher);
-    if (r) showVoucher(r);
-  }));
+  $$('[data-show-qr]').forEach((b) => b.addEventListener('click', openQR));
   $('#edit').addEventListener('click', () => profileForm(card));
   $('#logout').addEventListener('click', logout);
   $('#pw-open').addEventListener('click', () => { $('#pw-form').hidden = false; $('#pw-new').focus(); });
@@ -283,6 +260,8 @@ function slots(c, fresh) {
 }
 
 function nextLine(c) {
+  const wait = c.waiting > 0 ? ` ${c.waiting} stempel sudah menunggu di kartu berikutnya.` : '';
+  if (c.position >= c.card_size) return `Kartu penuh. Kartu baru dimulai setelah semua hadiahnya dipakai.${wait}`;
   const ahead = c.rewards.filter((r) => r.cycle === c.cycle && r.status === 'terkunci').sort((a, b) => a.slot - b.slot)[0];
   return ahead ? `${ahead.slot - c.position} stempel lagi menuju ${ahead.label}` : 'Semua hadiah di kartu ini sudah terbuka';
 }
@@ -294,7 +273,7 @@ function viewCard(c, ready, fresh) {
   return `
   <div class="stage"><div class="wrap stage-inner">
     <h1 class="hello" id="h-kartu" tabindex="-1">Halo, ${esc(first)}</h1>
-    <p class="since">Member sejak ${esc(monthYear(c.member_since))}</p>
+    <p class="since">Member sejak ${esc(monthYear(c.member_since))}${c.cycle > 0 ? ` · Kartu ke-${c.cycle + 1}` : ''}</p>
     <div class="card3d" id="c3d"><div class="float"><div class="tilt">
       <button class="card" type="button" id="card" aria-pressed="false" aria-label="Kartu member, ${c.position} dari ${c.card_size} stempel. Ketuk untuk membalik.">
         <span class="card-face back"><img class="art" src="img/card-back.webp" width="900" height="514" alt="">${slots(c, fresh)}</span>
@@ -309,7 +288,7 @@ function viewCard(c, ready, fresh) {
   </div></div>
   <div class="wrap view-body" style="padding-top:var(--space-xl)">
     ${ready.length ? `<a class="teaser" href="#hadiah"><img src="${imgFor(ready[0].slot)}" alt="">
-      <span><b>${ready.length === 1 ? esc(ready[0].label) + ' siap ditukar' : ready.length + ' hadiah siap ditukar'}</b><span>Tukar langsung dari HP saat di kasir</span></span>
+      <span><b>${ready.length === 1 ? esc(ready[0].label) + ' siap ditukar' : ready.length + ' hadiah siap ditukar'}</b><span>Tunjukkan QR kartu ke kasir untuk memakainya</span></span>
       <span class="go">Lihat</span></a>` : ''}
     <section class="sec" aria-labelledby="promo-title">
       <h2 id="promo-title">Promo</h2>
@@ -320,70 +299,42 @@ function viewCard(c, ready, fresh) {
 
 /* ---------------- Hadiah */
 function viewRewards(c, ready) {
-  const older = ready.filter((r) => r.cycle < c.cycle);
+  const other = ready.filter((r) => r.cycle !== c.cycle);
   const now = c.rewards.filter((r) => r.cycle === c.cycle && r.status !== 'ditukar');
-  const list = [...older, ...now];
-  const recent = (iso) => Date.now() - Date.parse(iso) < 30 * 60000;
+  const list = [...now, ...other];
   return `
   <div class="wrap">
     <header class="view-head"><h1 id="h-hadiah" tabindex="-1">Hadiah</h1>
-      <p>${ready.length ? `${ready.length} hadiah siap ditukar. Tekan Tukar saat Kakak sudah di kasir.` : 'Kumpulkan stempel untuk membuka hadiah berikutnya.'}</p></header>
+      <p>${ready.length ? `${ready.length} hadiah siap dipakai. Di kasir, tunjukkan QR kartu Kakak. Kasir yang memakaikannya.` : 'Kumpulkan stempel untuk membuka hadiah berikutnya.'}</p></header>
     <div class="view-body">
       <ul class="tickets">${list.map((r) => {
         const open = r.status === 'tersedia';
         const left = r.slot - c.position;
         return `<li class="ticket ${open ? 'is-ready' : 'is-locked'}"><img src="${imgFor(r.slot)}" alt="" loading="lazy">
           <div class="body"><span class="title">${esc(r.label)}</span>
-          ${open ? `<span class="meta">${r.cycle < c.cycle ? 'Dari kartu sebelumnya' : `Terbuka di stempel ke-${r.slot}`}</span>
-            <button class="btn" type="button" data-redeem data-cycle="${r.cycle}" data-slot="${r.slot}" data-label="${esc(r.label)}">Tukar</button>`
+          ${open ? `<span class="meta">${r.cycle === c.cycle ? `Terbuka di stempel ke-${r.slot}` : `Dari kartu ke-${r.cycle + 1}`}</span>
+            <button class="btn" type="button" data-show-qr>Tunjukkan QR ke kasir</button>`
           : `<span class="meta">Kurang ${left} stempel lagi</span><span class="mini-track" aria-hidden="true"><i style="--p:${Math.min(1, c.position / r.slot)}"></i></span>`}
           </div></li>`;
       }).join('')}</ul>
       <section class="sec" aria-labelledby="used-title">
-        <h2 id="used-title">Sudah ditukar</h2>
+        <h2 id="used-title">Sudah dipakai</h2>
         ${c.redeemed.length ? `<ul class="plain">${c.redeemed.map((r) => `
           <li class="rowline"><span class="what">${esc(r.reward_label)}<small>${esc(shortDay(r.created_at))}, ${esc(clock(r.created_at))}</small></span>
-          ${recent(r.created_at) ? `<button class="btn btn-text" type="button" data-voucher="${r.id}">Lihat voucher</button>` : '<span class="tag tag-ok">Ditukar</span>'}</li>`).join('')}</ul>`
-          : '<p class="muted">Belum ada hadiah yang ditukar.</p>'}
+          <span class="tag tag-ok">Dipakai</span></li>`).join('')}</ul>`
+          : '<p class="muted">Belum ada hadiah yang dipakai.</p>'}
       </section>
     </div>
   </div>`;
 }
 
-function askRedeem(btn) {
-  pending = { cycle: Number(btn.dataset.cycle), slot: Number(btn.dataset.slot), label: btn.dataset.label };
-  $('#ask-title').textContent = `Yakin mau tukar ${pending.label}?`;
-  $('#ask-img').src = imgFor(pending.slot);
-  notice($('#ask-msg'), '');
-  busy($('#ask-yes'), false);
-  $('#ask').showModal();
-  $('#ask-no').focus();
-}
-
-async function confirmRedeem() {
-  if (!pending) return;
-  const btn = $('#ask-yes');
-  busy(btn, true, 'Menukar…');
-  try {
-    const r = await rpc('member_redeem', { p_cycle: pending.cycle, p_slot: pending.slot });
-    busy(btn, false);
-    $('#ask').close();
-    card = await rpc('my_card');
-    remember(card);
-    render([]);
-    route(false);
-    showVoucher({ id: r.id, reward_label: r.label, slot: r.slot, created_at: r.created_at });
-  } catch (e) { busy(btn, false); notice($('#ask-msg'), e.message); }
-}
-
-function showVoucher(r) {
+function showVoucher(r, newCard = false) {
+  $('#vc-note').textContent = newCard
+    ? `Kartu Kakak sudah penuh dan semua hadiahnya terpakai. Kartu ke-${card.cycle + 1} dimulai${card.position ? ` dengan ${card.position} stempel` : ''}.`
+    : 'Kasir sudah memakai hadiah ini untuk belanja Kakak. Selamat menikmati!';
   $('#vc-img').src = imgFor(r.slot);
   $('#vc-label').textContent = r.reward_label;
-  $('#vc-meta').textContent = `${card.full_name}, kartu ${card.card_code}. Ditukar ${shortDay(r.created_at)} pukul ${clock(r.created_at)}.`;
-  const tick = () => { $('#vc-clock').textContent = clockSec(new Date()); };
-  tick();
-  clearInterval(voucherTimer);
-  voucherTimer = setInterval(tick, 1000);
+  $('#vc-meta').textContent = `${card.full_name}, kartu ${card.card_code}. Dipakai ${shortDay(r.created_at)} pukul ${clock(r.created_at)}.`;
   $('#voucher').showModal();
   if (navigator.vibrate) navigator.vibrate(60);
 }
@@ -530,9 +481,11 @@ function restartRing(id, seconds) {
 async function openQR() {
   $('#qr-sheet').showModal();
   refreshToken();
+  clearInterval(fastPoll);
+  fastPoll = setInterval(poll, 3000);
   try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
 }
-function closeQR() { clearTimeout(tokenTimer); wakeLock?.release?.().catch(() => {}); wakeLock = null; }
+function closeQR() { clearTimeout(tokenTimer); clearInterval(fastPoll); wakeLock?.release?.().catch(() => {}); wakeLock = null; }
 async function refreshToken() {
   clearTimeout(tokenTimer);
   const box = $('#qr');
@@ -565,7 +518,7 @@ async function loadPromo() {
 
 /* ---------------- new stamps arrive while the card is open */
 async function poll() {
-  if (document.hidden || !card || $('#ask')?.open || $('#voucher')?.open) return;
+  if (document.hidden || !card || $('#voucher')?.open) return;
   try {
     const next = await rpc('my_card');
     if (next.total_stamps === card.total_stamps && next.redeemed.length === card.redeemed.length) return;
@@ -573,16 +526,20 @@ async function poll() {
     if (next.cycle === card.cycle) for (let i = card.position + 1; i <= next.position; i++) fresh.push(i);
     else for (let i = 1; i <= next.position; i++) fresh.push(i);
     const gained = next.total_stamps - card.total_stamps;
+    const known = new Set(card.redeemed.map((r) => r.id));
+    const used = next.redeemed.filter((r) => !known.has(r.id));
+    const newCard = next.cycle > card.cycle;
     $('#qr-sheet')?.close();
     card = next;
     remember(card);
     render(fresh);
-    if (location.hash !== '#kartu' && gained > 0) location.hash = 'kartu'; else route(false);
-    if (gained > 0) toast(`${gained} stempel masuk. Terima kasih!`);
+    if (location.hash !== '#kartu' && (gained > 0 || newCard)) location.hash = 'kartu'; else route(false);
+    if (used.length) showVoucher(used[0], newCard);
+    else if (gained > 0) toast(`${gained} stempel masuk. Terima kasih!`);
   } catch { /* the next poll retries */ }
 }
 
-function clearTimers() { clearTimeout(tokenTimer); clearInterval(pollTimer); clearInterval(voucherTimer); }
+function clearTimers() { clearTimeout(tokenTimer); clearInterval(pollTimer); clearInterval(fastPoll); }
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { if ($('#qr-sheet')?.open) refreshToken(); poll(); } });
 start();

@@ -107,7 +107,8 @@ Members are then asked to read and accept the new version the next time they ope
 - The member QR changes every 30 seconds; a scan is valid for 10 minutes while the cashier fills in the sale.
 - Staff and owner accounts can't hold stamps. One WhatsApp number or username is one account.
 - Stamps only between opening and closing time, and at most 6 stamps per card per day (both editable in **Pengaturan**).
-- Members redeem from their own phone: **Tukar** asks *Yakin mau tukar?* with Ya or Tidak, then shows a red voucher with a running clock for the cashier. Each reward redeems once, and the cashier's **Hari ini** tab lists today's redemptions to check against. After scanning a card, the cashier sees which rewards are ready and the VireoPOS code for each.
+- Rewards are used at the counter with the same card QR: after the scan the cashier sees the ready rewards, asks the member, taps **Pakai**, then enters the VireoPOS code (DISKONSTAMP1, DISKONSTAMP2, or tukar poin for stamp 10). The member's phone shows *Hadiah dipakai* within about 3 seconds. Each reward is used once; members cannot use one on their own.
+- A full card stays on screen until all its rewards are used. Stamps earned beyond it wait and carry over; when the last reward is used the member's phone says the next card has started ("Kartu ke-2"). Every filled card is stored in `card_cycles` with when it filled and when it closed, for tiered rewards later. **Hari ini** lists today's redemptions, and a wrong one is undone through *Minta batal* and the owner.
 - Cashiers can't delete anything. They request an undo with a reason (sales or redemptions); the owner approves or rejects it.
 - Typed card codes and a cashier stamping the same card 3+ times a week are flagged for the owner.
 - Members who fill in gender and age keep their own answers; cashiers tag walk-ins.

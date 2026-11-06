@@ -140,6 +140,20 @@ create table if not exists public.redemptions (
 create unique index if not exists redemptions_once
   on public.redemptions (member_id, cycle, slot) where reversed_at is null;
 
+-- One row per card a member has filled (cycle 0 is the first card). closed_at is set
+-- once every reward on that card has been used; only then does the member see a new
+-- card. Kept as rows, not worked out on the fly, so future tiers ("3 cards done")
+-- stay true even if card_size changes. Rebuilt by _sync_cycles after every change.
+create table if not exists public.card_cycles (
+  member_id uuid not null references public.profiles (id) on delete cascade,
+  cycle int not null check (cycle >= 0),
+  card_size int not null,
+  filled_at timestamptz not null,
+  closed_at timestamptz,
+  primary key (member_id, cycle)
+);
+alter table public.card_cycles enable row level security;
+
 create table if not exists public.redeem_codes (
   id bigint generated always as identity primary key,
   code text not null,
@@ -319,6 +333,52 @@ as $$
   from cyc cross join t cross join rewards r
   where r.slot <= t.size
   order by cyc.c, r.slot
+$$;
+
+-- Brings card_cycles up to date for one member: a row for every full card, with the
+-- time its last stamp landed and, once all its rewards are used, the time it closed.
+create or replace function public._sync_cycles(p uuid) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  size int := (select card_size from settings where id = 1);
+  full_cards int; n int; filled timestamptz; done timestamptz;
+begin
+  if p is null then return; end if;
+  full_cards := public._total(p) / size;
+  -- An approved undo can take a card back below full.
+  delete from card_cycles where member_id = p and cycle >= full_cards;
+  for n in 0 .. full_cards - 1 loop
+    select x.created_at into filled from (
+      select created_at, sum(stamps) over (order by created_at, id) as run
+      from sales where member_id = p and reversed_at is null) x
+    where x.run >= (n + 1) * size order by x.created_at limit 1;
+    if exists (select 1 from public._rewards(p) r where r.cycle = n and r.status <> 'ditukar') then
+      done := null;
+    else
+      select max(d.created_at) into done from redemptions d
+       where d.member_id = p and d.cycle = n and d.reversed_at is null;
+      done := coalesce(done, filled);
+    end if;
+    insert into card_cycles (member_id, cycle, card_size, filled_at, closed_at)
+    values (p, n, size, coalesce(filled, now()), done)
+    on conflict (member_id, cycle) do update set filled_at = excluded.filled_at, closed_at = excluded.closed_at;
+  end loop;
+end $$;
+
+-- The card the member sees: the oldest one not closed yet. A full card stays on screen
+-- until its rewards are used; stamps beyond it wait for the next card.
+create or replace function public._card_view(p uuid)
+returns table (cycle int, card_position int, waiting int, cards_done int)
+language sql stable security definer set search_path = public
+as $$
+  with t as (select public._total(p) as total, (select card_size from settings where id = 1) as size),
+  o as (
+    select coalesce(min(g), 0) as c from t, generate_series(0, t.total / t.size) g
+    where not exists (select 1 from card_cycles cc where cc.member_id = p and cc.cycle = g and cc.closed_at is not null))
+  select o.c, least(t.size, greatest(0, t.total - o.c * t.size)), greatest(0, t.total - (o.c + 1) * t.size),
+         (select count(*)::int from card_cycles cc where cc.member_id = p and cc.closed_at is not null)
+  from t, o
 $$;
 
 -- True when the card belongs to a staff member or shares their WhatsApp or email.
@@ -588,17 +648,18 @@ create or replace function public.my_card() returns json
 language plpgsql stable security definer set search_path = public
 as $$
 declare
-  me profiles; s settings := public._cfg(); v_total int;
+  me profiles; s settings := public._cfg(); v_total int; cv record;
 begin
   select * into me from profiles where id = auth.uid() and deleted_at is null;
   if me.id is null then raise exception 'Silakan masuk dulu.'; end if;
   v_total := public._total(me.id);
+  select * into cv from public._card_view(me.id);
   return json_build_object(
     'full_name', me.full_name, 'email', me.email, 'whatsapp', me.whatsapp,
     'gender', me.gender, 'age_range', me.age_range, 'card_code', me.card_code, 'member_since', me.created_at,
     'username', me.username, 'birth_date', me.birth_date, 'marketing_opt_in', me.marketing_opt_in,
     'total_stamps', v_total, 'card_size', s.card_size,
-    'cycle', v_total / s.card_size, 'position', v_total % s.card_size,
+    'cycle', cv.cycle, 'position', cv.card_position, 'waiting', cv.waiting, 'cards_done', cv.cards_done,
     'rupiah_per_stamp', s.rupiah_per_stamp,
     'rewards', coalesce((select json_agg(json_build_object('cycle', cycle, 'slot', slot, 'label', label, 'status', status))
                          from public._rewards(me.id)), '[]'),
@@ -652,9 +713,10 @@ language plpgsql volatile security definer set search_path = public
 as $$
 declare me profiles; r record; rid bigint; at timestamptz;
 begin
+  -- Rewards are used at the counter: the cashier scans the card QR and taps Pakai
+  -- (staff_redeem_reward). Members can no longer use one up on their own.
+  raise exception 'Tunjukkan QR kartu ke kasir. Kasir yang memakai hadiahnya untuk Kakak.';
   select * into me from profiles where id = auth.uid() and deleted_at is null;
-  if me.id is null then raise exception 'Silakan masuk dulu.'; end if;
-  if me.role <> 'member' then raise exception 'Akun staf tidak bisa menukar hadiah.'; end if;
   select * into r from public._rewards(me.id) x where x.cycle = p_cycle and x.slot = p_slot;
   if r.status is distinct from 'tersedia' then raise exception 'Hadiah ini sudah ditukar atau belum tersedia.'; end if;
   insert into redemptions (member_id, staff_id, cycle, slot, reward_label)
@@ -688,7 +750,7 @@ declare
   staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
   raw text := upper(trim(coalesce(p_scan, '')));
   parts text[]; code text; win bigint; now_win bigint := floor(extract(epoch from now()) / 30);
-  m profiles; via text; t uuid; v_total int; s settings := public._cfg();
+  m profiles; via text; t uuid; v_total int; s settings := public._cfg(); cv record;
 begin
   if raw like 'HS1.%' then
     parts := string_to_array(raw, '.');
@@ -714,9 +776,11 @@ begin
   insert into scan_tickets (staff_id, member_id, via, expires_at)
   values (staff, m.id, via, now() + interval '10 minutes') returning id into t;
   v_total := public._total(m.id);
+  select * into cv from public._card_view(m.id);
   return json_build_object(
     'ticket', t, 'via', via, 'first_name', public._first_name(m.full_name),
-    'card_code', m.card_code, 'total_stamps', v_total, 'position', v_total % s.card_size,
+    'card_code', m.card_code, 'total_stamps', v_total, 'position', cv.card_position,
+    'waiting', cv.waiting, 'cycle', cv.cycle, 'cards_done', cv.cards_done,
     'card_size', s.card_size, 'rupiah_per_stamp', s.rupiah_per_stamp,
     'has_demography', (m.gender is not null and m.age_range is not null),
     'rewards', coalesce((select json_agg(json_build_object('label', x.label, 'cycle', x.cycle, 'slot', x.slot))
@@ -731,7 +795,7 @@ as $$
 declare
   staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
   s settings := public._cfg();
-  tk scan_tickets; m profiles; n int := 0; today int; f text[] := '{}';
+  tk scan_tickets; m profiles; n int := 0; today int; f text[] := '{}'; cv record;
   raw text := replace(upper(regexp_replace(coalesce(p_receipt_no, ''), '[^A-Za-z0-9]', '', 'g')), 'O', '0');
   key text; v_day date := public._local(now())::date;
   lt time := public._local(now())::time; prev sales; sid bigint; v_total int;
@@ -804,9 +868,12 @@ begin
   if m.id is null then
     return json_build_object('sale_id', sid, 'member', false);
   end if;
+  perform public._sync_cycles(m.id);
   v_total := public._total(m.id);
+  select * into cv from public._card_view(m.id);
   return json_build_object('sale_id', sid, 'member', true, 'first_name', public._first_name(m.full_name),
-    'stamps', n, 'total_stamps', v_total, 'position', v_total % s.card_size, 'card_size', s.card_size,
+    'stamps', n, 'total_stamps', v_total, 'position', cv.card_position, 'waiting', cv.waiting,
+    'cycle', cv.cycle, 'card_size', s.card_size,
     'rewards', coalesce((select json_agg(x.label) from public._rewards(m.id) x where x.status = 'tersedia'), '[]'));
 end $$;
 
@@ -844,7 +911,34 @@ begin
   values (m.id, staff, rc.cycle, rc.slot, r.label) returning id into rid;
   update redeem_codes set used_at = now() where id = rc.id;
   perform public._log('tukar_hadiah', jsonb_build_object('redemption', rid, 'member', m.id, 'reward', r.label));
+  perform public._sync_cycles(m.id);
   return json_build_object('redemption_id', rid, 'first_name', public._first_name(m.full_name), 'label', r.label);
+end $$;
+
+-- The cashier uses a member's reward right after scanning their card (the same scan
+-- ticket as the stamp, valid 10 minutes). The member's phone shows it within seconds.
+create or replace function public.staff_redeem_reward(p_ticket uuid, p_cycle int, p_slot int) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
+  tk scan_tickets; m profiles; r record; rid bigint; at timestamptz; cv record;
+begin
+  select * into tk from scan_tickets where id = p_ticket and staff_id = staff and expires_at > now();
+  if tk.id is null then raise exception 'Scan kartu sudah lewat 10 menit. Scan ulang kartunya.'; end if;
+  select * into m from profiles where id = tk.member_id and deleted_at is null;
+  if m.id is null then raise exception 'Kartu tidak ditemukan.'; end if;
+  if m.id = staff or public._staff_conflict(m.id) then raise exception 'Hadiah untuk akun staf tidak bisa ditukar di sini.'; end if;
+  select * into r from public._rewards(m.id) x where x.cycle = p_cycle and x.slot = p_slot;
+  if r.status is distinct from 'tersedia' then raise exception 'Hadiah ini sudah dipakai atau belum terbuka.'; end if;
+  insert into redemptions (member_id, staff_id, cycle, slot, reward_label)
+  values (m.id, staff, p_cycle, p_slot, r.label) returning id, created_at into rid, at;
+  perform public._log('tukar_hadiah', jsonb_build_object('redemption', rid, 'member', m.id, 'reward', r.label, 'oleh', 'kasir', 'via', tk.via));
+  perform public._sync_cycles(m.id);
+  select * into cv from public._card_view(m.id);
+  return json_build_object('redemption_id', rid, 'label', r.label, 'slot', p_slot, 'created_at', at,
+    'first_name', public._first_name(m.full_name), 'new_card', cv.cycle > p_cycle,
+    'position', cv.card_position, 'cycle', cv.cycle);
 end $$;
 
 create or replace function public.staff_today() returns json
@@ -1078,8 +1172,10 @@ begin
   if p_approve then
     if u.sale_id is not null then
       update sales set reversed_at = now(), reversed_by = me where id = u.sale_id and reversed_at is null;
+      perform public._sync_cycles((select member_id from sales where id = u.sale_id));
     else
       update redemptions set reversed_at = now(), reversed_by = me where id = u.redemption_id and reversed_at is null;
+      perform public._sync_cycles((select member_id from redemptions where id = u.redemption_id));
     end if;
   end if;
   update undo_requests set status = case when p_approve then 'disetujui' else 'ditolak' end,
@@ -1286,3 +1382,7 @@ grant execute on function public._issue_reset_code(text, uuid) to service_role;
 
 revoke all on public.settings, public.redeem_codes, public.scan_tickets, public.undo_requests,
   public.pos_receipts, public.audit_log, public.password_resets, public.consent_log from anon, authenticated;
+revoke all on public.card_cycles from anon, authenticated;
+
+-- Fill card_cycles for every member who already has stamps (safe to repeat).
+select public._sync_cycles(id) from public.profiles where role = 'member' and deleted_at is null;

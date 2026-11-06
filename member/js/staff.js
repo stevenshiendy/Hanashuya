@@ -58,7 +58,8 @@ function render() {
 
 /* ---------------- sale: 1 find the card, 2 enter the purchase, 3 done */
 // VireoPOS codes for each reward, from SOP Bab 9. Stamp 10 has no code: it goes through "tukar poin".
-const POS_CODE = { 3: 'Kode VireoPOS DISKONSTAMP1', 7: 'Kode VireoPOS DISKONSTAMP2', 10: 'Tukar poin di VireoPOS' };
+const POS_CODE = { 3: 'DISKONSTAMP1', 7: 'DISKONSTAMP2' };
+const posStep = (slot) => POS_CODE[slot] ? `Masukkan kode ${POS_CODE[slot]} di VireoPOS` : 'Tukar poin di VireoPOS';
 
 function saleForm() {
   member = null; qty = {};
@@ -145,6 +146,13 @@ function nextGoal(position) {
   return r ? `${r.slot - position} stempel lagi menuju ${r.label}` : '';
 }
 
+// A full card stays until all its rewards are used; extra stamps wait for the next card.
+function cardNote(c) {
+  if (c.position >= c.card_size) return ` · Kartu penuh, kartu baru dimulai setelah hadiahnya dipakai${c.waiting ? `. ${c.waiting} stempel menunggu` : ''}`;
+  const goal = nextGoal(c.position);
+  return goal ? ' · ' + esc(goal) : '';
+}
+
 function choose(m) {
   member = m;
   if (m.rupiah_per_stamp) settingsRupiah = m.rupiah_per_stamp;
@@ -163,18 +171,22 @@ function choose(m) {
         <span class="muted small num">Kartu ${esc(m.card_code)}</span></span>
         <button class="btn btn-quiet" type="button" id="change">Ganti</button></div>
       ${stampRow(m.position, m.card_size)}
-      <p class="mem-count"><b class="num">${m.position}</b> dari ${m.card_size} stempel<span class="muted">${nextGoal(m.position) ? ' · ' + esc(nextGoal(m.position)) : ''}</span></p>
+      <p class="mem-count"><b class="num">${m.position}</b> dari ${m.card_size} stempel<span class="muted">${cardNote(m)}</span></p>
     </div>
     ${ready.length ? `<div class="ready">
       <h3>Hadiah siap dipakai</h3>
-      <ul class="list">${ready.map((r) => `<li><strong>${esc(r.label)}</strong><span class="muted small">${esc(POS_CODE[r.slot] || 'Tukar di VireoPOS')}</span></li>`).join('')}</ul>
-      <p class="muted small">Kalau member mau memakainya hari ini, minta ia menekan Tukar di tab Hadiah pada kartunya, lalu masukkan kodenya di VireoPOS.</p>
+      <p class="small">Tanya dulu: "Mau dipakai sekarang, Kak?" Kalau iya, tekan Pakai.</p>
+      <ul class="list">${ready.map((r) => `<li><span class="grow"><strong>${esc(r.label)}</strong><br>
+        <span class="muted small">${esc(posStep(r.slot))}</span></span>
+        <button class="btn" type="button" data-use data-cycle="${r.cycle}" data-slot="${r.slot}">Pakai</button></li>`).join('')}</ul>
+      <div class="notice" id="use-msg" hidden></div>
     </div>` : '<p class="muted small">Belum ada hadiah yang siap dipakai.</p>'}
     ${m.via === 'kode' ? '<p class="muted small">Kode diketik manual. Pemilik akan melihat catatan ini.</p>' : ''}`;
   }
   $('#change').addEventListener('click', () => {
     member = null; $('#m-chip').hidden = true; $('#m-pick').hidden = false; $('#sale').hidden = true; preview();
   });
+  $$('[data-use]', chip).forEach((b) => b.addEventListener('click', () => useReward(b)));
   const needDemo = m.walkin || !m.has_demography;
   $('#demo').hidden = !needDemo;
   $('#ages').innerHTML = AGES.filter(([v]) => m.walkin || v !== '<17')
@@ -183,6 +195,22 @@ function choose(m) {
   preview();
   $('#total').focus({ preventScroll: true });
   $('#m-title').scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+// The cashier uses a reward from the card scan; the member's phone shows it within seconds.
+async function useReward(btn) {
+  const li = btn.closest('li'), msg = $('#use-msg');
+  const cycle = Number(btn.dataset.cycle), slot = Number(btn.dataset.slot);
+  notice(msg, '');
+  busy(btn, true, 'Memakai…');
+  try {
+    const r = await rpc('staff_redeem_reward', { p_ticket: member.ticket, p_cycle: cycle, p_slot: slot });
+    li.innerHTML = `<span class="grow"><strong>${esc(r.label)}</strong> <span class="tag tag-ok">Dipakai ${esc(time(r.created_at))}</span><br>
+      <span class="used-step">${esc(posStep(slot))}</span></span>`;
+    if (r.new_card) notice(msg, `Kartu ini selesai. Kartu ke-${r.cycle + 1} dimulai${r.position ? ` dengan ${r.position} stempel` : ''}.`, 'ok');
+    member.rewards = member.rewards.filter((x) => !(x.cycle === cycle && x.slot === slot));
+    if (navigator.vibrate) navigator.vibrate(40);
+  } catch (e) { busy(btn, false); notice(msg, e.message); }
 }
 
 function preview() {
@@ -232,7 +260,7 @@ function done(r, total) {
     ${r.member ? `
       <p class="done-big">${esc(r.first_name)} dapat <b class="num">${r.stamps}</b> stempel</p>
       ${stampRow(r.position, r.card_size)}
-      <p class="mem-count"><b class="num">${r.position}</b> dari ${r.card_size} stempel<span class="muted">${nextGoal(r.position) ? ' · ' + esc(nextGoal(r.position)) : ''}</span></p>
+      <p class="mem-count"><b class="num">${r.position}</b> dari ${r.card_size} stempel<span class="muted">${cardNote(r)}</span></p>
       ${r.rewards.length ? `<p class="notice notice-ok">Hadiah siap dipakai: ${esc(r.rewards.join(', '))}.</p>` : ''}`
       : `<p class="done-big">Penjualan tanpa kartu member</p>`}
     <p class="muted small num">Total ${rupiah(total)}</p>
