@@ -235,3 +235,40 @@ tr.is-reversed td { color: var(--color-muted); text-decoration: line-through; }
 .pw input { padding-right: 72px; }
 .pw .pw-toggle { position: absolute; right: var(--space-2xs); min-height: 36px; font-size: var(--text-sm); }
 .h-small { font-size: var(--text-lg); font-family: var(--font-body); font-weight: 500; }
+
+/* kasir: the sign-up QR shown on the tablet for a customer to scan */
+.join-inner { justify-items: center; text-align: center; }
+.join-inner h2 { font-family: var(--font-display); font-weight: 500; }
+.join-qr { width: min(64vw, 18rem); aspect-ratio: 1; padding: var(--space-sm); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); }
+.join-qr svg { display: block; width: 100%; height: 100%; }
+
+/* printable sign-up poster (qr-daftar.html), sized for A5 */
+.poster-page { background: var(--color-paper-3); min-height: 100dvh; padding: var(--space-lg) var(--space-md); }
+.poster-tools { display: flex; justify-content: space-between; align-items: center; gap: var(--space-md); max-width: 148mm; margin: 0 auto var(--space-md); }
+.poster { max-width: 148mm; margin-inline: auto; overflow: hidden; border-radius: var(--radius-card); background: var(--color-paper); color: var(--color-ink); }
+.poster-band { display: grid; place-items: center; padding: var(--space-lg); background: var(--color-card); color: var(--color-paper); }
+.poster-band img { width: 55%; height: auto; }
+.poster-body { display: grid; justify-items: center; gap: var(--space-md); padding: var(--space-xl) var(--space-lg); text-align: center; }
+.poster-body h1 { font-family: var(--font-display); font-weight: 500; font-size: var(--text-2xl); line-height: 1.2; text-wrap: balance; }
+.poster-lead { font-size: var(--text-lg); text-wrap: balance; }
+.poster-qr { width: min(70vw, 70mm); aspect-ratio: 1; padding: var(--space-sm); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); }
+.poster-qr svg { display: block; width: 100%; height: 100%; }
+.poster-url { font-size: var(--text-md); font-weight: 500; letter-spacing: 0.02em; }
+.poster-offer { max-width: 30ch; font-size: var(--text-lg); text-wrap: balance; }
+.poster-offer b { color: var(--color-accent); font-weight: 600; }
+.poster-small { font-size: var(--text-sm); color: var(--color-muted); }
+@media print {
+  @page { size: A5; margin: 0; }
+  .poster-page { padding: 0; background: none; }
+  .poster-tools { display: none; }
+  .poster { max-width: none; min-height: 100vh; border-radius: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
+.join-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-lg); align-items: start; }
+.join-row .join-qr { width: 9rem; }
+@media (max-width: 30rem) { .join-row { grid-template-columns: 1fr; } }
+
+/* +62 phone field: sign-up form and the kasir Daftar member tab */
+.phone { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: stretch; }
+.phone .cc { display: grid; place-items: center; padding-inline: var(--space-sm); border: var(--rule-hair) solid var(--color-line); border-right: 0; border-radius: var(--radius-control) 0 0 var(--radius-control); background: var(--color-paper-3); color: var(--color-ink); font-variant-numeric: tabular-nums; }
+.phone input { border-radius: 0 var(--radius-control) var(--radius-control) 0; font-variant-numeric: tabular-nums; }
+.join-actions { justify-content: center; }

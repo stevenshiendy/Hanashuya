@@ -30,6 +30,10 @@ alter table public.settings add column if not exists privacy_version text not nu
 -- Version of 6 November 2026 (standard layout, kasir redeems, card cycles, VireoPOS
 -- import, backups). Moving forward only, so re-running never undoes a later version.
 update public.settings set terms_version = '2026-11-06' where id = 1 and terms_version < '2026-11-06';
+-- Terms of 7 November 2026: no daily stamp cap, 50% new-member voucher for 30 days,
+-- birthday voucher shown in the app, birth date fixed once set. Members accept it once
+-- the next time they open their card. The privacy policy did not change.
+update public.settings set terms_version = '2026-11-07' where id = 1 and terms_version < '2026-11-07';
 update public.settings set privacy_version = '2026-11-06' where id = 1 and privacy_version < '2026-11-06';
 
 -- Rewards printed on the card: slot 3, slot 7 and slot 10.
@@ -52,8 +56,10 @@ insert into public.menu_items (name, price, sort) values
   ('Signature 1 pc', 20000, 1),
   ('Signature box isi 6', 120000, 2),
   ('Mini choux box isi 8', 68000, 3),
-  ('Mini choux box isi 15', 120000, 4)
+  ('Mini choux box isi 15', 99000, 4)
 on conflict do nothing;
+-- The first seed had Mini choux box isi 15 at Rp120.000; the printed menu says Rp99.000.
+update public.menu_items set price = 99000 where name = 'Mini choux box isi 15' and price = 120000;
 
 -- ---------------------------------------------------------------- people
 create table if not exists public.profiles (
@@ -141,8 +147,16 @@ create table if not exists public.redemptions (
   reversed_at timestamptz,
   reversed_by uuid references public.profiles (id) on delete set null
 );
-create unique index if not exists redemptions_once
-  on public.redemptions (member_id, cycle, slot) where reversed_at is null;
+-- kind: 'stempel' for the card rewards (slot 3, 7, 10), 'welcome' for the new-member
+-- voucher (cycle 0, slot 0) and 'ulang_tahun' for the birthday voucher (cycle = the
+-- year of that birthday, slot 0). Vouchers share this table so undo, Hari ini, the
+-- dashboard and backups treat them like any other used reward.
+alter table public.redemptions add column if not exists kind text not null default 'stempel';
+alter table public.redemptions drop constraint if exists redemptions_kind_check;
+alter table public.redemptions add constraint redemptions_kind_check check (kind in ('stempel', 'welcome', 'ulang_tahun'));
+drop index if exists public.redemptions_once;
+create unique index if not exists redemptions_once_kind
+  on public.redemptions (member_id, kind, cycle, slot) where reversed_at is null;
 
 -- One row per card a member has filled (cycle 0 is the first card). closed_at is set
 -- once every reward on that card has been used; only then does the member see a new
@@ -329,7 +343,7 @@ as $$
   cyc as (select generate_series(0, t.total / t.size) as c from t)
   select cyc.c, r.slot, r.label,
     case
-      when exists (select 1 from redemptions d where d.member_id = p and d.cycle = cyc.c
+      when exists (select 1 from redemptions d where d.member_id = p and d.kind = 'stempel' and d.cycle = cyc.c
                    and d.slot = r.slot and d.reversed_at is null) then 'ditukar'
       when cyc.c * t.size + r.slot <= t.total then 'tersedia'
       else 'terkunci'
@@ -361,7 +375,7 @@ begin
       done := null;
     else
       select max(d.created_at) into done from redemptions d
-       where d.member_id = p and d.cycle = n and d.reversed_at is null;
+       where d.member_id = p and d.kind = 'stempel' and d.cycle = n and d.reversed_at is null;
       done := coalesce(done, filled);
     end if;
     insert into card_cycles (member_id, cycle, card_size, filled_at, closed_at)
@@ -383,6 +397,54 @@ as $$
   select o.c, least(t.size, greatest(0, t.total - o.c * t.size)), greatest(0, t.total - (o.c + 1) * t.size),
          (select count(*)::int from card_cycles cc where cc.member_id = p and cc.closed_at is not null)
   from t, o
+$$;
+
+-- The member's birthday in a given year. 29 February becomes 28 February in other years.
+create or replace function public._birthday_in(b date, y int) returns date
+language sql immutable
+as $$
+  select make_date(y, extract(month from b)::int, 1)
+       + (least(extract(day from b)::int,
+                extract(day from (make_date(y, extract(month from b)::int, 1) + interval '1 month - 1 day'))::int) - 1)
+$$;
+
+-- Vouchers that come with the account rather than with stamps:
+--   welcome      Diskon 50% untuk 1 produk, from the day the account is made until 30 days later.
+--   ulang_tahun  1 box Mini Choux isi 8, from 7 days before to 7 days after the birthday,
+--                once a year, for members who joined at least 30 days before that birthday
+--                (syarat dan ketentuan 7.2). Only the next birthday that qualifies is listed.
+-- status: 'belum' (not open yet), 'tersedia', 'dipakai', 'kedaluwarsa'.
+create or replace function public._vouchers(p uuid)
+returns table (kind text, period int, title text, label text, starts_on date, ends_on date, status text)
+language sql stable security definer set search_path = public
+as $$
+  with me as (
+    select pr.id, public._local(pr.created_at)::date as joined, pr.birth_date
+    from profiles pr where pr.id = p and pr.role = 'member' and pr.deleted_at is null),
+  t as (select public._local(now())::date as today),
+  welcome as (
+    select 'welcome'::text as kind, 0 as period, 'Hadiah member baru'::text as title,
+           'Diskon 50% untuk 1 produk'::text as label, me.joined as starts_on, me.joined + 30 as ends_on
+    from me),
+  bday as (
+    select 'ulang_tahun'::text as kind, y as period, 'Hadiah ulang tahun'::text as title,
+           '1 box Mini Choux isi 8 gratis'::text as label,
+           public._birthday_in(me.birth_date, y) - 7 as starts_on, public._birthday_in(me.birth_date, y) + 7 as ends_on
+    from me, t, generate_series(extract(year from t.today)::int - 1, extract(year from t.today)::int + 1) y
+    where me.birth_date is not null
+      and public._birthday_in(me.birth_date, y) + 7 >= t.today
+      and me.joined <= public._birthday_in(me.birth_date, y) - 30
+    order by y limit 1),
+  v as (select * from welcome union all select * from bday)
+  select v.kind, v.period, v.title, v.label, v.starts_on, v.ends_on,
+    case
+      when exists (select 1 from redemptions d where d.member_id = p and d.kind = v.kind
+                   and d.cycle = v.period and d.reversed_at is null) then 'dipakai'
+      when t.today < v.starts_on then 'belum'
+      when t.today > v.ends_on then 'kedaluwarsa'
+      else 'tersedia'
+    end
+  from v, t
 $$;
 
 -- True when the card belongs to a staff member or shares their WhatsApp or email.
@@ -630,6 +692,12 @@ begin
   if exists (select 1 from profiles where username = un and id <> auth.uid() and deleted_at is null) then raise exception 'Username sudah dipakai.'; end if;
   if p_birth_date is null then raise exception 'Isi tanggal lahir.'; end if;
   if age(current_date, p_birth_date) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
+  -- The birthday voucher depends on it, so once set only Hanashuya changes the birth date
+  -- (owner_set_birth_date, from Bantuan akun).
+  if (select birth_date from profiles where id = auth.uid()) is not null
+     and p_birth_date is distinct from (select birth_date from profiles where id = auth.uid()) then
+    raise exception 'Tanggal lahir tidak bisa diubah sendiri. Hubungi Hanashuya lewat WhatsApp untuk menggantinya.';
+  end if;
   if not coalesce(p_adult, false) then raise exception 'Setujui syarat dan ketentuan untuk melanjutkan.'; end if;
   -- Record acceptance when the current terms version has not been accepted yet,
   -- and record the promo choice whenever it changes.
@@ -671,8 +739,11 @@ begin
         select created_at, stamps, total, items from sales
         where member_id = me.id and reversed_at is null
         order by created_at desc limit 20) v), '[]'),
+    'vouchers', coalesce((select json_agg(json_build_object('kind', x.kind, 'period', x.period, 'title', x.title, 'label', x.label,
+                           'starts_on', x.starts_on, 'ends_on', x.ends_on, 'status', x.status))
+                         from public._vouchers(me.id) x where x.status <> 'kedaluwarsa'), '[]'),
     'redeemed', coalesce((select json_agg(r) from (
-        select id, created_at, reward_label, slot from redemptions
+        select id, created_at, reward_label, slot, kind from redemptions
         where member_id = me.id and reversed_at is null
         order by created_at desc limit 50) r), '[]'),
     'visit_count', (select count(*) from sales where member_id = me.id and reversed_at is null)
@@ -788,7 +859,32 @@ begin
     'card_size', s.card_size, 'rupiah_per_stamp', s.rupiah_per_stamp,
     'has_demography', (m.gender is not null and m.age_range is not null),
     'rewards', coalesce((select json_agg(json_build_object('label', x.label, 'cycle', x.cycle, 'slot', x.slot))
-                         from public._rewards(m.id) x where x.status = 'tersedia'), '[]'));
+                         from public._rewards(m.id) x where x.status = 'tersedia'), '[]'),
+    'vouchers', coalesce((select json_agg(json_build_object('kind', v.kind, 'period', v.period, 'title', v.title,
+                           'label', v.label, 'ends_on', v.ends_on))
+                         from public._vouchers(m.id) v where v.status = 'tersedia'), '[]'));
+end $$;
+
+-- The cashier uses the new-member or birthday voucher from the card scan, like a stamp reward.
+create or replace function public.staff_use_voucher(p_ticket uuid, p_kind text, p_period int) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
+  tk scan_tickets; m profiles; v record; rid bigint; at timestamptz;
+begin
+  select * into tk from scan_tickets where id = p_ticket and staff_id = staff and expires_at > now();
+  if tk.id is null then raise exception 'Scan kartu sudah lewat 10 menit. Scan ulang kartunya.'; end if;
+  select * into m from profiles where id = tk.member_id and deleted_at is null;
+  if m.id is null then raise exception 'Kartu tidak ditemukan.'; end if;
+  if m.id = staff or public._staff_conflict(m.id) then raise exception 'Hadiah untuk akun staf tidak bisa dipakai di sini.'; end if;
+  select * into v from public._vouchers(m.id) x where x.kind = p_kind and x.period = p_period;
+  if v.status is distinct from 'tersedia' then raise exception 'Voucher ini sudah dipakai atau sedang tidak berlaku.'; end if;
+  insert into redemptions (member_id, staff_id, cycle, slot, reward_label, kind)
+  values (m.id, staff, p_period, 0, v.label, p_kind) returning id, created_at into rid, at;
+  perform public._log('pakai_voucher', jsonb_build_object('redemption', rid, 'member', m.id, 'kind', p_kind, 'period', p_period, 'via', tk.via));
+  return json_build_object('redemption_id', rid, 'label', v.label, 'kind', p_kind, 'created_at', at,
+    'first_name', public._first_name(m.full_name));
 end $$;
 
 create or replace function public.staff_record_sale(
@@ -835,12 +931,12 @@ begin
         to_char(s.open_time, 'HH24:MI'), to_char(s.close_time, 'HH24:MI');
     end if;
     n := p_total / s.rupiah_per_stamp;
+    -- No daily cap: every purchase earns its stamps. A card that collects more than
+    -- max_stamps_per_day in one day is only flagged for the owner to check.
     select coalesce(sum(stamps), 0) into today from sales
      where member_id = m.id and reversed_at is null
        and public._local(created_at)::date = public._local(now())::date;
-    if today + n > s.max_stamps_per_day then
-      raise exception 'Batas % stempel per hari untuk satu kartu sudah tercapai (sudah % hari ini).', s.max_stamps_per_day, today;
-    end if;
+    if today + n > s.max_stamps_per_day then f := array_append(f, 'banyak_stempel_sehari'); end if;
     -- A double tap: the same card and the same total again within 10 minutes.
     select * into prev from sales
      where member_id = m.id and total = p_total and reversed_at is null and created_at > now() - interval '10 minutes'
@@ -1085,6 +1181,8 @@ begin
       'revenue', (select coalesce(sum(total), 0) from sl),
       'stamps', (select coalesce(sum(stamps), 0) from sl),
       'redemptions', (select count(*) from rd),
+      'welcome_used', (select count(*) from rd where kind = 'welcome'),
+      'birthday_used', (select count(*) from rd where kind = 'ulang_tahun'),
       'new_members', (select count(*) from profiles where role = 'member' and deleted_at is null and created_at >= since),
       'members', (select count(*) from profiles where role = 'member' and deleted_at is null),
       'active_members', (select count(distinct member_id) from sl where member_id is not null),
@@ -1287,11 +1385,25 @@ declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemi
 begin
   if length(q) < 3 then return '[]'; end if;
   return coalesce((select json_agg(x) from (
-    select full_name, username, whatsapp, role, created_at from profiles
+    select full_name, username, whatsapp, role, created_at, birth_date from profiles
     where deleted_at is null
       and (username like '%' || q || '%' or lower(full_name) like '%' || q || '%'
         or (length(regexp_replace(q, '\D', '', 'g')) >= 4 and whatsapp like '%' || regexp_replace(public._wa(q), '^62', '') || '%'))
     order by full_name limit 10) x), '[]');
+end $$;
+
+-- Members can't change their own birth date once it is set (it decides the birthday
+-- voucher). The owner corrects it here after checking, for example, an ID card.
+create or replace function public.owner_set_birth_date(p_login text, p_birth_date date) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); p profiles := public._find_login(p_login);
+begin
+  if p.id is null or p.role <> 'member' then raise exception 'Akun member tidak ditemukan.'; end if;
+  if p_birth_date is null then raise exception 'Isi tanggal lahir.'; end if;
+  if age(current_date, p_birth_date) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
+  update profiles set birth_date = p_birth_date, age_range = public._age_range(p_birth_date) where id = p.id;
+  perform public._log('ubah_tanggal_lahir', jsonb_build_object('member', p.id, 'dari', p.birth_date, 'jadi', p_birth_date));
 end $$;
 
 -- The owner makes a reset code to send by hand when the automatic WhatsApp is not set up.

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR Daftar Member Hanashuya</title>
+<meta name="robots" content="noindex">
+<meta name="description" content="Poster QR untuk mendaftar member Hanashuya di booth. Cetak dan pasang di meja kasir.">
+<link rel="icon" href="/img/favicon.png?v=2" type="image/png">
+<link rel="preload" href="fonts/cinzel.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/app.css">
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" defer></script>
+<script type="module">
+  import { signupUrl, qrSvg } from './js/lib.js';
+  const url = signupUrl();
+  const draw = () => {
+    document.getElementById('poster-qr').innerHTML = qrSvg(url);
+    document.getElementById('poster-url').textContent = url.replace(/^https?:\/\//, '');
+  };
+  if (window.qrcode) draw(); else window.addEventListener('load', draw);
+  document.getElementById('print').addEventListener('click', () => print());
+</script>
+</head>
+<body class="poster-page">
+<div class="poster-tools">
+  <a class="btn btn-text" href="pemilik.html#pengaturan">Kembali ke dasbor</a>
+  <button class="btn" type="button" id="print">Cetak poster</button>
+</div>
+<main class="poster" aria-labelledby="poster-title">
+  <header class="poster-band"><img src="img/logotype-cream.webp" width="480" height="81" alt="Hanashuya"></header>
+  <div class="poster-body">
+    <h1 id="poster-title">Kak, sudah jadi member Hanashuya?</h1>
+    <p class="poster-lead">Scan pakai kamera HP, isi data sebentar, kartu langsung aktif.</p>
+    <div class="poster-qr" id="poster-qr" role="img" aria-label="QR pendaftaran member Hanashuya"></div>
+    <p class="poster-url num" id="poster-url"></p>
+    <p class="poster-offer">Member baru dapat <b>diskon 50% untuk 1 produk</b>. Bisa langsung dipakai hari ini.</p>
+    <p class="poster-small">Berlaku 30 hari sejak daftar. Syarat dan ketentuan berlaku.</p>
+  </div>
+</main>
+</body>
+</html>

@@ -106,7 +106,7 @@ Members are then asked to read and accept the new version the next time they ope
 - Cashiers do not type a receipt number, only the total. The same card with the same total again within 10 minutes is refused as a double tap. In Cocokkan struk the owner uploads the VireoPOS *Laporan Penjualan Rinci* (.xls or .csv); each stamp is paired with one receipt of the same total within 15 minutes (a receipt covers one stamp only), and stamps without a receipt or with a different customer name on the receipt are listed.
 - The member QR changes every 30 seconds; a scan is valid for 10 minutes while the cashier fills in the sale.
 - Staff and owner accounts can't hold stamps. One WhatsApp number or username is one account.
-- Stamps only between opening and closing time, and at most 6 stamps per card per day (both editable in **Pengaturan**).
+- Stamps only between opening and closing time. There is no daily cap: every purchase gets its stamps. A card that gets more than the number set in **Pengaturan** (default 6) in one day is flagged in Ringkasan > Perlu dicek.
 - Rewards are used at the counter with the same card QR: after the scan the cashier sees the ready rewards, asks the member, taps **Pakai**, then enters the VireoPOS code (DISKONSTAMP1, DISKONSTAMP2, or tukar poin for stamp 10). The member's phone shows *Hadiah dipakai* within about 3 seconds. Each reward is used once; members cannot use one on their own.
 - A full card stays on screen until all its rewards are used. Stamps earned beyond it wait and carry over; when the last reward is used the member's phone says the next card has started ("Kartu ke-2"). Every filled card is stored in `card_cycles` with when it filled and when it closed, for tiered rewards later. **Hari ini** lists today's redemptions, and a wrong one is undone through *Minta batal* and the owner.
 - Cashiers can't delete anything. They request an undo with a reason (sales or redemptions); the owner approves or rejects it.
@@ -117,11 +117,20 @@ Members are then asked to read and accept the new version the next time they ope
 ## Not in this MVP yet
 
 - **WhatsApp verification at sign-up.** Every profile has an empty `whatsapp_verified_at` column and the app already reads it (`whoami().whatsapp_verified`). Once `wa-reset` is live, the same code path can confirm numbers: show a banner to unverified members, send a code, and set `whatsapp_verified_at` when it matches.
-- **Birthday reward in the app.** The birthday box is part of the program and staff give it by hand; birth dates are stored, but the app doesn't show or track it yet.
 - Bot check (Cloudflare Turnstile) on the sign-up form.
 - Importing existing VireoPOS members and their points, once the export format is known.
 - Flavour tracking, wallet passes, more than one brand.
-- The 20% first-purchase discount is also handled by hand by staff; the app doesn't track it yet.
+
+## Vouchers: new member and birthday
+
+- **Hadiah member baru:** Diskon 50% untuk 1 produk, once, from the sign-up day until 30 days later.
+- **Hadiah ulang tahun:** 1 box Mini Choux isi 8, once a year, from 7 days before to 7 days after the birthday, for members who joined at least 30 days before that birthday.
+
+Both appear on their own in the member's Kartu and Hadiah tabs and in the cashier's "Hadiah siap dipakai" list after a scan. The cashier taps **Pakai**, then enters **NEWMEMBER50** (new member) or **BIRTHDAYGIFT** (birthday) in VireoPOS. Members can't change their birth date after it is set; the owner corrects it in **Bantuan akun > Tanggal lahir**.
+
+## Sign-up QR
+
+`/daftar` opens the sign-up form directly. Print the poster from **Pengaturan > QR pendaftaran** (`qr-daftar.html`), or on the cashier tablet tap **Belum member? Tunjukkan QR daftar** so the customer scans it with their phone.
 
 ## Backups
 

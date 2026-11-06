@@ -1,4 +1,4 @@
-import { sb, configured, $, $$, esc, rpc, busy, notice, toast, day, mountLogin, setupMissing, session, prettyPhone, changePassword } from './lib.js';
+import { sb, configured, $, $$, esc, rpc, busy, notice, toast, day, mountLogin, setupMissing, session, prettyPhone, changePassword, waLink } from './lib.js';
 
 const app = $('#app');
 const VIEWS = ['kartu', 'hadiah', 'riwayat', 'akun'];
@@ -16,6 +16,12 @@ const shortDay = fmt({ weekday: 'short', day: 'numeric', month: 'short' });
 const clock = fmt({ hour: '2-digit', minute: '2-digit' });
 const longDay = (ymd) => ymd ? new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(ymd + 'T00:00:00Z')) : 'Belum diisi';
 const imgFor = (slot) => REWARD_IMG[slot] || REWARD_IMG[10];
+// New-member and birthday vouchers (my_card.vouchers): open, used or not open yet.
+const VOUCHER_IMG = { welcome: 'img/reward-free.webp', ulang_tahun: '../img/mini-8.webp' };
+const imgForRedeemed = (r) => VOUCHER_IMG[r.kind] || imgFor(r.slot);
+const ymdShort = (ymd) => new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(ymd + 'T00:00:00Z'));
+const openVouchers = (c) => (c.vouchers || []).filter((v) => v.status === 'tersedia');
+const helpText = (c) => `Halo Hanashuya, saya member${c?.card_code ? ` dengan kode kartu ${c.card_code}` : ''}. Saya mau tanya: `;
 
 const ICONS = {
   kartu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5"/><path d="M2.5 9.5h19M6 14.5h4"/></svg>',
@@ -39,7 +45,7 @@ function remember(c) {
   try {
     localStorage.setItem(CACHE, JSON.stringify({
       first: (c.full_name || '').split(' ')[0], position: c.position, size: c.card_size,
-      ready: c.rewards.filter((r) => r.status === 'tersedia').length,
+      ready: c.rewards.filter((r) => r.status === 'tersedia').length + openVouchers(c).length,
     }));
   } catch { /* the landing page just shows the plain link */ }
 }
@@ -50,13 +56,16 @@ async function start() {
   if (!configured) return setupMissing(app);
   if (!(await session())) {
     forget();
-    return mountLogin(app, {
+    mountLogin(app, {
       stage: true,
       title: 'Kartu member Hanashuya',
-      lead: 'Satu stempel setiap belanja Rp50.000. Stempel ke-3 diskon 10%, ke-7 diskon 20%, ke-10 satu produk gratis.',
+      lead: 'Daftar sekarang, langsung dapat diskon 50% untuk 1 produk. Lalu 1 stempel setiap belanja Rp50.000: stempel ke-3 diskon 10%, ke-7 diskon 20%, ke-10 satu produk gratis.',
       start: location.hash === '#daftar' ? 'daftar' : 'masuk',
       onDone: () => { if (location.hash === '#daftar') history.replaceState(null, '', location.pathname); boot(); },
     });
+    $('.sheet-paper > div')?.insertAdjacentHTML('beforeend',
+      `<p class="help-line">Ada kendala? <a href="${esc(waLink('Halo Hanashuya, saya mau tanya soal kartu member: '))}" target="_blank" rel="noopener">Chat Hanashuya di WhatsApp</a></p>`);
+    return;
   }
   boot();
 }
@@ -74,6 +83,7 @@ async function boot() {
     if (!who) throw new Error('Akun tidak ditemukan. Keluar, lalu masuk lagi.');
     if (who.role !== 'member') {
       app.innerHTML = `<div class="wrap page-pad"><section class="stack"><h1>Ini akun staf</h1>
+        ${location.hash === '#daftar' ? '<p class="notice notice-warn">Perangkat ini sedang masuk sebagai kasir, jadi formulir daftar member tidak bisa dibuka di sini. Minta pembeli scan QR di tab Daftar member dengan HP-nya, atau kirim link lewat WhatsApp dari tab itu.</p>' : ''}
         <p>Akun staf tidak bisa mengumpulkan stempel. Pakai nomor WhatsApp lain untuk kartu member pribadi.</p>
         <div class="row"><a class="btn" href="staf.html">Buka halaman kasir</a>${who.role === 'owner' ? '<a class="btn btn-quiet" href="pemilik.html">Buka dasbor pemilik</a>' : ''}
         <button class="btn btn-text" type="button" id="out">Keluar</button></div></section></div>`;
@@ -110,10 +120,14 @@ function profileForm(c, phone, { renew = false } = {}) {
     <label class="field"><span>Username</span>
       <input type="text" id="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" required value="${esc(c?.username)}">
       <span class="hint">3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.</span></label>
-    <label class="field"><span>Tanggal lahir</span>
-      <input type="date" id="birth_date" autocomplete="bday" max="${maxBirth}" required value="${esc(c?.birth_date || '')}"></label>
+    ${c?.birth_date ? `<div class="field"><span>Tanggal lahir</span><p>${esc(longDay(c.birth_date))}</p>
+      <input type="hidden" id="birth_date" value="${esc(c.birth_date)}">
+      <span class="hint">Dipakai untuk hadiah ulang tahun. Untuk menggantinya, <a href="${esc(waLink(helpText(c) + 'saya mau mengganti tanggal lahir.'))}" target="_blank" rel="noopener">hubungi Hanashuya</a>.</span></div>`
+    : `<label class="field"><span>Tanggal lahir</span>
+      <input type="date" id="birth_date" autocomplete="bday" max="${maxBirth}" required value="">
+      <span class="hint">Dipakai untuk hadiah ulang tahun dan tidak bisa diubah sendiri nanti.</span></label>`}
     <div class="field"><span>Nomor WhatsApp</span><p class="num">${esc(prettyPhone(c?.whatsapp || phone))}</p>
-      <span class="hint">Untuk mengganti nomor, hubungi Hanashuya.</span></div>
+      <span class="hint">Untuk mengganti nomor, <a href="${esc(waLink(helpText(c) + 'saya mau mengganti nomor WhatsApp.'))}" target="_blank" rel="noopener">hubungi Hanashuya</a>.</span></div>
     <fieldset class="field"><legend>Jenis kelamin <span class="hint">tidak wajib</span></legend>${choices('gender', GENDERS, c?.gender)}</fieldset>
     <label class="check"><input type="checkbox" id="marketing" ${c?.marketing_opt_in ? 'checked' : ''}>
       <span>Kirim info promo Hanashuya ke WhatsApp saya. Tidak wajib.</span></label>
@@ -212,10 +226,11 @@ function route(animate) {
 function render(fresh) {
   const c = card;
   const ready = c.rewards.filter((r) => r.status === 'tersedia');
+  const count = ready.length + openVouchers(c).length;
   $('#who').textContent = `Hai, ${(c.full_name || '').split(' ')[0]}`;
   const badge = $('#badge');
-  badge.hidden = !ready.length;
-  badge.textContent = ready.length;
+  badge.hidden = !count;
+  badge.textContent = count;
   $('#v-kartu').innerHTML = viewCard(c, ready, fresh);
   $('#v-hadiah').innerHTML = viewRewards(c, ready);
   $('#v-riwayat').innerHTML = viewHistory(c);
@@ -287,14 +302,26 @@ function viewCard(c, ready, fresh) {
     <button class="btn qr-btn" type="button" id="show-qr">${ICONS.qr}Tunjukkan QR ke kasir</button>
   </div></div>
   <div class="wrap view-body" style="padding-top:var(--space-xl)">
-    ${ready.length ? `<a class="teaser" href="#hadiah"><img src="${imgFor(ready[0].slot)}" alt="">
-      <span><b>${ready.length === 1 ? esc(ready[0].label) + ' siap ditukar' : ready.length + ' hadiah siap ditukar'}</b><span>Tunjukkan QR kartu ke kasir untuk memakainya</span></span>
-      <span class="go">Lihat</span></a>` : ''}
+    ${teaser(c, ready)}
     <section class="sec" aria-labelledby="promo-title">
       <h2 id="promo-title">Promo</h2>
       <div id="promo" class="stack-sm"><div class="skeleton" style="height:72px"></div></div>
     </section>
+    <p class="help-line">Ada pertanyaan? <a href="${esc(waLink(helpText(c)))}" target="_blank" rel="noopener">Chat Hanashuya di WhatsApp</a></p>
   </div>`;
+}
+
+function teaser(c, ready) {
+  const vouchers = openVouchers(c);
+  const n = ready.length + vouchers.length;
+  if (!n) return '';
+  const first = vouchers[0];
+  const img = first ? VOUCHER_IMG[first.kind] : imgFor(ready[0].slot);
+  const title = n > 1 ? `${n} hadiah siap ditukar` : `${first ? first.label : ready[0].label} siap ditukar`;
+  const sub = first && n === 1 ? `${first.title}, berlaku sampai ${ymdShort(first.ends_on)}. Tunjukkan QR kartu ke kasir.` : 'Tunjukkan QR kartu ke kasir untuk memakainya';
+  return `<a class="teaser" href="#hadiah"><img src="${img}" alt="">
+      <span><b>${esc(title)}</b><span>${esc(sub)}</span></span>
+      <span class="go">Lihat</span></a>`;
 }
 
 /* ---------------- Hadiah */
@@ -302,12 +329,21 @@ function viewRewards(c, ready) {
   const other = ready.filter((r) => r.cycle !== c.cycle);
   const now = c.rewards.filter((r) => r.cycle === c.cycle && r.status !== 'ditukar');
   const list = [...now, ...other];
+  const vouchers = (c.vouchers || []).filter((v) => v.status === 'tersedia' || v.status === 'belum');
+  const openCount = ready.length + openVouchers(c).length;
   return `
   <div class="wrap">
     <header class="view-head"><h1 id="h-hadiah" tabindex="-1">Hadiah</h1>
-      <p>${ready.length ? `${ready.length} hadiah siap dipakai. Di kasir, tunjukkan QR kartu Kakak. Kasir yang memakaikannya.` : 'Kumpulkan stempel untuk membuka hadiah berikutnya.'}</p></header>
+      <p>${openCount ? `${openCount} hadiah siap dipakai. Di kasir, tunjukkan QR kartu Kakak. Kasir yang memakaikannya.` : 'Kumpulkan stempel untuk membuka hadiah berikutnya.'}</p></header>
     <div class="view-body">
-      <ul class="tickets">${list.map((r) => {
+      <ul class="tickets">${vouchers.map((v) => {
+        const open = v.status === 'tersedia';
+        return `<li class="ticket ${open ? 'is-ready' : 'is-locked'}"><img src="${VOUCHER_IMG[v.kind]}" alt="" loading="lazy">
+          <div class="body"><span class="title">${esc(v.label)}</span>
+          <span class="meta">${esc(v.title)}. ${open ? `Berlaku sampai ${esc(ymdShort(v.ends_on))}` : `Bisa dipakai ${esc(ymdShort(v.starts_on))} sampai ${esc(ymdShort(v.ends_on))}`}</span>
+          ${open ? '<button class="btn" type="button" data-show-qr>Tunjukkan QR ke kasir</button>' : ''}
+          </div></li>`;
+      }).join('')}${list.map((r) => {
         const open = r.status === 'tersedia';
         const left = r.slot - c.position;
         return `<li class="ticket ${open ? 'is-ready' : 'is-locked'}"><img src="${imgFor(r.slot)}" alt="" loading="lazy">
@@ -332,7 +368,7 @@ function showVoucher(r, newCard = false) {
   $('#vc-note').textContent = newCard
     ? `Kartu Kakak sudah penuh dan semua hadiahnya terpakai. Kartu ke-${card.cycle + 1} dimulai${card.position ? ` dengan ${card.position} stempel` : ''}.`
     : 'Kasir sudah memakai hadiah ini untuk belanja Kakak. Selamat menikmati!';
-  $('#vc-img').src = imgFor(r.slot);
+  $('#vc-img').src = imgForRedeemed(r);
   $('#vc-label').textContent = r.reward_label;
   $('#vc-meta').textContent = `${card.full_name}, kartu ${card.card_code}. Dipakai ${shortDay(r.created_at)} pukul ${clock(r.created_at)}.`;
   $('#voucher').showModal();
@@ -392,6 +428,11 @@ function viewAccount(c) {
         <div class="notice" id="pw-msg" hidden></div>
         <div class="row"><button class="btn" type="submit">Simpan password</button><button class="btn btn-quiet" type="button" id="pw-cancel">Batal</button></div>
       </form>
+      <section class="panel-sunk stack-sm" aria-labelledby="help-title">
+        <h2 id="help-title">Butuh bantuan?</h2>
+        <p class="small">Stempel belum masuk, lupa password, atau mau ganti data? Chat kami di WhatsApp.</p>
+        <a class="btn" href="${esc(waLink(helpText(c)))}" target="_blank" rel="noopener">Chat WhatsApp Hanashuya</a>
+      </section>
       <nav class="links" aria-label="Tautan">
         <a href="../">Situs Hanashuya</a>
         <a href="../#menu">Menu dan harga</a>

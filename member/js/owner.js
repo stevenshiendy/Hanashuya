@@ -1,8 +1,8 @@
-import { sb, configured, $, $$, esc, rpc, busy, notice, toast, rupiah, when, day, mountLogin, setupMissing, session, signOut, tabs, prettyPhone } from './lib.js';
+import { sb, configured, $, $$, esc, rpc, busy, notice, toast, rupiah, when, day, mountLogin, setupMissing, session, signOut, tabs, prettyPhone, signupUrl, qrSvg } from './lib.js';
 
 const app = $('#app');
 const DAYS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
-const FLAG = { kode_diketik: 'Kode kartu diketik', staf_sama_sering: 'Staf yang sama sering memberi stempel ke kartu ini' };
+const FLAG = { kode_diketik: 'Kode kartu diketik', staf_sama_sering: 'Staf yang sama sering memberi stempel ke kartu ini', banyak_stempel_sehari: 'Banyak stempel dalam sehari' };
 const PROBLEM = { tidak_ada_struk_cocok: 'Tidak ada struk dengan total dan jam yang sama', nama_beda: 'Nama pelanggan di VireoPOS beda' };
 const LABEL = { perempuan: 'Perempuan', 'laki-laki': 'Laki-laki', tidak_disebut: 'Tidak disebut', kosong: 'Tidak diisi', '<17': 'Di bawah 17' };
 let range = Number(new URLSearchParams(location.search).get('hari')) || 30;
@@ -79,6 +79,8 @@ async function summary() {
     <div class="stat"><b>${rupiah(t.revenue)}</b><span>Total belanja tercatat</span></div>
     <div class="stat"><b>${t.stamps}</b><span>Stempel diberikan</span></div>
     <div class="stat"><b>${t.redemptions}</b><span>Hadiah ditukar</span></div>
+    <div class="stat"><b>${t.welcome_used ?? 0}</b><span>Voucher member baru dipakai</span></div>
+    <div class="stat"><b>${t.birthday_used ?? 0}</b><span>Voucher ulang tahun dipakai</span></div>
     <div class="stat"><b>${t.new_members}</b><span>Member baru dari ${t.members}</span></div>
     <div class="stat"><b>${t.avg_days_between_visits ?? '–'}</b><span>Rata-rata hari antar kunjungan</span></div>
   </div>
@@ -454,10 +456,30 @@ function help() {
     box.innerHTML = rows.length ? `<ul class="list">${rows.map((r) => `<li>
       <span class="grow"><strong>${esc(r.full_name || 'Tanpa nama')}</strong> <span class="tag">${r.role === 'member' ? 'Member' : r.role === 'owner' ? 'Pemilik' : 'Kasir'}</span><br>
         <span class="muted small num">${r.username ? '@' + esc(r.username) + ', ' : ''}${esc(prettyPhone(r.whatsapp))}</span></span>
-      <button class="btn btn-quiet" type="button" data-code="${esc(r.username || r.whatsapp)}" data-wa="${esc(r.whatsapp)}" data-name="${esc(r.full_name || '')}">Buat kode</button>
+      <span class="row">${r.role === 'member' ? `<button class="btn btn-quiet" type="button" data-bd="${esc(r.username || r.whatsapp)}" data-bd-now="${esc(r.birth_date || '')}">Tanggal lahir</button>` : ''}
+      <button class="btn btn-quiet" type="button" data-code="${esc(r.username || r.whatsapp)}" data-wa="${esc(r.whatsapp)}" data-name="${esc(r.full_name || '')}">Buat kode</button></span>
       <div class="code-out" hidden style="flex-basis:100%"></div></li>`).join('')}</ul>` : '<p class="muted">Tidak ada akun yang cocok.</p>';
+    $$('[data-bd]', box).forEach((b) => b.addEventListener('click', () => {
+      const out = b.closest('li').querySelector('.code-out');
+      out.hidden = false;
+      out.innerHTML = `<form class="panel-sunk stack-sm" novalidate>
+        <p class="small">Member tidak bisa mengubah tanggal lahir sendiri karena dipakai untuk hadiah ulang tahun. Ganti hanya setelah dicek, misalnya dari KTP.</p>
+        <label class="field"><span>Tanggal lahir</span><input type="date" value="${esc(b.dataset.bdNow)}" required></label>
+        <div class="notice" hidden></div>
+        <div class="row"><button class="btn" type="submit">Simpan tanggal lahir</button></div></form>`;
+      const f = $('form', out);
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = $('button[type="submit"]', f), val = $('input', f).value;
+        if (!val) { notice($('.notice', f), 'Isi tanggal lahir.'); return; }
+        busy(btn, true, 'Menyimpan…');
+        try { await rpc('owner_set_birth_date', { p_login: b.dataset.bd, p_birth_date: val }); b.dataset.bdNow = val; toast('Tanggal lahir tersimpan'); out.hidden = true; }
+        catch (err) { notice($('.notice', f), err.message); busy(btn, false); }
+      });
+      $('input', f).focus();
+    }));
     $$('[data-code]', box).forEach((b) => b.addEventListener('click', async () => {
-      const out = b.parentElement.querySelector('.code-out');
+      const out = b.closest('li').querySelector('.code-out');
       busy(b, true, 'Membuat…');
       try {
         const r = await rpc('owner_issue_reset_code', { p_login: b.dataset.code });
@@ -511,6 +533,18 @@ async function settings() {
   let s;
   try { s = await rpc('owner_settings'); } catch (e) { return failed(p, e, settings); }
   p.innerHTML = `
+  <section class="panel stack" aria-labelledby="join-title">
+    <h2 id="join-title">QR pendaftaran member</h2>
+    <div class="join-row">
+      <div class="join-qr" role="img" aria-label="QR pendaftaran member">${qrSvg(signupUrl())}</div>
+      <div class="stack-sm">
+        <p>Pembeli scan QR ini dengan HP-nya dan langsung masuk ke formulir daftar, tanpa membuka situs dulu. Alamatnya <span class="num">${esc(signupUrl().replace(/^https?:\/\//, ''))}</span>.</p>
+        <p class="muted small">Cetak posternya untuk meja kasir. Kasir juga bisa menampilkan QR ini di tablet lewat tombol "Belum member? Tunjukkan QR daftar".</p>
+        <div class="row"><a class="btn" href="qr-daftar.html">Buka poster untuk dicetak</a></div>
+      </div>
+    </div>
+  </section>
+
   <section class="panel stack" aria-labelledby="backup-title">
     <h2 id="backup-title">Cadangan data</h2>
     <p>${s.last_backup ? `Terakhir diunduh ${esc(when(s.last_backup))}.` : 'Belum pernah diunduh.'}</p>
@@ -525,10 +559,10 @@ async function settings() {
       <label class="field"><span>Jam buka</span><input type="time" id="open" value="${s.open_time}"></label>
       <label class="field"><span>Jam tutup</span><input type="time" id="close" value="${s.close_time}"></label>
       <label class="field"><span>Belanja per stempel (Rp)</span><input type="number" id="rupiah" min="1000" step="1000" value="${s.rupiah_per_stamp}"></label>
-      <label class="field"><span>Maks. stempel per kartu per hari</span><input type="number" id="max" min="1" value="${s.max_stamps_per_day}"></label>
+      <label class="field"><span>Tandai kartu yang dapat lebih dari … stempel sehari</span><input type="number" id="max" min="1" value="${s.max_stamps_per_day}"></label>
       <label class="field"><span>Selisih jam dengan struk (menit)</span><input type="number" id="late" min="1" value="${s.late_minutes}"></label>
     </div>
-    <p class="muted small">Stempel ditolak di luar jam buka. Hadiah tetap di stempel ke-3, ke-7, dan ke-10 seperti kartu cetak.</p>
+    <p class="muted small">Stempel ditolak di luar jam buka. Tidak ada batas stempel per hari: setiap belanja tetap dapat stempel, tapi kartu yang melewati angka di atas muncul di Ringkasan, bagian Perlu dicek. Hadiah tetap di stempel ke-3, ke-7, dan ke-10 seperti kartu cetak.</p>
     <div class="notice" id="rules-msg" hidden></div>
     <button class="btn" type="submit">Simpan aturan</button>
   </form>

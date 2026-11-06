@@ -1,4 +1,4 @@
-import { sb, configured, $, $$, esc, rpc, busy, notice, toast, rupiah, time, mountLogin, setupMissing, session, signOut, tabs, prettyPhone } from './lib.js';
+import { sb, configured, $, $$, esc, rpc, busy, notice, toast, rupiah, time, day, mountLogin, setupMissing, session, signOut, tabs, prettyPhone, toPhone, signupUrl, qrSvg } from './lib.js';
 
 const app = $('#app');
 let menu = [];
@@ -30,6 +30,8 @@ async function boot() {
     $('#reload').addEventListener('click', signOut);
     return;
   }
+  // The owner switches between this page and the dashboard from the header.
+  if (who.role === 'owner') $('#to-owner').hidden = false;
   const [{ data }, { data: rw }] = await Promise.all([
     sb.from('menu_items').select('id, name, price').order('sort'),
     sb.from('rewards').select('slot, label').order('slot'),
@@ -45,11 +47,14 @@ function render() {
     <div class="tabs" role="tablist" aria-label="Kasir">
       <button role="tab" id="t-sale" aria-controls="p-sale" data-tab="penjualan">Kasir</button>
       <button role="tab" id="t-today" aria-controls="p-today" data-tab="hari-ini">Hari ini</button>
+      <button role="tab" id="t-join" aria-controls="p-join" data-tab="daftar-member">Daftar member</button>
     </div>
     <section id="p-sale" role="tabpanel" aria-labelledby="t-sale" class="stack-lg"></section>
     <section id="p-today" role="tabpanel" aria-labelledby="t-today" class="stack" hidden></section>
+    <section id="p-join" role="tabpanel" aria-labelledby="t-join" class="stack" hidden></section>
   </div>`;
   saleForm();
+  joinTab();
   tabs(app, (t) => {
     if (t === 'hari-ini') loadToday();
     if (t !== 'penjualan') stopCamera();
@@ -60,6 +65,11 @@ function render() {
 // VireoPOS codes for each reward, from SOP Bab 9. Stamp 10 has no code: it goes through "tukar poin".
 const POS_CODE = { 3: 'DISKONSTAMP1', 7: 'DISKONSTAMP2' };
 const posStep = (slot) => POS_CODE[slot] ? `Masukkan kode ${POS_CODE[slot]} di VireoPOS` : 'Tukar poin di VireoPOS';
+// The VireoPOS code the cashier enters for each voucher.
+const VOUCHER_STEP = {
+  welcome: 'Masukkan kode NEWMEMBER50 di VireoPOS',
+  ulang_tahun: 'Masukkan kode BIRTHDAYGIFT di VireoPOS',
+};
 
 function saleForm() {
   member = null; qty = {};
@@ -82,6 +92,7 @@ function saleForm() {
         <input type="file" id="photo" accept="image/*" capture="environment" hidden>
         <button class="btn btn-text" type="button" id="walkin">Pembeli tanpa kartu</button>
       </div>
+      <button class="btn btn-quiet btn-block" type="button" id="join-qr">Belum member? Tunjukkan QR daftar</button>
     </div>
     <div id="m-chip" class="stack" hidden></div>
   </section>
@@ -119,6 +130,7 @@ function saleForm() {
   $('#photo').addEventListener('change', fromPhoto);
   $('#code-form').addEventListener('submit', (e) => { e.preventDefault(); lookup($('#card-code').value); });
   $('#walkin').addEventListener('click', () => choose({ walkin: true }));
+  $('#join-qr').addEventListener('click', () => $('#t-join').click());
   $$('.stepper').forEach((s) => s.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     const id = s.dataset.id; qty[id] = Math.max(0, (qty[id] || 0) + Number(b.dataset.d));
@@ -165,7 +177,7 @@ function choose(m) {
       <span class="muted small">Penjualan dicatat tanpa stempel.</span></span>
       <button class="btn btn-quiet" type="button" id="change">Ganti</button></div></div>`;
   } else {
-    const ready = m.rewards || [];
+    const ready = m.rewards || [], vouchers = m.vouchers || [];
     chip.innerHTML = `<div class="mem">
       <div class="mem-head"><span><strong class="mem-name">${esc(m.first_name)}</strong>
         <span class="muted small num">Kartu ${esc(m.card_code)}</span></span>
@@ -173,10 +185,12 @@ function choose(m) {
       ${stampRow(m.position, m.card_size)}
       <p class="mem-count"><b class="num">${m.position}</b> dari ${m.card_size} stempel<span class="muted">${cardNote(m)}</span></p>
     </div>
-    ${ready.length ? `<div class="ready">
+    ${ready.length || vouchers.length ? `<div class="ready">
       <h3>Hadiah siap dipakai</h3>
       <p class="small">Tanya dulu: "Mau dipakai sekarang, Kak?" Kalau iya, tekan Pakai.</p>
-      <ul class="list">${ready.map((r) => `<li><span class="grow"><strong>${esc(r.label)}</strong><br>
+      <ul class="list">${vouchers.map((v) => `<li><span class="grow"><strong>${esc(v.label)}</strong> <span class="tag">${esc(v.title)}</span><br>
+        <span class="muted small">${esc(VOUCHER_STEP[v.kind] || '')}. Berlaku sampai ${esc(day(v.ends_on))}.</span></span>
+        <button class="btn" type="button" data-voucher data-kind="${esc(v.kind)}" data-period="${v.period}">Pakai</button></li>`).join('')}${ready.map((r) => `<li><span class="grow"><strong>${esc(r.label)}</strong><br>
         <span class="muted small">${esc(posStep(r.slot))}</span></span>
         <button class="btn" type="button" data-use data-cycle="${r.cycle}" data-slot="${r.slot}">Pakai</button></li>`).join('')}</ul>
       <div class="notice" id="use-msg" hidden></div>
@@ -187,6 +201,7 @@ function choose(m) {
     member = null; $('#m-chip').hidden = true; $('#m-pick').hidden = false; $('#sale').hidden = true; preview();
   });
   $$('[data-use]', chip).forEach((b) => b.addEventListener('click', () => useReward(b)));
+  $$('[data-voucher]', chip).forEach((b) => b.addEventListener('click', () => useVoucher(b)));
   const needDemo = m.walkin || !m.has_demography;
   $('#demo').hidden = !needDemo;
   $('#ages').innerHTML = AGES.filter(([v]) => m.walkin || v !== '<17')
@@ -209,6 +224,20 @@ async function useReward(btn) {
       <span class="used-step">${esc(posStep(slot))}</span></span>`;
     if (r.new_card) notice(msg, `Kartu ini selesai. Kartu ke-${r.cycle + 1} dimulai${r.position ? ` dengan ${r.position} stempel` : ''}.`, 'ok');
     member.rewards = member.rewards.filter((x) => !(x.cycle === cycle && x.slot === slot));
+    if (navigator.vibrate) navigator.vibrate(40);
+  } catch (e) { busy(btn, false); notice(msg, e.message); }
+}
+
+// New-member and birthday vouchers, used from the same scan.
+async function useVoucher(btn) {
+  const li = btn.closest('li'), msg = $('#use-msg'), kind = btn.dataset.kind;
+  notice(msg, '');
+  busy(btn, true, 'Memakai…');
+  try {
+    const r = await rpc('staff_use_voucher', { p_ticket: member.ticket, p_kind: kind, p_period: Number(btn.dataset.period) });
+    li.innerHTML = `<span class="grow"><strong>${esc(r.label)}</strong> <span class="tag tag-ok">Dipakai ${esc(time(r.created_at))}</span><br>
+      <span class="used-step">${esc(VOUCHER_STEP[kind] || '')}</span></span>`;
+    member.vouchers = (member.vouchers || []).filter((v) => v.kind !== kind);
     if (navigator.vibrate) navigator.vibrate(40);
   } catch (e) { busy(btn, false); notice(msg, e.message); }
 }
@@ -268,6 +297,49 @@ function done(r, total) {
   </section>`;
   $('#next').addEventListener('click', () => { saleForm(); $('#scan').focus(); });
   $('#done').focus();
+}
+
+/* ---------------- Daftar member tab: QR for the customer's phone, plus the link itself.
+   The tablet is signed in as kasir and the member page shares that sign-in, so the form
+   is meant to be opened on the customer's own phone (scan, or the link sent by WhatsApp). */
+function joinTab() {
+  const url = signupUrl();
+  const message = `Halo Kak, ini link daftar member Hanashuya: ${url} Setelah daftar, tunjukkan QR kartu ke kasir untuk pakai diskon 50% untuk 1 produk.`;
+  const p = $('#p-join');
+  p.innerHTML = `
+  <section class="panel stack join-inner" aria-labelledby="join-title">
+    <h2 id="join-title">Daftar member Hanashuya</h2>
+    <p>Minta pembeli scan QR ini dengan kamera HP-nya. Isi data sebentar, kartu langsung aktif.</p>
+    <div class="join-qr" role="img" aria-label="QR pendaftaran member">${qrSvg(url)}</div>
+    <p class="muted small num">${esc(url.replace(/^https?:\/\//, ''))}</p>
+    <p class="small">Setelah daftar, minta pembeli menunjukkan QR kartunya. Hadiah member baru langsung bisa dipakai.</p>
+    <div class="row join-actions">
+      <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Buka formulir daftar</a>
+      <button class="btn btn-quiet" type="button" id="join-copy">Salin link</button>
+    </div>
+  </section>
+  <form class="panel stack" id="join-wa" novalidate aria-labelledby="join-wa-title">
+    <h2 id="join-wa-title">Kirim link ke WhatsApp pembeli</h2>
+    <p class="muted small">Untuk pembeli yang buru-buru: link daftar dikirim ke HP-nya, isi nanti.</p>
+    <label class="field"><span>Nomor WhatsApp pembeli</span>
+      <span class="phone"><span class="cc" aria-hidden="true">+62</span>
+      <input type="tel" id="join-phone" inputmode="tel" autocomplete="off" placeholder="812 3456 7890"></span></label>
+    <div class="notice" id="join-msg" hidden></div>
+    <button class="btn" type="submit">Kirim lewat WhatsApp</button>
+  </form>
+  <p class="muted small">Formulir daftar tidak bisa diisi di tablet ini selama tablet masuk sebagai kasir. Buka di HP pembeli.</p>`;
+  $('#join-copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(url); toast('Link daftar tersalin'); }
+    catch { toast(url); }
+  });
+  $('#join-wa').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const phone = toPhone($('#join-phone').value);
+    if (!phone) { notice($('#join-msg'), 'Tulis nomor WhatsApp yang aktif, misalnya 0812 3456 7890.'); $('#join-phone').focus(); return; }
+    notice($('#join-msg'), '');
+    window.open(`https://wa.me/${phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+    $('#join-phone').value = '';
+  });
 }
 
 /* ---------------- QR reading */

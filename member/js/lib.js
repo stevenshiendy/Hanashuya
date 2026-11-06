@@ -94,6 +94,22 @@ export function setupMissing(root) {
   </div>`;
 }
 
+// The sign-up address in every booth QR. It opens the sign-up form directly. (/daftar is
+// a shorter address for typing, and redirects here.)
+export const signupUrl = () => location.origin + '/member/#daftar';
+
+// A QR code as inline SVG. Needs qrcode-generator loaded on the page.
+export function qrSvg(text) {
+  if (!window.qrcode) return '';
+  const q = window.qrcode(0, 'M');
+  q.addData(text);
+  q.make();
+  return q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+}
+
+// A chat with Hanashuya on WhatsApp, with the first message already typed.
+export const waLink = (text) => `https://wa.me/${HANASHUYA_WHATSAPP}` + (text ? `?text=${encodeURIComponent(text)}` : '');
+
 export function toPhone(raw) {
   let d = String(raw || '').replace(/\D/g, '');
   if (d.startsWith('62')) d = d.slice(2);

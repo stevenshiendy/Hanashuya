@@ -10,6 +10,7 @@
 <link rel="icon" href="/img/favicon.png?v=2" type="image/png">
 <link rel="apple-touch-icon" href="/img/apple-touch-icon.png?v=2">
 <link rel="stylesheet" href="css/app.css">
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" defer></script>
 <script type="module" src="js/staff.js"></script>
 </head>
 <body class="w-staff">
@@ -17,7 +18,7 @@
 <header class="bar">
   <div class="bar-inner">
     <a class="brand" href="staf.html">Hanashuya <span class="role">Kasir</span></a>
-    <button class="btn btn-text" type="button" id="logout" hidden>Keluar</button>
+    <div class="row"><a class="btn btn-text" href="pemilik.html" id="to-owner" hidden>Dasbor</a><button class="btn btn-text" type="button" id="logout" hidden>Keluar</button></div>
   </div>
 </header>
 <main id="app" class="w-staff" tabindex="-1">
