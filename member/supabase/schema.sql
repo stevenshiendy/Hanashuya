@@ -517,12 +517,14 @@ begin
   if bd is not null and age(current_date, bd) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
   insert into profiles (id, email, whatsapp, username, full_name, birth_date, age_range, gender, adult_confirmed, marketing_opt_in, card_code)
   values (new.id, lower(new.email), wa, un, nm, bd, public._age_range(bd),
-          nullif(meta->>'gender', ''), coalesce((meta->>'consent')::boolean, false) and bd is not null,
+          nullif(meta->>'gender', ''), bd is not null,
           coalesce((meta->>'marketing')::boolean, false), public._new_card_code())
   on conflict (id) do nothing;
-  if coalesce((meta->>'consent')::boolean, false) then
-    perform public._record_consent(new.id, 'daftar', coalesce((meta->>'marketing')::boolean, false));
-  end if;
+  -- No terms checkbox while the legal pages are offline (Glenn, 7 Nov 2026); only the
+  -- promo choice is recorded.
+  insert into consent_log (user_id, document, version, accepted, method)
+  select new.id, 'promo_whatsapp', s.privacy_version, coalesce((meta->>'marketing')::boolean, false), 'daftar'
+  from settings s where s.id = 1;
   return new;
 end $$;
 
@@ -665,12 +667,9 @@ as $$
   select json_build_object('id', id, 'role', role, 'full_name', full_name, 'username', username, 'whatsapp', whatsapp,
     'whatsapp_verified', whatsapp_verified_at is not null,
     'profile_complete', (full_name is not null and birth_date is not null and username is not null and adult_confirmed),
-    -- false when the member has not accepted the current terms and privacy versions
-    'terms_ok', role <> 'member' or (
-      exists (select 1 from consent_log c join settings s on s.id = 1 where c.user_id = profiles.id
-              and c.accepted and c.document = 'syarat' and c.version = s.terms_version)
-      and exists (select 1 from consent_log c join settings s on s.id = 1 where c.user_id = profiles.id
-              and c.accepted and c.document = 'privasi' and c.version = s.privacy_version)))
+    -- Always true while the legal pages are offline, so nobody is asked to re-accept.
+    -- To bring the check back, restore it from git history (commit 86704a7).
+    'terms_ok', true)
   from profiles where id = auth.uid() and deleted_at is null
 $$;
 
@@ -698,12 +697,8 @@ begin
      and p_birth_date is distinct from (select birth_date from profiles where id = auth.uid()) then
     raise exception 'Tanggal lahir tidak bisa diubah sendiri. Hubungi Hanashuya lewat WhatsApp untuk menggantinya.';
   end if;
-  if not coalesce(p_adult, false) then raise exception 'Setujui syarat dan ketentuan untuk melanjutkan.'; end if;
-  -- Record acceptance when the current terms version has not been accepted yet,
-  -- and record the promo choice whenever it changes.
-  if not coalesce((public.whoami()->>'terms_ok')::boolean, false) then
-    perform public._record_consent(auth.uid(), 'ubah data', null);
-  end if;
+  -- p_adult is no longer checked: there is no terms checkbox while the legal pages are
+  -- offline. The age check above still applies. Record the promo choice when it changes.
   if p_marketing is not null and p_marketing is distinct from (select marketing_opt_in from profiles where id = auth.uid()) then
     insert into consent_log (user_id, document, version, accepted, method)
     values (auth.uid(), 'promo_whatsapp', (select privacy_version from settings where id = 1), p_marketing, 'ubah data');
@@ -750,17 +745,18 @@ begin
   );
 end $$;
 
--- The QR changes every 30 seconds so a shared screenshot stops working.
+-- The QR changes every 5 minutes (Glenn, 7 Nov 2026: 30 seconds was stressful at the
+-- till) so an old shared screenshot still stops working.
 create or replace function public.card_token() returns json
 language plpgsql stable security definer set search_path = public
 as $$
-declare code text; win bigint := floor(extract(epoch from now()) / 30);
+declare code text; win bigint := floor(extract(epoch from now()) / 300);
 begin
   select replace(card_code, '-', '') into code from profiles where id = auth.uid() and deleted_at is null;
   if code is null then raise exception 'Silakan masuk dulu.'; end if;
   return json_build_object(
     'token', 'HS1.' || code || '.' || win || '.' || public._token_sig(code, win),
-    'expires_in', 30 - (floor(extract(epoch from now()))::bigint % 30));
+    'expires_in', 300 - (floor(extract(epoch from now()))::bigint % 300));
 end $$;
 
 create or replace function public.create_redeem_code(p_cycle int, p_slot int) returns json
@@ -824,7 +820,7 @@ as $$
 declare
   staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
   raw text := upper(trim(coalesce(p_scan, '')));
-  parts text[]; code text; win bigint; now_win bigint := floor(extract(epoch from now()) / 30);
+  parts text[]; code text; win bigint; now_win bigint := floor(extract(epoch from now()) / 300);
   m profiles; via text; t uuid; v_total int; s settings := public._cfg(); cv record;
 begin
   if raw like 'HS1.%' then
@@ -832,7 +828,8 @@ begin
     if array_length(parts, 1) <> 4 then raise exception 'QR tidak dikenali.'; end if;
     code := parts[2];
     begin win := parts[3]::bigint; exception when others then raise exception 'QR tidak dikenali.'; end;
-    if win < now_win - 2 or win > now_win + 1 then
+    -- Current or previous 5-minute window, so a QR shown just before it changed still scans.
+    if win < now_win - 1 or win > now_win + 1 then
       raise exception 'QR sudah kedaluwarsa. Minta member membuka ulang kartunya.';
     end if;
     if lower(parts[4]) <> public._token_sig(code, win) then raise exception 'QR tidak valid.'; end if;

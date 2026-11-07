@@ -1,6 +1,6 @@
 # Hanashuya member card
 
-Lives inside the landing site at `/member/`. The landing page links to it from the nav, the member section and the footer, and both share `../kebijakan-privasi.html`.
+Lives inside the landing site at `/member/`. The landing page links to it from the nav, the member section and the footer, and both share the site's fonts and images.
 
 Digital version of the Hanashuya loyalty card: 1 stamp per Rp50.000, 10% off at stamp 3, 20% off at stamp 7, a free product at stamp 10.
 
@@ -89,9 +89,9 @@ The **Bantuan akun** tab keeps working either way, as a backup.
 
 ## Terms, privacy and consent records
 
-`syarat-ketentuan.html` and `kebijakan-privasi.html` are linked from the sign-up form, the Akun tab and the site footer. Sign-up needs one ticked box for the terms (and having read the privacy policy); WhatsApp promos are a separate, optional box that members can change later in **Ubah data**.
+**Offline since 7 November 2026.** Glenn took `syarat-ketentuan.html` and `kebijakan-privasi.html` off the site until they're finalised; the drafts are in `~/Documents/Hanashuya Drafts/legal-pages/`. Sign-up has no terms box for now, `whoami().terms_ok` is always true, and `update_my_profile` ignores `p_adult`. The WhatsApp promo box stays (optional, changeable in **Ubah data**). To bring the pages back: restore them to the site root, the links (footer, sign-up, Akun) and the box, the `terms_ok` check (see commit 86704a7), and bump the versions below.
 
-Every acceptance and every promo opt-in or opt-out goes into `consent_log` with the document version, time and where it happened (`daftar` or `ubah data`). Rows can't be changed or deleted, and they stay after an account is deleted (holding only the account id).
+Every promo opt-in or opt-out (and, before 7 Nov 2026, every acceptance) goes into `consent_log` with the document version, time and where it happened (`daftar` or `ubah data`). Rows can't be changed or deleted, and they stay after an account is deleted (holding only the account id).
 
 When you change either page in a material way, update its version date on the page and in the database:
 
@@ -104,7 +104,7 @@ Members are then asked to read and accept the new version the next time they ope
 ## Rules the database enforces
 
 - Cashiers do not type a receipt number, only the total. The same card with the same total again within 10 minutes is refused as a double tap. In Cocokkan struk the owner uploads the VireoPOS *Laporan Penjualan Rinci* (.xls or .csv); each stamp is paired with one receipt of the same total within 15 minutes (a receipt covers one stamp only), and stamps without a receipt or with a different customer name on the receipt are listed.
-- The member QR changes every 30 seconds; a scan is valid for 10 minutes while the cashier fills in the sale.
+- The member QR changes every 5 minutes; a scan is valid for 10 minutes while the cashier fills in the sale.
 - Staff and owner accounts can't hold stamps. One WhatsApp number or username is one account.
 - Stamps only between opening and closing time. There is no daily cap: every purchase gets its stamps. A card that gets more than the number set in **Pengaturan** (default 6) in one day is flagged in Ringkasan > Perlu dicek.
 - Rewards are used at the counter with the same card QR: after the scan the cashier sees the ready rewards, asks the member, taps **Pakai**, then enters the VireoPOS code (DISKONSTAMP1, DISKONSTAMP2, or tukar poin for stamp 10). The member's phone shows *Hadiah dipakai* within about 3 seconds. Each reward is used once; members cannot use one on their own.

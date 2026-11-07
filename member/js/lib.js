@@ -6,6 +6,22 @@ export const sb = configured
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'pkce' } })
   : null;
 
+// Login cookie (api/session.js): a copy of the refresh token in a 400-day HttpOnly
+// cookie, so a member stays signed in even after iPhone Safari wipes localStorage.
+// Renewed on every open; cleared on Keluar. Fails quietly where /api isn't served.
+async function keep(body) {
+  try {
+    const r = await fetch('/api/session', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return r.status === 200 ? await r.json() : null;
+  } catch { return null; }
+}
+// Call before signing out, so the cookie is gone before the page moves on.
+export const forgetLogin = () => keep({ action: 'clear' });
+sb?.auth.onAuthStateChange((event, s) => {
+  if (s?.refresh_token && ['INITIAL_SESSION', 'SIGNED_IN', 'TOKEN_REFRESHED'].includes(event)) keep({ action: 'save', refresh_token: s.refresh_token });
+  if (event === 'SIGNED_OUT') keep({ action: 'clear' });
+});
+
 export const $ = (s, el = document) => el.querySelector(s);
 export const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -176,8 +192,6 @@ export function mountLogin(root, { title, lead, onDone, stage = false, staff = f
       <fieldset class="field"><legend>Jenis kelamin <span class="hint">tidak wajib</span></legend>
         <div class="choices">${[['perempuan', 'Perempuan'], ['laki-laki', 'Laki-laki'], ['tidak_disebut', 'Tidak ingin menyebutkan']].map(([v, l]) =>
           `<label class="choice"><input type="radio" name="su-gender" value="${v}"><span>${l}</span></label>`).join('')}</div></fieldset>
-      <label class="check"><input type="checkbox" id="su-consent" required>
-        <span>Saya setuju dengan <a href="../syarat-ketentuan.html" target="_blank">syarat dan ketentuan</a> dan sudah membaca <a href="../kebijakan-privasi.html" target="_blank">kebijakan privasi</a>.</span></label>
       <label class="check"><input type="checkbox" id="su-marketing">
         <span>Kirim info promo Hanashuya ke WhatsApp saya. Tidak wajib, bisa diubah kapan saja di Akun.</span></label>
       <div class="notice" id="signup-msg" hidden></div>
@@ -271,7 +285,6 @@ export function mountLogin(root, { title, lead, onDone, stage = false, staff = f
     if (!phone) return fail('Tulis nomor WhatsApp yang aktif, misalnya 0812 3456 7890.', 'su-phone');
     if (!USERNAME.test(username)) return fail('Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.', 'su-username');
     if (password.length < 8) return fail('Password minimal 8 karakter.', 'su-password');
-    if (!$('#su-consent', root).checked) return fail('Centang persetujuan syarat dan ketentuan untuk melanjutkan.', 'su-consent');
     notice(msg, '');
     busy(btn, true, 'Membuat kartu…');
     try {
@@ -280,7 +293,7 @@ export function mountLogin(root, { title, lead, onDone, stage = false, staff = f
       if (taken.phone_taken) { busy(btn, false); return fail('Nomor ini sudah punya akun. Masuk saja, atau tekan Lupa password.', 'su-phone'); }
       const { data, error } = await sb.auth.signUp({
         email: randomHandle(), password,
-        options: { data: { full_name: name, birth_date: birth, whatsapp: phone, username, gender, consent: true, marketing: $('#su-marketing', root).checked } },
+        options: { data: { full_name: name, birth_date: birth, whatsapp: phone, username, gender, marketing: $('#su-marketing', root).checked } },
       });
       busy(btn, false);
       if (error) return fail(/database error/i.test(error.message) ? 'Akun belum bisa dibuat. Periksa data Anda, lalu coba lagi.' : cleanError(error));
@@ -348,10 +361,15 @@ export async function changePassword(password) {
 
 export async function session() {
   const { data } = await sb.auth.getSession();
-  return data.session;
+  if (data.session) return data.session;
+  const kept = await keep({ action: 'restore' });
+  if (!kept?.access_token) return null;
+  const { data: restored, error } = await sb.auth.setSession(kept);
+  return error ? null : restored.session;
 }
 
 export async function signOut() {
+  await forgetLogin();
   await sb.auth.signOut();
   location.hash = '';
   location.reload();

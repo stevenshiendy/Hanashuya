@@ -1,4 +1,4 @@
-import { sb, configured, $, $$, esc, rpc, busy, notice, toast, day, mountLogin, setupMissing, session, prettyPhone, changePassword, waLink } from './lib.js';
+import { sb, configured, $, $$, esc, rpc, busy, notice, toast, day, mountLogin, setupMissing, session, prettyPhone, changePassword, waLink, forgetLogin } from './lib.js';
 
 const app = $('#app');
 const VIEWS = ['kartu', 'hadiah', 'riwayat', 'akun'];
@@ -98,6 +98,7 @@ async function boot() {
 
 async function logout() {
   forget();
+  await forgetLogin();
   await sb.auth.signOut();
   location.href = './';
 }
@@ -131,8 +132,6 @@ function profileForm(c, phone, { renew = false } = {}) {
     <fieldset class="field"><legend>Jenis kelamin <span class="hint">tidak wajib</span></legend>${choices('gender', GENDERS, c?.gender)}</fieldset>
     <label class="check"><input type="checkbox" id="marketing" ${c?.marketing_opt_in ? 'checked' : ''}>
       <span>Kirim info promo Hanashuya ke WhatsApp saya. Tidak wajib.</span></label>
-    <label class="check"><input type="checkbox" id="adult" ${edit ? 'checked' : ''} required>
-      <span>Saya setuju dengan <a href="../syarat-ketentuan.html" target="_blank">syarat dan ketentuan</a> dan sudah membaca <a href="../kebijakan-privasi.html" target="_blank">kebijakan privasi</a>.</span></label>
     <div class="notice" id="pf-msg" hidden></div>
     <div class="row">
       <button class="btn" type="submit">${renew ? 'Setuju dan lanjut' : edit ? 'Simpan' : 'Aktifkan kartu'}</button>
@@ -149,7 +148,6 @@ function profileForm(c, phone, { renew = false } = {}) {
     if (!/^[a-z0-9._]{3,20}$/.test(username)) { notice(msg, 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'); $('#username').focus(); return; }
     if (!birth) { notice(msg, 'Isi tanggal lahir.'); $('#birth_date').focus(); return; }
     if (birth > maxBirth) { notice(msg, 'Kartu member hanya untuk usia 17 tahun ke atas.'); $('#birth_date').focus(); return; }
-    if (!$('#adult').checked) { notice(msg, 'Centang persetujuan syarat dan ketentuan untuk melanjutkan.'); $('#adult').focus(); return; }
     busy(btn, true, 'Menyimpan…');
     try {
       await rpc('update_my_profile', { p_full_name: name, p_username: username, p_birth_date: birth, p_gender: $('input[name="gender"]:checked')?.value || null, p_adult: true, p_marketing: $('#marketing').checked });
@@ -185,7 +183,7 @@ function shell() {
         <span class="who" id="qr-name"></span>
         <span class="card-code" id="qr-code" aria-label="Kode kartu"></span>
         <div class="ring-row"><svg class="ring" viewBox="0 0 56 56" aria-hidden="true"><circle class="bg" cx="28" cy="28" r="24"/><circle class="fg" id="qr-ring" cx="28" cy="28" r="24"/></svg>
-          <span id="qr-note">QR berganti setiap 30 detik. Kasir juga bisa mengetik kode di atas.</span></div>
+          <span id="qr-note">QR berganti setiap 5 menit. Kasir juga bisa mengetik kode di atas.</span></div>
       </div>
       <p class="muted small" style="text-align:center">Naikkan kecerahan layar jika kasir sulit memindai.</p>
     </div>
@@ -261,7 +259,7 @@ function render(fresh) {
   $('#del-no').addEventListener('click', () => { $('#del-confirm').hidden = true; $('#del').focus(); });
   $('#del-yes').addEventListener('click', async (e) => {
     busy(e.currentTarget, true, 'Menghapus…');
-    try { await rpc('delete_my_account'); forget(); await sb.auth.signOut(); location.href = './'; }
+    try { await rpc('delete_my_account'); forget(); await forgetLogin(); await sb.auth.signOut(); location.href = './'; }
     catch (err) { notice($('#del-msg'), err.message); busy(e.currentTarget, false); }
   });
   loadPromo();
@@ -436,8 +434,6 @@ function viewAccount(c) {
       <nav class="links" aria-label="Tautan">
         <a href="../">Situs Hanashuya</a>
         <a href="../#menu">Menu dan harga</a>
-        <a href="../syarat-ketentuan.html">Syarat dan ketentuan</a>
-        <a href="../kebijakan-privasi.html">Kebijakan privasi</a>
       </nav>
       <div class="stack-sm">
         <button class="btn btn-text" type="button" id="del" style="justify-self:start;padding-inline:0">Hapus akun</button>
