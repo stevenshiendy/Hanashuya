@@ -27,14 +27,15 @@ function readCookie(req) {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).end();
   // Only this site's own pages may call it.
   const origin = req.headers.origin;
   if (!origin || origin !== `https://${req.headers.host}`) return res.status(403).end();
 
-  const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+  let body;
+  try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch { return res.status(400).end(); }
   const token = typeof body.refresh_token === 'string' ? body.refresh_token : '';
 
   if (body.action === 'save') {
@@ -67,4 +68,4 @@ module.exports = async function handler(req, res) {
   }
 
   return res.status(400).end();
-};
+}
