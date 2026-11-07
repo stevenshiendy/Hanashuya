@@ -131,6 +131,7 @@ address { font-style: normal; }
 .foot-grid { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 20px 32px; align-items: center; }
 .foot img { width: 200px; }
 .foot ul { display: flex; flex-wrap: wrap; gap: 0 22px; }
+.foot-copy { flex-basis: 100%; color: var(--muted); font-size: 14px; }
 
 /* Privacy page */
 .doc { max-width: 44rem; margin-inline: auto; padding: 120px var(--gutter) var(--section); }

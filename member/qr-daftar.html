@@ -10,16 +10,7 @@
 <link rel="preload" href="fonts/cinzel.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="css/app.css">
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" defer></script>
-<script type="module">
-  import { signupUrl, qrSvg } from './js/lib.js';
-  const url = signupUrl();
-  const draw = () => {
-    document.getElementById('poster-qr').innerHTML = qrSvg(url);
-    document.getElementById('poster-url').textContent = url.replace(/^https?:\/\//, '');
-  };
-  if (window.qrcode) draw(); else window.addEventListener('load', draw);
-  document.getElementById('print').addEventListener('click', () => print());
-</script>
+<script type="module" src="js/poster.js"></script>
 </head>
 <body class="poster-page">
 <div class="poster-tools">

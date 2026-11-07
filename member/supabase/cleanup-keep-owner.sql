@@ -5,7 +5,8 @@
 -- redemptions, filled-card records, scan tickets, undo requests, imported POS
 -- receipts, reset codes, consent records of removed accounts, and the audit log.
 -- Keeps: the owner account, settings, rewards, menu and campaigns.
--- Then creates the demo member account: username hanashuya, password testingmantap88.
+-- Then creates the demo member account: username hanashuya, and the password you put
+-- in place of GANTI_PASSWORD_DEMO below (replace it before running).
 --
 -- Everything runs as one block, so it either all happens or nothing does. (The
 -- SQL Editor does not keep temporary tables between statements, so none are used.)
@@ -41,7 +42,10 @@ begin
 
   -- Demo member account for showing the card. Sign in with "hanashuya" (or
   -- 0800 0000 0088) and the password below. Its WhatsApp number is a placeholder.
-  uid := public._create_login('6280000000088', 'testingmantap88', 'hanashuya', 'Hanashuya Demo');
+  if 'GANTI_PASSWORD_DEMO' = 'GANTI_' || 'PASSWORD_DEMO' then
+    raise exception 'Ganti GANTI_PASSWORD_DEMO dengan password demo yang baru dulu.';
+  end if;
+  uid := public._create_login('6280000000088', 'GANTI_PASSWORD_DEMO', 'hanashuya', 'Hanashuya Demo');
   update public.profiles
      set birth_date = '2000-01-01', age_range = public._age_range('2000-01-01'), adult_confirmed = true
    where id = uid;

@@ -8,7 +8,9 @@ Landing page and digital loyalty card for Hanashuya, a choux pastry booth at Pap
 - Don't delete files without asking.
 - Design work follows the Hallmark, Hue and better-typography skills and the App Launch checklist (`~/Documents/Hanashuya/App Launch Prep.pdf`). Lint the member app with
   `node ~/.agents/skills/hallmark/scripts/sloplint.mjs member/css/*.css member/js/*.js member/*.html --scope app` (0 FAIL expected; the 4 WARN are accepted).
-- Plain HTML, CSS and ES modules. No build step, no framework. Keep it that way.
+- Plain HTML, CSS and ES modules, no framework. The only build step is `build.mjs` (Glenn, 7 Nov 2026: make the site hard to copy and read): on deploy Vercel runs `npm run build`, which copies the site to `dist/` with HTML, CSS and JS minified (esbuild, html-minifier-terser) and leaves out notes, SQL and tooling. Edit the readable sources, never `dist/`. Preview the minified build with the `site-dist` launch config (port 8766, sends the `vercel.json` headers with the CSP enforced).
+- No inline `<script>` blocks: the Content-Security-Policy refuses them. Put scripts in files (`site.js`, `member/js/poster.js`). Inline `style=` attributes are allowed.
+- Protection: `vercel.json` sends X-Frame-Options DENY (no embedding in other sites), a Content-Security-Policy (report-only until the logged-in kasir and owner flows are checked live, then switch the key to `Content-Security-Policy`), and COOP. `robots.txt` keeps `/member/` and `/api/` out of search and blocks AI training crawlers. The footer carries "© 2026 Hanashuya. Hak cipta dilindungi." The GitHub repo should be private.
 
 ## Design language (web)
 
@@ -35,7 +37,7 @@ Brand, voice and copy rules, Glenn's print house style, the design workflow and 
   - `supabase/schema.sql`: the whole database (tables, RLS, security-definer functions). Re-runnable; run it again after any change.
   - `supabase/cleanup-keep-owner.sql`: one-time pre-launch cleanup plus the demo account.
   - `supabase/functions/wa-reset/`: WhatsApp Cloud API sender, parked (not deployed).
-- `vercel.json` sets headers; `.vercelignore` keeps `member/supabase` and `member/README.md` off the live site.
+- `vercel.json` sets the build, output (`dist`) and headers; `.vercelignore` and the skip list in `build.mjs` keep `member/supabase`, `member/README.md`, notes and tooling off the live site.
 
 ## How it works
 

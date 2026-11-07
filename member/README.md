@@ -46,7 +46,7 @@ Use a different WhatsApp number for your own member card: staff and owner accoun
 
 ## 4. Clear test data and add the demo account
 
-Before launch, run `supabase/cleanup-keep-owner.sql` once in the SQL Editor. It removes every account except the owner, plus all sales, redemptions and logs, and creates a demo member account (username `hanashuya`, password `testingmantap88`) for showing the card. Don't run it after real members have signed up.
+Before launch, run `supabase/cleanup-keep-owner.sql` once in the SQL Editor. It removes every account except the owner, plus all sales, redemptions and logs, and creates a demo member account (username `hanashuya`, password `the demo password you chose (set in cleanup-keep-owner.sql)`) for showing the card. Don't run it after real members have signed up.
 
 ## 5. Deploy
 
