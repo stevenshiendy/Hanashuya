@@ -176,7 +176,9 @@ class Sheet {
 function lineLabel(l) { return `${l.qty} ${l.name}`; }
 
 // Draws the receipt and returns the canvas, trimmed to its height.
-export async function receiptCanvas(r, { mode = 'print', dots = 384 } = {}) {
+// headerOnly: stop after the logo, address and channels (the fast print mode prints the
+// rest as printer text, which is about 25x less data over Bluetooth).
+export async function receiptCanvas(r, { mode = 'print', dots = 384, headerOnly = false, logoWidth = null } = {}) {
   await loadFonts();
   const st = STYLE[mode];
   const W = mode === 'wa' ? 720 : dots;
@@ -188,7 +190,7 @@ export async function receiptCanvas(r, { mode = 'print', dots = 384 } = {}) {
   const s = new Sheet(ctx, W, st);
 
   // Header: logo, address, channels.
-  const lw = mode === 'wa' ? 300 : dots >= 576 ? 400 : 270;
+  const lw = logoWidth || (mode === 'wa' ? 300 : dots >= 576 ? 400 : 270);
   const lh = Math.round(logo.naturalHeight * (lw / logo.naturalWidth));
   ctx.drawImage(logo, Math.round((W - lw) / 2), s.y, lw, lh);
   s.y += lh + st.logoGap;
@@ -204,6 +206,12 @@ export async function receiptCanvas(r, { mode = 'print', dots = 384 } = {}) {
   if (one) x += wHandle + between; else { s.y += st.ch[1]; x = (W - wPhone) / 2; }
   s.icon('wa', x, icon, iconColor); s.put(WA_NUMBER, x + icon + gt, st.ch[1]);
   s.y += st.ch[1];
+  if (headerOnly) {
+    const head = document.createElement('canvas');
+    head.width = W; head.height = Math.ceil(s.y + 6);
+    head.getContext('2d').drawImage(tall, 0, 0);
+    return head;
+  }
 
   // Who and when.
   s.dotted();

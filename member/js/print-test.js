@@ -4,10 +4,11 @@
 import { receiptCanvas } from './receipt.js';
 import { renderFull, toBits } from './escpos.js';
 import { SAMPLES } from './print-samples.js';
+import { fastReceipt, fastPreview } from './receipt-fast.js';
 import { configured, rpc, esc, prettyPhone, mountLogin, setupMissing, session, signOut } from './lib.js';
 
 const $ = (s) => document.querySelector(s);
-let current = null; // { canvas, mode, dots }
+let current = null; // { canvas, mode, dots, fast: { bytes, preview } | null }
 
 function sample(key) {
   const S = structuredClone(SAMPLES);
@@ -32,7 +33,8 @@ function readOpts() {
   if (r.member && m) r.member = m;
   if (k) r.served_by = k;
   r.sold_at = new Date().toISOString();
-  return { r, mode: paper === 'wa' ? 'wa' : 'print', dots: paper === 'wa' ? 384 : +paper };
+  const fast = new FormData($('#opts')).get('speed') === 'fast';
+  return { r, mode: paper === 'wa' ? 'wa' : 'print', dots: paper === 'wa' ? 384 : +paper, fast };
 }
 
 // What the thermal head prints: every pixel black or white.
@@ -52,19 +54,27 @@ function monoCanvas(src, dither) {
 }
 
 async function draw() {
-  const { r, mode, dots } = readOpts();
+  const { r, mode, dots, fast } = readOpts();
   const canvas = await receiptCanvas(r, { mode, dots });
-  current = { canvas, mode, dots };
-  const showMono = mode === 'print' && $('#mono').checked;
-  const shown = showMono ? monoCanvas(canvas, $('#dither').checked) : canvas;
+  current = { canvas, mode, dots, fast: null };
+  let shown;
+  if (mode === 'print' && fast) {
+    const f = await fastReceipt(r, { dots, cut: $('#cut').checked, drawer: $('#drawer').checked });
+    current.fast = f;
+    shown = fastPreview(f.receipt, f.header, dots);
+  } else {
+    const showMono = mode === 'print' && $('#mono').checked;
+    shown = showMono ? monoCanvas(canvas, $('#dither').checked) : canvas;
+  }
   const view = $('#view');
   view.width = shown.width; view.height = shown.height;
   view.getContext('2d').drawImage(shown, 0, 0);
   view.style.width = mode === 'wa' ? '480px' : shown.width + 'px';
-  const mm = mode === 'wa' ? null : Math.round(canvas.height / 8);
+  const fullKb = Math.round((canvas.width / 8) * canvas.height / 1024);
+  const kb = current.fast ? Math.round(current.fast.bytes.length / 1024) : fullKb;
   $('#facts').innerHTML = mode === 'wa'
     ? `<span>Gambar WhatsApp ${canvas.width} × ${canvas.height} px</span>`
-    : `<span>Lebar cetak ${dots} titik (${dots / 8} mm)</span><span>Panjang kira-kira ${mm} mm kertas</span><span>Printer 203 dpi = 8 titik per mm</span>`;
+    : `<span>Lebar cetak ${dots} titik (${dots / 8} mm)</span><span>Data ke printer kira-kira ${kb} KB${current.fast ? ` (desain penuh ${fullKb} KB)` : ''}</span><span>${current.fast ? 'Pratinjau kira-kira; huruf asli dari printer' : 'Printer 203 dpi = 8 titik per mm'}</span>`;
   for (const id of ['#bt', '#print', '#cut', '#drawer', '#mono', '#dither']) $(id).disabled = mode === 'wa';
 }
 
@@ -158,13 +168,18 @@ async function printBluetooth() {
     if (!device) say('Pilih printer di jendela Bluetooth.');
     if (!printer || !device.gatt.connected) await connect();
     const { canvas } = current;
-    const im = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-    const bytes = renderFull({ width: im.width, height: im.height, data: im.data },
-      { dither: $('#dither').checked, cut: $('#cut').checked, drawer: $('#drawer').checked });
+    let bytes;
+    if (current.fast) {
+      bytes = current.fast.bytes;
+    } else {
+      const im = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      bytes = renderFull({ width: im.width, height: im.height, data: im.data },
+        { dither: $('#dither').checked, cut: $('#cut').checked, drawer: $('#drawer').checked });
+    }
     const t = performance.now();
     say(`Mengirim ke ${printer.name}...`);
     await send(bytes, (pct) => say(`Mengirim ke ${printer.name}... ${pct}%`));
-    say(`Terkirim ke ${printer.name}: ${Math.round(bytes.length / 1024)} KB dalam ${((performance.now() - t) / 1000).toFixed(1)} detik. Jalur ${printer.svc} / ${printer.uuid}.`);
+    say(`Terkirim ke ${printer.name} (${current.fast ? 'cepat' : 'desain penuh'}): ${Math.round(bytes.length / 1024)} KB dalam ${((performance.now() - t) / 1000).toFixed(1)} detik. Jalur ${printer.svc} / ${printer.uuid}.`);
   } catch (e) {
     if (e && e.name === 'NotFoundError') { device = null; say('Tidak ada printer yang dipilih.', 'warn'); }
     else say(e.message || String(e), 'error');
