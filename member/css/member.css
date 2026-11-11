@@ -189,6 +189,23 @@ body.member::before { background: var(--stage-deep); }
 .voucher .done { background: var(--on-band); color: var(--stage-deep); border-color: var(--on-band); }
 
 /* sign-in */
+/* sign-up banner when the member came from a voucher QR (11 Nov 2026) */
+.promo-banner { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: var(--space-sm); align-items: center; padding: var(--space-sm) var(--space-md); border-radius: var(--radius-card); background: var(--stage-deep); color: var(--on-band); }
+.promo-banner img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; border: 2px solid var(--on-band); }
+.promo-banner { margin-bottom: var(--space-md); }
+.promo-banner strong { display: block; font-size: var(--text-md); font-weight: 700; line-height: 1.25; }
+.promo-banner span { display: block; margin-top: var(--space-3xs); font-size: var(--text-sm); color: var(--on-band-muted); }
+.promo-banner span b { color: var(--on-band); }
+/* received / rejected pop-up after a voucher claim */
+/* rejected: plain cream sheet, the reason in body type, the code as a small reference line */
+.voucher.is-no { background: var(--color-paper-2); color: var(--color-ink); }
+.voucher.is-no .sheet-head h2 { color: var(--color-ink); }
+.voucher.is-no .btn-quiet { color: var(--color-ink); border-color: var(--color-rule); }
+.voucher.is-no .sheet-mid { justify-items: start; text-align: left; align-content: start; max-width: 30rem; }
+.voucher.is-no .label { font-family: var(--font-body); font-size: var(--text-xl); font-weight: 600; line-height: 1.3; }
+.voucher.is-no .meta { color: var(--color-muted); }
+.voucher.is-no .done { background: var(--color-accent); color: var(--color-accent-ink); border-color: var(--color-accent); }
+.voucher .cl-code { margin-top: var(--space-xs); font-size: var(--text-sm); color: var(--color-muted); font-variant-numeric: tabular-nums; }
 .welcome { min-height: calc(100dvh - 52px - env(safe-area-inset-top, 0px)); display: grid; grid-template-rows: auto 1fr; background: var(--stage-bg); }
 .welcome .stage-inner { padding-block: var(--space-lg); max-width: calc(var(--measure-app) + 2 * var(--gutter)); margin-inline: auto; padding-left: max(var(--gutter), env(safe-area-inset-left, 0px)); padding-right: max(var(--gutter), env(safe-area-inset-right, 0px)); }
 .welcome h1 { font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 500; line-height: 1.12; }

@@ -41,7 +41,8 @@ let tokenTimer, pollTimer, fastPoll, wakeLock = null;
    Nothing is claimed by the scan itself, so an unfinished sign-up just scans again. */
 const PENDING = 'hs-voucher-code';
 const prettyCode = (k) => String(k || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^(.{4})(.+)$/, '$1-$2');
-let codeMsg = null;   // { text, kind } shown at the top of Hadiah after a claim
+let codeMsg = null;   // { text, kind } shown at the top of Hadiah (only when the claim could not be sent)
+let claimShow = null; // { r, code }: the received / rejected pop-up after a claim (Glenn, 11 Nov 2026)
 const pendingCode = () => { try { return localStorage.getItem(PENDING); } catch { return null; } };
 const setPending = (k) => { try { k ? localStorage.setItem(PENDING, k) : localStorage.removeItem(PENDING); } catch { /* private mode: the QR still works when scanned again */ } };
 {
@@ -56,9 +57,8 @@ const setPending = (k) => { try { k ? localStorage.setItem(PENDING, k) : localSt
 async function claimCode(code) {
   let r;
   try { r = await rpc('claim_voucher_code', { p_code: code }); }
-  catch (e) { codeMsg = { text: e.message, kind: 'error' }; return false; }   // network: a pending code stays for next time
-  const ok = r.status === 'tersimpan' || r.status === 'sudah';
-  codeMsg = { text: ok ? `${r.message} ${r.label}, berlaku sampai ${ymdShort(r.ends_on)}. Bawa voucher kertasnya ke booth dan tunjukkan QR kartu ke kasir.` : r.message, kind: ok ? 'ok' : 'warn' };
+  catch (e) { codeMsg = { text: `Voucher belum bisa disimpan: ${e.message} Buka lagi halaman ini sebentar lagi.`, kind: 'warn' }; return false; }   // network: a pending code stays for next time
+  claimShow = { r, code };
   if (r.status !== 'terlalu_sering') setPending(null);
   return r.status === 'tersimpan';
 }
@@ -91,8 +91,14 @@ async function start() {
       start: location.hash === '#daftar' || pendingCode() ? 'daftar' : 'masuk',
       onDone: () => { if (location.hash === '#daftar') history.replaceState(null, '', location.pathname); boot(); },
     });
-    if (pendingCode()) $('.sheet-paper > div')?.insertAdjacentHTML('afterbegin',
-      `<p class="notice notice-ok">Kode voucher <b class="num">${esc(prettyCode(pendingCode()))}</b> tersimpan ke kartu setelah Anda daftar. Sudah punya akun? Pilih Masuk.</p>`);
+    // Came from a voucher QR: the banner says what signing up gets them (Glenn, 11 Nov 2026). Only here,
+    // because a plain sign-up gets the 50% welcome voucher, not a free Signature.
+    if (pendingCode()) $('.stage-inner')?.insertAdjacentHTML('afterbegin', `
+      <div class="promo-banner" role="note">
+        <img src="img/reward-free.webp" alt="" width="56" height="56">
+        <div><strong>Setelah daftar, dapat 1 Signature choux gratis</strong>
+        <span>Voucher <b class="num">${esc(prettyCode(pendingCode()))}</b> langsung masuk ke kartu member Anda. Tukar di booth dengan menyerahkan voucher kertasnya. Sudah punya akun? Pilih Masuk.</span></div>
+      </div>`);
     $('.sheet-paper > div')?.insertAdjacentHTML('beforeend',
       `<p class="help-line">Ada kendala? <a href="${esc(waLink('Halo Hanashuya, saya mau tanya soal kartu member: '))}" target="_blank" rel="noopener">Chat Hanashuya di WhatsApp</a></p>`);
     return;
@@ -249,6 +255,7 @@ async function load(go, fresh = []) {
   if (!$('#views')) shell();
   render(fresh);
   codeMsg = null;   // shown once
+  if (claimShow) { const c = claimShow; claimShow = null; showClaim(c); }
   if (go && location.hash !== '#' + go) location.hash = go; else route(false);
   pollTimer = setInterval(poll, 15000);
 }
@@ -284,6 +291,23 @@ function shell() {
       <div class="stack-sm">
         <p class="note" id="vc-note"></p>
         <button class="btn done btn-block" type="button" data-close>Selesai</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="sheet voucher" id="claim" aria-labelledby="cl-title">
+    <div class="sheet-inner">
+      <div class="sheet-head"><h2 id="cl-title"></h2><button class="btn btn-quiet" type="button" data-close>Tutup</button></div>
+      <div class="sheet-mid" aria-live="polite">
+        <img class="photo" id="cl-img" src="img/reward-free.webp" alt="" width="148" height="148">
+        <span class="label" id="cl-label"></span>
+        <span class="meta" id="cl-meta"></span>
+        <span class="cl-code" id="cl-code"></span>
+      </div>
+      <div class="stack-sm">
+        <p class="note" id="cl-note"></p>
+        <a class="btn btn-quiet btn-block" id="cl-wa" target="_blank" rel="noopener" hidden>Chat Hanashuya di WhatsApp</a>
+        <button class="btn done btn-block" type="button" id="cl-go">Lihat di Hadiah</button>
       </div>
     </div>
   </dialog>`;
@@ -464,6 +488,30 @@ function viewRewards(c, ready) {
       </section>
     </div>
   </div>`;
+}
+
+// Received or rejected, right after a voucher QR scan or a typed code. Received is the red celebration
+// sheet; rejected is a calm cream sheet that leads with the reason (Glenn, 11 Nov: no icon, no big code).
+function showClaim({ r, code }) {
+  const ok = r.status === 'tersimpan' || r.status === 'sudah';
+  const [why, ...rest] = String(r.message || '').split(/(?<=\.)\s+/);
+  $('#claim').classList.toggle('is-no', !ok);
+  $('#cl-title').textContent = ok ? (r.status === 'sudah' ? 'Voucher sudah tersimpan' : 'Voucher diterima') : 'Voucher ditolak';
+  $('#cl-img').hidden = !ok;
+  $('#cl-label').textContent = ok ? r.label : why;
+  $('#cl-meta').textContent = ok ? `${r.title}, berlaku sampai ${ymdShort(r.ends_on)}` : rest.join(' ');
+  $('#cl-meta').hidden = !$('#cl-meta').textContent;
+  $('#cl-code').textContent = ok ? '' : `Kode voucher ${prettyCode(code)}`;
+  $('#cl-code').hidden = ok;
+  $('#cl-note').textContent = ok ? 'Bawa voucher kertasnya ke booth dan tunjukkan QR kartu ke kasir.' : '';
+  const wa = $('#cl-wa');
+  wa.hidden = r.status !== 'dipakai_lain';
+  if (!wa.hidden) wa.href = waLink(`${helpText(card)}kode voucher ${prettyCode(code)} saya ditolak karena sudah dipakai akun lain.`);
+  const go = $('#cl-go');
+  go.textContent = ok ? 'Lihat di Hadiah' : 'Kembali ke kartu';
+  go.onclick = () => { $('#claim').close(); location.hash = ok ? 'hadiah' : 'kartu'; };
+  $('#claim').showModal();
+  if (navigator.vibrate) navigator.vibrate(ok ? [30, 40, 30] : 120);
 }
 
 function showVoucher(r, newCard = false) {
@@ -659,7 +707,7 @@ async function loadPromo() {
 
 /* ---------------- new stamps arrive while the card is open */
 async function poll() {
-  if (document.hidden || !card || $('#voucher')?.open) return;
+  if (document.hidden || !card || $('#voucher')?.open || $('#claim')?.open) return;
   try {
     const next = await rpc('my_card');
     if (next.total_stamps === card.total_stamps && next.redeemed.length === card.redeemed.length

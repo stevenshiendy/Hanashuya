@@ -243,9 +243,9 @@ async function saveCode(raw) {
   notice(msg, '');
   try {
     const r = await rpc('staff_claim_code', { p_ticket: member.ticket, p_code: k });
-    if (r.status !== 'tersimpan' && r.status !== 'sudah') { notice(msg, r.message, 'warn'); return; }
+    if (r.status !== 'tersimpan' && r.status !== 'sudah') { notice(msg, `Voucher ditolak. ${r.message}`, 'warn'); return; }
     choose({ ...r, start_code: member.start_code });   // keep a new card's starting password on screen
-    toast(r.status === 'sudah' ? 'Voucher sudah ada di kartu ini. Tekan Pakai.' : 'Voucher tersimpan. Tekan Pakai.');
+    toast(r.status === 'sudah' ? 'Voucher sudah ada di kartu ini. Tekan Pakai.' : 'Voucher diterima. Tekan Pakai.');
   } catch (e) { notice(msg, e.message); }
 }
 
