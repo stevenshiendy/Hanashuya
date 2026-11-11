@@ -175,6 +175,40 @@ class Sheet {
 
 function lineLabel(l) { return `${l.qty} ${l.name}`; }
 
+// The Hanashuya Loyalty Card box with the stamp squares (Glenn loves this design).
+function drawCard(s, r, st) {
+  const c = r.card, now = Math.min(c.position, c.size), before = Math.max(0, now - (r.stamps || 0));
+  s.box(() => {
+    s.row('Hanashuya Loyalty Card', r.stamps > 0 ? '+' + r.stamps : '', { lw: 700, rw: 700 });
+    s.stamps(c.size, before, now);
+    s.row('Kartu Kakak', `${c.position} dari ${c.size}`);
+    if (c.next_label) s.text(`${c.next_in} stempel lagi menuju ${c.next_label}`, st.muted);
+    if (c.waiting > 0) s.text(`${c.waiting} stempel menunggu kartu berikutnya`, st.muted);
+    if (r.new_rewards && r.new_rewards.length) {
+      s.dotted();
+      s.text('Hadiah baru: ' + r.new_rewards.join(', '), st.base, 700);
+      s.text('Selamat Kak! Hadiahnya bisa dipakai di kunjungan berikutnya ya.', st.muted);
+    }
+  });
+}
+
+// Only the loyalty card box, black on white at the printer's width, for the fast mode.
+// pad: empty dots left and right of the box.
+export async function cardCanvas(r, { dots = 384, pad = 24 } = {}) {
+  await loadFonts();
+  const st = { ...STYLE.print, pad, top: 0, bottom: 0 };
+  const tall = document.createElement('canvas');
+  tall.width = dots; tall.height = 1200;
+  const ctx = tall.getContext('2d');
+  ctx.fillStyle = st.paper; ctx.fillRect(0, 0, dots, tall.height);
+  const s = new Sheet(ctx, dots, st);
+  drawCard(s, r, st);
+  const out = document.createElement('canvas');
+  out.width = dots; out.height = Math.ceil(s.y + 2);
+  out.getContext('2d').drawImage(tall, 0, 0);
+  return out;
+}
+
 // Draws the receipt and returns the canvas, trimmed to its height.
 // headerOnly: stop after the logo, address and channels (the fast print mode prints the
 // rest as printer text, which is about 25x less data over Bluetooth).
@@ -251,19 +285,7 @@ export async function receiptCanvas(r, { mode = 'print', dots = 384, headerOnly 
 
   // Loyalty card, or the sign-up invite for walk-ins.
   if (r.card) {
-    const c = r.card, now = Math.min(c.position, c.size), before = Math.max(0, now - (r.stamps || 0));
-    s.box(() => {
-      s.row('Hanashuya Loyalty Card', r.stamps > 0 ? '+' + r.stamps : '', { lw: 700, rw: 700 });
-      s.stamps(c.size, before, now);
-      s.row('Kartu Kakak', `${c.position} dari ${c.size}`);
-      if (c.next_label) s.text(`${c.next_in} stempel lagi menuju ${c.next_label}`, st.muted);
-      if (c.waiting > 0) s.text(`${c.waiting} stempel menunggu kartu berikutnya`, st.muted);
-      if (r.new_rewards && r.new_rewards.length) {
-        s.dotted();
-        s.text('Hadiah baru: ' + r.new_rewards.join(', '), st.base, 700);
-        s.text('Selamat Kak! Hadiahnya bisa dipakai di kunjungan berikutnya ya.', st.muted);
-      }
-    });
+    drawCard(s, r, st);
   } else if (!r.member) {
     s.box(() => {
       s.text('Belum jadi member Kak?', st.base, 700, { align: 'center' });

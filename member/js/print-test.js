@@ -61,7 +61,7 @@ async function draw() {
   if (mode === 'print' && fast) {
     const f = await fastReceipt(r, { dots, cut: $('#cut').checked, drawer: $('#drawer').checked });
     current.fast = f;
-    shown = fastPreview(f.receipt, f.header, dots);
+    shown = fastPreview(f.receipt, f.header, dots, f.card);
   } else {
     const showMono = mode === 'print' && $('#mono').checked;
     shown = showMono ? monoCanvas(canvas, $('#dither').checked) : canvas;

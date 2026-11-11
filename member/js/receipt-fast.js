@@ -3,21 +3,16 @@
 // This prints the header (logo, address, channels) as a small picture and everything
 // below in the printer's own font, about 15 KB in all, in the same order as the
 // approved receipt (B revision 1). Same input as receipt.js: pos_checkout / pos_receipt output.
-import { receiptCanvas, receiptDate, rupiah } from './receipt.js';
+import { receiptCanvas, cardCanvas, receiptDate, rupiah } from './receipt.js';
 import { Receipt } from './escpos.js';
 
 const WA_NUMBER = '0858-9012-0577';
 
-// The loyalty card as text: [#] earlier stamps, [+] today's, [ ] still empty.
-function stampRow(size, before, now) {
-  let s = '';
-  for (let k = 1; k <= size; k++) s += k <= before ? '[#]' : k <= now ? '[+]' : '[ ]';
-  return s;
-}
-
 // Builds the printer commands. header: RGBA bitmap from receiptCanvas(..., { headerOnly: true }).
-export function fastReceiptBytes(r, header, { dots = 384, cut = true, drawer = false } = {}) {
-  const p = new Receipt({ dots });
+// card: RGBA bitmap of the loyalty card box from cardCanvas(), or null for a walk-in.
+// margin: 2 empty characters each side, so the text doesn't run to the paper's edge.
+export function fastReceiptBytes(r, header, card, { dots = 384, cut = true, drawer = false, margin = 2 } = {}) {
+  const p = new Receipt({ dots, margin });
   p.init();
   if (drawer) p.drawer();
   p.align('center');
@@ -56,17 +51,9 @@ export function fastReceiptBytes(r, header, { dots = 384, cut = true, drawer = f
   else if (r.payment_method === 'platform') p.row(r.channel_label, rupiah(r.total));
   p.line(1);
 
-  if (r.card) {
-    const c = r.card, now = Math.min(c.position, c.size), before = Math.max(0, now - (r.stamps || 0));
-    p.bold(true).row('Hanashuya Loyalty Card', r.stamps > 0 ? '+' + r.stamps : '').bold(false);
-    p.align('center').text(stampRow(c.size, before, now)).align('left');
-    p.row('Kartu Kakak', `${c.position} dari ${c.size}`);
-    if (c.next_label) p.text(`${c.next_in} stempel lagi menuju ${c.next_label}`);
-    if (c.waiting > 0) p.text(`${c.waiting} stempel menunggu kartu berikutnya`);
-    if (r.new_rewards && r.new_rewards.length) {
-      p.bold(true).text('Hadiah baru: ' + r.new_rewards.join(', ')).bold(false);
-      p.text('Selamat Kak! Hadiahnya bisa dipakai di kunjungan berikutnya ya.');
-    }
+  if (r.card && card) {
+    // The loyalty card stays the picture from the approved design (Glenn, 12 Nov 2026).
+    p.align('center').image(card, { dither: false }).align('left');
   } else if (!r.member) {
     p.align('center').bold(true).text('Belum jadi member Kak?').bold(false);
     p.text('Daftar di hanashuya.vercel.app/daftar').align('left');
@@ -77,9 +64,12 @@ export function fastReceiptBytes(r, header, { dots = 384, cut = true, drawer = f
   p.bold(true).text(r.member ? `Terima kasih Kak ${r.member}.` : 'Terima kasih Kak.').bold(false);
   p.text('Sampai bertemu kembali.');
   p.line(1);
+  // Small text, as in the approved design.
+  p.small(true);
   p.text('Where every crunch tells a story');
   p.line(1);
   p.text(`Ada yang kurang pas Kak? Chat CS kami di WhatsApp ${WA_NUMBER}`);
+  p.small(false);
   p.align('left');
   if (cut) p.cut();
   return p;
@@ -87,12 +77,12 @@ export function fastReceiptBytes(r, header, { dots = 384, cut = true, drawer = f
 
 // Rough picture of the fast receipt: the header image, then the printer's 12 x 24 dot
 // font (Font A) drawn on a fixed grid. The real letters come from the printer.
-export function fastPreview(receipt, header, dots) {
+export function fastPreview(receipt, header, dots, card = null) {
   const lines = [];
   let h = 0;
   for (const op of receipt.ops) {
     if (op.type === 'image') { lines.push(op); h += op.height; }
-    else if (op.type === 'text') { lines.push(op); h += 24 * op.sh + 6; }
+    else if (op.type === 'text') { lines.push(op); h += (op.fontB ? 17 : 24) * op.sh + 6; }
     else if (op.type === 'feed') { lines.push(op); h += 24 * op.n; }
   }
   const c = document.createElement('canvas');
@@ -100,17 +90,18 @@ export function fastPreview(receipt, header, dots) {
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
   ctx.fillStyle = '#000'; ctx.textBaseline = 'top';
+  const imgs = [header, card].filter(Boolean);
   let y = 0;
   for (const op of lines) {
-    if (op.type === 'image') { ctx.drawImage(header, Math.round((dots - header.width) / 2), y); y += op.height; continue; }
+    if (op.type === 'image') { const im = imgs.shift(); ctx.drawImage(im, Math.round((dots - im.width) / 2), y); y += op.height; continue; }
     if (op.type === 'feed') { y += 24 * op.n; continue; }
-    const t = op.text, cw = 12 * op.sw;
+    const t = op.text, cw = (op.fontB ? 9 : 12) * op.sw, lh = op.fontB ? 17 : 24;
     const x0 = op.align === 'center' ? (dots - t.length * cw) / 2 : op.align === 'right' ? dots - t.length * cw : 0;
-    ctx.font = `${op.bold ? 700 : 400} 20px Menlo, Consolas, monospace`;
+    ctx.font = `${op.bold ? 700 : 400} ${op.fontB ? 15 : 20}px Menlo, Consolas, monospace`;
     ctx.save(); ctx.translate(0, y + 2); ctx.scale(op.sw, op.sh);
     for (let k = 0; k < t.length; k++) ctx.fillText(t[k], (x0 + k * cw) / op.sw, 0);
     ctx.restore();
-    y += 24 * op.sh + 6;
+    y += lh * op.sh + 6;
   }
   return c;
 }
@@ -141,7 +132,9 @@ export async function fastReceipt(r, { dots = 384, cut = true, drawer = false } 
   // A smaller logo, and the empty paper either side cropped off: the printer centres it.
   const full = await receiptCanvas(r, { mode: 'print', dots, headerOnly: true, logoWidth: dots >= 576 ? 240 : 190 });
   const head = cropSides(full);
-  const im = head.getContext('2d').getImageData(0, 0, head.width, head.height);
-  const receipt = fastReceiptBytes(r, { width: im.width, height: im.height, data: im.data }, { dots, cut, drawer });
-  return { receipt, bytes: receipt.bytes(), header: head };
+  const bitmap = (c) => { const im = c.getContext('2d').getImageData(0, 0, c.width, c.height); return { width: im.width, height: im.height, data: im.data }; };
+  // The card box lines up with the text margin (2 characters = 24 dots), cropped to whole bytes.
+  const cardC = r.card ? cropSides(await cardCanvas(r, { dots, pad: 24 })) : null;
+  const receipt = fastReceiptBytes(r, bitmap(head), cardC ? bitmap(cardC) : null, { dots, cut, drawer });
+  return { receipt, bytes: receipt.bytes(), header: head, card: cardC };
 }

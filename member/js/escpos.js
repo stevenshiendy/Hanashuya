@@ -97,7 +97,8 @@ export function toBits(img, { dither = true, threshold = 128 } = {}) {
 const BAND_ROWS = 128; // rows per GS v 0 command, keeps each command small for cheap printers
 
 export class Receipt {
-  constructor({ dots = 384 } = {}) {
+  // margin: empty characters kept at both sides of every text line (0 = edge to edge).
+  constructor({ dots = 384, margin = 0 } = {}) {
     if (dots !== 384 && dots !== 576) throw new Error('dots must be 384 (58 mm) or 576 (80 mm)');
     this.dots = dots;
     this.cols = dots / 12; // Font A is 12 dots wide
@@ -107,14 +108,18 @@ export class Receipt {
     this.sh = 1;
     this._bold = false;
     this._align = 'left';
+    this.margin = margin;
+    this._fontB = false;
   }
 
   _push(...b) { for (const x of b) this.buf.push(x); return this; }
-  _op(op) { this.ops.push({ align: this._align, bold: this._bold, sw: this.sw, sh: this.sh, ...op }); }
-  get width() { return Math.floor(this.cols / this.sw); } // chars per line at the current size
+  _op(op) { this.ops.push({ align: this._align, bold: this._bold, sw: this.sw, sh: this.sh, fontB: this._fontB, ...op }); }
+  // Font A is 12 dots wide, the smaller Font B 9 dots (42 characters on 58 mm).
+  get full() { return Math.floor(this.dots / (this._fontB ? 9 : 12) / this.sw); }
+  get width() { return this.full - 2 * this.margin; } // chars per line at the current size
 
   init() {
-    this.sw = this.sh = 1; this._bold = false; this._align = 'left';
+    this.sw = this.sh = 1; this._bold = false; this._align = 'left'; this._fontB = false;
     this._op({ type: 'init' });
     return this._push(ESC, 0x40, ESC, 0x74, 0x00); // reset, code page CP437
   }
@@ -125,13 +130,18 @@ export class Receipt {
     return this._push(ESC, 0x61, n);
   }
   bold(on = true) { this._bold = !!on; return this._push(ESC, 0x45, on ? 1 : 0); }
+  // Small text: Font B (ESC M 1). Back to Font A with small(false).
+  small(on = true) { this._fontB = !!on; return this._push(ESC, 0x4d, on ? 1 : 0); }
   size(w = 1, h = w) {
     if (!(w >= 1 && w <= 8 && h >= 1 && h <= 8)) throw new Error('size 1..8');
     this.sw = w; this.sh = h;
     return this._push(GS, 0x21, ((w - 1) << 4) | (h - 1));
   }
   _lines(lines) {
-    for (const l of lines) {
+    for (let l of lines) {
+      // Left text gets the margin in front; centred text is centred by the printer inside the narrower width.
+      if (this.margin && this._align === 'left') l = ' '.repeat(this.margin) + l;
+      else if (this.margin && this._align === 'right') l = l + ' '.repeat(this.margin);
       this._op({ type: 'text', text: l });
       for (const b of encode(l)) this.buf.push(b);
       this.buf.push(LF);
@@ -145,12 +155,22 @@ export class Receipt {
   // Left text and right text on one line; left wraps onto extra lines if it is too long.
   row(left, right) {
     const r = clean(right).replace(/\n/g, ' ');
+    const l = clean(left);
+    // A line that only just misses may use the margin space, rather than break a product name.
+    if (this.margin && l.length + 1 + r.length > this.width && l.length + 1 + r.length <= this.full) {
+      const m = this.margin, inner = Math.max(0, Math.floor((this.full - l.length - 1 - r.length) / 2));
+      this.margin = 0;
+      const line = ' '.repeat(inner) + l + ' '.repeat(this.full - 2 * inner - l.length - r.length) + r;
+      this._lines([line]);
+      this.margin = m;
+      return this;
+    }
     const room = Math.max(1, this.width - r.length - 1);
     const parts = wrap(left, room);
     const last = parts.pop();
     const out = parts.slice();
     out.push(last + ' '.repeat(Math.max(1, this.width - last.length - r.length)) + r);
-    return this._lines(out.map((l) => l.slice(0, this.width)));
+    return this._lines(out.map((x) => x.slice(0, this.width)));
   }
 
   // img: {width, height, data: RGBA}. ImageData from a canvas works as is.
