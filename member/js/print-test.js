@@ -80,22 +80,61 @@ const SERVICES = [
   '49535343-fe7d-4ae5-8fa9-9fafd205e455',
   '0000ff00-0000-1000-8000-00805f9b34fb',
 ];
-let printer = null; // writable characteristic
+let device = null;  // the printer picked in Chrome's Bluetooth list (kept, so a retry needs no new pick)
+let printer = null; // { ch, name, svc, uuid }: the writable characteristic while connected
+const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
-async function connect() {
-  if (!navigator.bluetooth) throw new Error('Browser ini tidak bisa Bluetooth. Pakai Chrome di tablet Android, atau cetak lewat Chrome / gambar PNG.');
-  const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: SERVICES });
-  const gatt = await dev.gatt.connect();
-  for (const svc of await gatt.getPrimaryServices()) {
-    for (const ch of await svc.getCharacteristics()) {
-      if (ch.properties.writeWithoutResponse || ch.properties.write) {
-        printer = { ch, name: dev.name || 'printer', svc: svc.uuid, uuid: ch.uuid };
-        dev.addEventListener('gattserverdisconnected', () => { printer = null; });
-        return printer;
-      }
+// Finds a characteristic the printer accepts data on. Tries the list of all services
+// first, then each known printer service one by one (some printers only answer that way).
+async function findWritable(gatt) {
+  let services = [];
+  try { services = await gatt.getPrimaryServices(); } catch { services = []; }
+  if (!services.length) {
+    for (const id of SERVICES) {
+      try { services.push(await gatt.getPrimaryService(id)); } catch { /* not on this printer */ }
     }
   }
-  throw new Error('Printer tersambung, tapi tidak ada jalur tulis yang dikenal. Catat nama printernya dan kirim ke Claude.');
+  for (const svc of services) {
+    let chars = [];
+    try { chars = await svc.getCharacteristics(); } catch { continue; }
+    for (const ch of chars) {
+      if (ch.properties.writeWithoutResponse || ch.properties.write) return { ch, svc: svc.uuid, uuid: ch.uuid };
+    }
+  }
+  return null;
+}
+
+// Android often drops the first GATT connection; try three times with a short pause.
+async function connect() {
+  if (!navigator.bluetooth) throw new Error('Browser ini tidak bisa Bluetooth. Pakai Chrome di tablet Android, atau cetak lewat Chrome / gambar PNG.');
+  if (!device) {
+    device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: SERVICES });
+    device.addEventListener('gattserverdisconnected', () => { printer = null; });
+  }
+  const name = device.name || 'printer';
+  let found = null, last = null;
+  for (let attempt = 1; attempt <= 3 && !found; attempt++) {
+    try {
+      say(`Menyambung ke ${name} (percobaan ${attempt} dari 3)...`);
+      const gatt = await device.gatt.connect();
+      await wait(600); // let the printer settle before asking for its services
+      if (!gatt.connected) throw new Error('terputus');
+      found = await findWritable(gatt);
+      if (!found) { last = new Error('tanpa jalur tulis'); break; }
+    } catch (e) {
+      last = e;
+      try { device.gatt.disconnect(); } catch { /* already closed */ }
+      await wait(1000);
+    }
+  }
+  if (!found) {
+    if (last && last.message === 'tanpa jalur tulis') {
+      throw new Error(`${name} tersambung, tapi tidak menerima data lewat Bluetooth LE. Kemungkinan printer ini memakai Bluetooth klasik. Kirim nama dan tipe printernya ke Claude.`);
+    }
+    throw new Error(`${name} memutus sambungan. Biasanya karena printer masih tersambung ke aplikasi lain (misalnya VireoPOS) atau ke Bluetooth tablet. Putuskan sambungan itu, matikan lalu nyalakan printer, lalu tekan Cetak lagi. Detail: ${last ? last.message : '-'}`);
+  }
+  printer = { ...found, name };
+  return printer;
 }
 
 async function send(bytes) {
@@ -105,25 +144,34 @@ async function send(bytes) {
     const part = bytes.slice(i, i + chunk);
     if (ch.properties.writeWithoutResponse) await ch.writeValueWithoutResponse(part);
     else await ch.writeValue(part);
-    await new Promise((ok) => setTimeout(ok, 15));
+    await wait(15);
   }
 }
 
 async function printBluetooth() {
   const btn = $('#bt'); btn.setAttribute('aria-busy', 'true');
   try {
-    if (!printer) { say('Pilih printer di jendela Bluetooth.'); await connect(); }
+    if (!device) say('Pilih printer di jendela Bluetooth.');
+    if (!printer || !device.gatt.connected) await connect();
     const { canvas } = current;
     const im = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
     const bytes = renderFull({ width: im.width, height: im.height, data: im.data },
       { dither: $('#dither').checked, cut: $('#cut').checked, drawer: $('#drawer').checked });
     const t = performance.now();
+    say(`Mengirim ke ${printer.name}...`);
     await send(bytes);
     say(`Terkirim ke ${printer.name}: ${Math.round(bytes.length / 1024)} KB dalam ${((performance.now() - t) / 1000).toFixed(1)} detik. Jalur ${printer.svc} / ${printer.uuid}.`);
   } catch (e) {
-    if (e && e.name === 'NotFoundError') say('Tidak ada printer yang dipilih.', 'warn');
+    if (e && e.name === 'NotFoundError') { device = null; say('Tidak ada printer yang dipilih.', 'warn'); }
     else say(e.message || String(e), 'error');
   } finally { btn.removeAttribute('aria-busy'); }
+}
+
+// Pick a different printer next time.
+function forgetPrinter() {
+  try { if (device && device.gatt.connected) device.gatt.disconnect(); } catch { /* ignore */ }
+  device = null; printer = null;
+  say('Printer dilupakan. Tekan Cetak ke printer Bluetooth untuk memilih lagi.');
 }
 
 // ---- Chrome print dialog: the page prints only the receipt image, at the paper's width.
@@ -172,6 +220,7 @@ async function boot() {
   $('#opts').addEventListener('input', () => { draw().catch((e) => say(e.message, 'error')); });
   $('#opts').addEventListener('submit', (e) => e.preventDefault());
   $('#bt').addEventListener('click', printBluetooth);
+  $('#bt-forget').addEventListener('click', forgetPrinter);
   $('#print').addEventListener('click', printChrome);
   $('#png').addEventListener('click', savePng);
   $('#member').value = 'Desi';
