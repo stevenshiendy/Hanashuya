@@ -589,6 +589,12 @@ async function settings() {
     </div>
   </section>
 
+  <section class="panel stack" aria-labelledby="print-title">
+    <h2 id="print-title">Uji cetak struk</h2>
+    <p>Cetak contoh struk ke printer Bluetooth, lewat Chrome, atau simpan sebagai gambar. Tidak ada penjualan yang tercatat.</p>
+    <div class="row"><a class="btn btn-quiet" href="cetak-uji.html">Buka uji cetak</a></div>
+  </section>
+
   <section class="panel stack" aria-labelledby="backup-title">
     <h2 id="backup-title">Cadangan data</h2>
     <p>${s.last_backup ? `Terakhir diunduh ${esc(when(s.last_backup))}.` : 'Belum pernah diunduh.'}</p>

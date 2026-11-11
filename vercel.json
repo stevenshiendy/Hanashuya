@@ -39,7 +39,7 @@
       ]
     },
     {
-      "source": "/member/(staf|pemilik)(.html)?",
+      "source": "/member/(staf|pemilik|cetak-uji)(.html)?",
       "headers": [
         {
           "key": "X-Robots-Tag",

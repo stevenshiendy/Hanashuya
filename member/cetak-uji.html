@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Uji Cetak Struk</title>
+<meta name="robots" content="noindex">
+<meta name="description" content="Halaman uji cetak struk Hanashuya: lihat, cetak dan simpan contoh struk tanpa membuka aplikasi kasir.">
+<meta name="theme-color" content="#fffaee">
+<link rel="icon" href="/img/favicon.png?v=2" type="image/png">
+<link rel="stylesheet" href="css/app.css">
+<style>
+  main.w-staff.pt-main, .pt-head .bar-inner { max-width: calc(64rem + 2 * var(--gutter)); }
+  .pt { display: grid; grid-template-columns: minmax(0, 22rem) minmax(0, 1fr); gap: var(--space-lg); align-items: start; }
+  @media (max-width: 760px) { .pt { grid-template-columns: minmax(0, 1fr); } }
+  .pt-paper { display: flex; justify-content: center; padding: var(--space-lg); background: var(--color-paper-3); border-radius: var(--radius-card); overflow-x: auto; }
+  .pt-paper canvas { display: block; max-width: 100%; height: auto; image-rendering: pixelated; }
+  .pt-facts { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-lg); font-size: var(--text-sm); color: var(--color-muted); font-variant-numeric: tabular-nums; }
+  .pt-print { display: none; }
+  @media print {
+    body > *:not(.pt-print) { display: none !important; }
+    .pt-print { display: block; margin: 0 auto; }
+  }
+</style>
+<script type="module" src="js/print-test.js"></script>
+</head>
+<body class="w-staff">
+<header class="bar pt-head">
+  <div class="bar-inner">
+    <a class="brand" href="pemilik.html">Hanashuya <span class="role">Uji cetak</span></a>
+    <div class="row"><a class="btn btn-text" href="pemilik.html" id="to-owner" hidden>Dasbor</a><button class="btn btn-text" type="button" id="logout" hidden>Keluar</button></div>
+  </div>
+</header>
+<main id="app" class="w-staff pt-main" tabindex="-1">
+  <div class="panel stack" aria-busy="true"><div class="skeleton"></div><div class="skeleton"></div></div>
+</main>
+<main id="tool" class="w-staff pt-main stack-lg" tabindex="-1" hidden>
+  <p class="muted">Contoh struk dengan desain final. Tidak terhubung ke kasir: tidak ada penjualan yang tercatat.</p>
+  <div class="pt">
+    <form class="panel stack" id="opts" novalidate>
+      <fieldset class="field">
+        <legend>Kertas</legend>
+        <div class="choices">
+          <label class="choice"><input type="radio" name="paper" value="384" checked><span>58 mm</span></label>
+          <label class="choice"><input type="radio" name="paper" value="576"><span>80 mm</span></label>
+          <label class="choice"><input type="radio" name="paper" value="wa"><span>WhatsApp</span></label>
+        </div>
+      </fieldset>
+      <label class="field"><span>Contoh struk</span>
+        <select id="sample">
+          <option value="member">Member, diskon 50% member baru, QRIS</option>
+          <option value="reward">Member, hadiah baru terbuka, tunai</option>
+          <option value="promo">Member, hadiah stempel 10%, tunai</option>
+          <option value="free">Member, voucher Signature gratis</option>
+          <option value="walk">Tanpa member, tunai</option>
+          <option value="qris">Tanpa member, QRIS</option>
+          <option value="grab">Pesanan GrabFood dengan paper bag</option>
+          <option value="long">Nama panjang (uji baris turun)</option>
+        </select>
+      </label>
+      <label class="field"><span>Nama member</span><input type="text" id="member" autocomplete="off"></label>
+      <label class="field"><span>Kasir</span><input type="text" id="kasir" autocomplete="off"></label>
+      <label class="check"><input type="checkbox" id="mono" checked> Tampilkan seperti hasil printer (hitam putih)</label>
+      <label class="check"><input type="checkbox" id="dither"> Arsir abu-abu (dither)</label>
+
+      <div class="stack-sm">
+        <button class="btn btn-block" type="button" id="bt">Cetak ke printer Bluetooth</button>
+        <button class="btn btn-quiet btn-block" type="button" id="print">Cetak lewat Chrome</button>
+        <button class="btn btn-quiet btn-block" type="button" id="png">Simpan gambar (PNG)</button>
+        <label class="check"><input type="checkbox" id="cut" checked> Potong kertas setelah cetak</label>
+        <label class="check"><input type="checkbox" id="drawer"> Buka laci kas</label>
+      </div>
+      <p class="notice" id="status" role="status" hidden></p>
+      <details class="small muted">
+        <summary>Cara pakai di tablet kasir</summary>
+        <ul class="stack-sm">
+          <li><strong>Printer Bluetooth:</strong> nyalakan printer, tekan Cetak ke printer Bluetooth, lalu pilih nama printernya. Hanya untuk printer Bluetooth LE di Chrome Android.</li>
+          <li><strong>Lewat Chrome:</strong> butuh aplikasi layanan cetak printer thermal di tablet (misalnya dari pembuat printernya). Pilih ukuran kertas 58 atau 80 mm dan margin nol.</li>
+          <li><strong>Gambar PNG:</strong> simpan, lalu buka di aplikasi printer thermal yang bisa mencetak gambar.</li>
+        </ul>
+      </details>
+    </form>
+    <section class="stack-sm" aria-label="Pratinjau struk">
+      <div class="pt-facts" id="facts"></div>
+      <div class="pt-paper"><canvas id="view" aria-label="Pratinjau struk"></canvas></div>
+    </section>
+  </div>
+</main>
+<noscript><p class="panel">Halaman ini butuh JavaScript.</p></noscript>
+</body>
+</html>
