@@ -137,14 +137,18 @@ async function connect() {
   return printer;
 }
 
-async function send(bytes) {
+// Paced sending (12 Nov 2026): at 180 bytes every 15 ms the printer's buffer overflowed,
+// bytes were lost, and the rest of the picture printed as garbage text. Send small chunks,
+// wait for the printer's answer when it offers one, and pause between chunks otherwise.
+async function send(bytes, onProgress) {
   const { ch } = printer;
-  const chunk = 180;
+  const chunk = 100;
+  const withResponse = ch.properties.write;
   for (let i = 0; i < bytes.length; i += chunk) {
     const part = bytes.slice(i, i + chunk);
-    if (ch.properties.writeWithoutResponse) await ch.writeValueWithoutResponse(part);
-    else await ch.writeValue(part);
-    await wait(15);
+    if (withResponse) await ch.writeValueWithResponse(part);
+    else { await ch.writeValueWithoutResponse(part); await wait(40); }
+    if (onProgress && (i / chunk) % 20 === 0) onProgress(Math.round((i / bytes.length) * 100));
   }
 }
 
@@ -159,7 +163,7 @@ async function printBluetooth() {
       { dither: $('#dither').checked, cut: $('#cut').checked, drawer: $('#drawer').checked });
     const t = performance.now();
     say(`Mengirim ke ${printer.name}...`);
-    await send(bytes);
+    await send(bytes, (pct) => say(`Mengirim ke ${printer.name}... ${pct}%`));
     say(`Terkirim ke ${printer.name}: ${Math.round(bytes.length / 1024)} KB dalam ${((performance.now() - t) / 1000).toFixed(1)} detik. Jalur ${printer.svc} / ${printer.uuid}.`);
   } catch (e) {
     if (e && e.name === 'NotFoundError') { device = null; say('Tidak ada printer yang dipilih.', 'warn'); }
