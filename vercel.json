@@ -1,6 +1,13 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/v/:code",
+      "destination": "/member/?v=:code",
+      "permanent": false
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",

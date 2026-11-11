@@ -81,6 +81,9 @@ create unique index if not exists profiles_whatsapp_once on public.profiles (wha
 alter table public.profiles add column if not exists username text;
 alter table public.profiles add column if not exists birth_date date;
 create unique index if not exists profiles_username_once on public.profiles (username) where deleted_at is null;
+-- A card made by the cashier starts with the password 12345; the
+-- member must choose their own password on first sign-in (set_first_password).
+alter table public.profiles add column if not exists must_set_password boolean not null default false;
 -- WhatsApp promos only go to members who ticked the separate promo box.
 alter table public.profiles add column if not exists marketing_opt_in boolean not null default false;
 
@@ -117,7 +120,7 @@ create table if not exists public.sales (
   items jsonb not null default '[]',
   gender text check (gender in ('perempuan', 'laki-laki', 'tidak_disebut')),
   age_range text check (age_range in ('<17', '17-24', '25-34', '35-44', '45+', 'tidak_disebut')),
-  via text check (via in ('qr', 'kode')),
+  via text check (via in ('qr', 'kode', 'nomor', 'daftar')),
   flags text[] not null default '{}',
   created_at timestamptz not null default now(),
   reversed_at timestamptz,
@@ -153,7 +156,43 @@ create table if not exists public.redemptions (
 -- dashboard and backups treat them like any other used reward.
 alter table public.redemptions add column if not exists kind text not null default 'stempel';
 alter table public.redemptions drop constraint if exists redemptions_kind_check;
-alter table public.redemptions add constraint redemptions_kind_check check (kind in ('stempel', 'welcome', 'ulang_tahun'));
+alter table public.redemptions add constraint redemptions_kind_check check (kind in ('stempel', 'welcome', 'ulang_tahun', 'kode'));
+
+-- ---------------------------------------------------------------- printed voucher codes (10 Nov 2026)
+-- Each printed voucher (first: the Papaya cashier voucher) carries its own random code,
+-- inside its QR (/v/<code>) and printed under it. Scanning only opens sign-up; the code
+-- is claimed onto a member's card at the very end, by the member in the app
+-- (claim_voucher_code) or by the cashier from a card scan (staff_claim_code). Claimed
+-- codes show as vouchers (kind 'kode', period = code id) and are used by the cashier
+-- like the welcome voucher. One code = one member; one_per_member allows one code per
+-- batch per member. Codes are added with the SQL file made for each print run.
+create table if not exists public.voucher_batches (
+  id text primary key,
+  title text not null,
+  label text not null,
+  pos_code text,
+  ends_on date not null,
+  one_per_member boolean not null default true,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.voucher_codes (
+  id int generated always as identity primary key,
+  code text not null unique check (code ~ '^[2-9A-HJ-NP-Z]{8}$'),
+  batch_id text not null references public.voucher_batches (id),
+  sheet int,
+  claimed_by uuid references public.profiles (id) on delete set null,
+  claimed_at timestamptz,
+  claimed_via text check (claimed_via in ('app', 'kasir', 'pemilik')),
+  created_at timestamptz not null default now()
+);
+create unique index if not exists voucher_codes_one_per_member on public.voucher_codes (batch_id, claimed_by)
+  where claimed_by is not null;
+alter table public.voucher_batches enable row level security;
+alter table public.voucher_codes enable row level security;
+-- The Papaya cashier voucher (Glenn, 8 Nov): 1 Signature, VireoPOS code MANIS, until 31 Jan 2027.
+insert into public.voucher_batches (id, title, label, pos_code, ends_on)
+values ('papaya-1', 'Voucher Papaya', '1 Signature choux gratis', 'MANIS', '2027-01-31')
+on conflict (id) do nothing;
 drop index if exists public.redemptions_once;
 create unique index if not exists redemptions_once_kind
   on public.redemptions (member_id, kind, cycle, slot) where reversed_at is null;
@@ -187,10 +226,17 @@ create table if not exists public.scan_tickets (
   id uuid primary key default gen_random_uuid(),
   staff_id uuid not null references public.profiles (id) on delete cascade,
   member_id uuid not null references public.profiles (id) on delete cascade,
-  via text not null check (via in ('qr', 'kode')),
+  via text not null check (via in ('qr', 'kode', 'nomor', 'daftar')),
   expires_at timestamptz not null,
   used_at timestamptz
 );
+
+-- How the cashier found the card: QR scan, typed card code, WhatsApp number search
+-- (nomor), or a card the cashier just made on the tablet (daftar). Widened 10 Nov 2026.
+alter table public.sales drop constraint if exists sales_via_check;
+alter table public.sales add constraint sales_via_check check (via in ('qr', 'kode', 'nomor', 'daftar'));
+alter table public.scan_tickets drop constraint if exists scan_tickets_via_check;
+alter table public.scan_tickets add constraint scan_tickets_via_check check (via in ('qr', 'kode', 'nomor', 'daftar'));
 
 create table if not exists public.undo_requests (
   id bigint generated always as identity primary key,
@@ -414,8 +460,9 @@ $$;
 --                once a year, for members who joined at least 30 days before that birthday
 --                (syarat dan ketentuan 7.2). Only the next birthday that qualifies is listed.
 -- status: 'belum' (not open yet), 'tersedia', 'dipakai', 'kedaluwarsa'.
+drop function if exists public._vouchers(uuid);
 create or replace function public._vouchers(p uuid)
-returns table (kind text, period int, title text, label text, starts_on date, ends_on date, status text)
+returns table (kind text, period int, title text, label text, starts_on date, ends_on date, status text, pos_code text)
 language sql stable security definer set search_path = public
 as $$
   with me as (
@@ -424,18 +471,26 @@ as $$
   t as (select public._local(now())::date as today),
   welcome as (
     select 'welcome'::text as kind, 0 as period, 'Hadiah member baru'::text as title,
-           'Diskon 50% untuk 1 produk'::text as label, me.joined as starts_on, me.joined + 30 as ends_on
+           'Diskon 50% untuk 1 produk'::text as label, me.joined as starts_on, me.joined + 30 as ends_on,
+           'NEWMEMBER50'::text as pos_code
     from me),
   bday as (
     select 'ulang_tahun'::text as kind, y as period, 'Hadiah ulang tahun'::text as title,
            '1 box Mini Choux isi 8 gratis'::text as label,
-           public._birthday_in(me.birth_date, y) - 7 as starts_on, public._birthday_in(me.birth_date, y) + 7 as ends_on
+           public._birthday_in(me.birth_date, y) - 7 as starts_on, public._birthday_in(me.birth_date, y) + 7 as ends_on,
+           'BIRTHDAYGIFT'::text as pos_code
     from me, t, generate_series(extract(year from t.today)::int - 1, extract(year from t.today)::int + 1) y
     where me.birth_date is not null
       and public._birthday_in(me.birth_date, y) + 7 >= t.today
       and me.joined <= public._birthday_in(me.birth_date, y) - 30
     order by y limit 1),
-  v as (select * from welcome union all select * from bday)
+  codes as (
+    -- The code is in the title so the cashier can match it with the paper voucher, which
+    -- must be handed over at the booth (Glenn, 10 Nov 2026).
+    select 'kode'::text as kind, c.id as period, b.title || ' ' || substr(c.code, 1, 4) || '-' || substr(c.code, 5, 4), b.label,
+           public._local(c.claimed_at)::date as starts_on, b.ends_on, b.pos_code
+    from me join voucher_codes c on c.claimed_by = me.id join voucher_batches b on b.id = c.batch_id),
+  v as (select * from welcome union all select * from bday union all select * from codes)
   select v.kind, v.period, v.title, v.label, v.starts_on, v.ends_on,
     case
       when exists (select 1 from redemptions d where d.member_id = p and d.kind = v.kind
@@ -443,7 +498,8 @@ as $$
       when t.today < v.starts_on then 'belum'
       when t.today > v.ends_on then 'kedaluwarsa'
       else 'tersedia'
-    end
+    end,
+    v.pos_code
   from v, t
 $$;
 
@@ -523,7 +579,10 @@ begin
   -- No terms checkbox while the legal pages are offline (Glenn, 7 Nov 2026); only the
   -- promo choice is recorded.
   insert into consent_log (user_id, document, version, accepted, method)
-  select new.id, 'promo_whatsapp', s.privacy_version, coalesce((meta->>'marketing')::boolean, false), 'daftar'
+  -- staff_create_member sets hanashuya.signup_method for its own transaction, so a
+  -- card made by the cashier is recorded as 'daftar kasir'. Browsers can't set it.
+  select new.id, 'promo_whatsapp', s.privacy_version, coalesce((meta->>'marketing')::boolean, false),
+         coalesce(nullif(current_setting('hanashuya.signup_method', true), ''), 'daftar')
   from settings s where s.id = 1;
   return new;
 end $$;
@@ -557,8 +616,10 @@ as $$
 $$;
 
 -- Creates a login with a hidden address and the given password. Used for staff
--- accounts and the first owner; members sign up themselves on the card page.
-create or replace function public._create_login(p_wa text, p_password text, p_username text, p_name text) returns uuid
+-- accounts, the first owner, and member cards the cashier makes on the tablet
+-- (p_meta carries birth_date, gender and marketing for _handle_new_user).
+drop function if exists public._create_login(text, text, text, text);
+create or replace function public._create_login(p_wa text, p_password text, p_username text, p_name text, p_meta jsonb default '{}') returns uuid
 language plpgsql volatile security definer set search_path = public, extensions
 as $$
 declare
@@ -571,7 +632,7 @@ begin
   values ('00000000-0000-0000-0000-000000000000', uid, 'authenticated', 'authenticated', em,
     extensions.crypt(p_password, extensions.gen_salt('bf')), now(),
     '{"provider":"email","providers":["email"]}',
-    jsonb_build_object('whatsapp', p_wa, 'username', p_username, 'full_name', p_name), now(), now(), '', '', '', '');
+    jsonb_build_object('whatsapp', p_wa, 'username', p_username, 'full_name', p_name) || coalesce(p_meta, '{}'), now(), now(), '', '', '', '');
   insert into auth.identities (id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
   values (gen_random_uuid(), uid, uid::text,
     jsonb_build_object('sub', uid::text, 'email', em, 'email_verified', true), 'email', now(), now(), now());
@@ -655,6 +716,7 @@ begin
     return null;
   end if;
   perform public._set_password(p.id, p_password);
+  update profiles set must_set_password = false where id = p.id;
   update password_resets set used_at = now() where user_id = p.id and used_at is null;
   insert into audit_log (actor, action, detail) values (p.id, 'reset_password', jsonb_build_object('reset', r.id));
   return p.email;
@@ -666,7 +728,10 @@ language sql stable security definer set search_path = public
 as $$
   select json_build_object('id', id, 'role', role, 'full_name', full_name, 'username', username, 'whatsapp', whatsapp,
     'whatsapp_verified', whatsapp_verified_at is not null,
-    'profile_complete', (full_name is not null and birth_date is not null and username is not null and adult_confirmed),
+    -- The username is optional (cards made by the cashier have none); members can always
+    -- sign in with their WhatsApp number.
+    'profile_complete', (full_name is not null and birth_date is not null and adult_confirmed),
+    'must_set_password', must_set_password,
     -- Always true while the legal pages are offline, so nobody is asked to re-accept.
     -- To bring the check back, restore it from git history (commit 86704a7).
     'terms_ok', true)
@@ -687,8 +752,9 @@ declare un text := public._clean_username(p_username);
 begin
   if auth.uid() is null then raise exception 'Silakan masuk dulu.'; end if;
   if coalesce(trim(p_full_name), '') = '' then raise exception 'Isi nama lengkap.'; end if;
-  if un is null or un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'; end if;
-  if exists (select 1 from profiles where username = un and id <> auth.uid() and deleted_at is null) then raise exception 'Username sudah dipakai.'; end if;
+  -- Username is optional; left empty, the current one (or none) is kept.
+  if un is not null and un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'; end if;
+  if un is not null and exists (select 1 from profiles where username = un and id <> auth.uid() and deleted_at is null) then raise exception 'Username sudah dipakai.'; end if;
   if p_birth_date is null then raise exception 'Isi tanggal lahir.'; end if;
   if age(current_date, p_birth_date) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
   -- The birthday voucher depends on it, so once set only Hanashuya changes the birth date
@@ -704,7 +770,7 @@ begin
     values (auth.uid(), 'promo_whatsapp', (select privacy_version from settings where id = 1), p_marketing, 'ubah data');
   end if;
   update profiles set
-    full_name = trim(p_full_name), username = un, birth_date = p_birth_date,
+    full_name = trim(p_full_name), username = coalesce(un, username), birth_date = p_birth_date,
     age_range = public._age_range(p_birth_date), gender = nullif(p_gender, ''), adult_confirmed = true,
     marketing_opt_in = coalesce(p_marketing, marketing_opt_in)
   where id = auth.uid() and deleted_at is null;
@@ -821,7 +887,7 @@ declare
   staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
   raw text := upper(trim(coalesce(p_scan, '')));
   parts text[]; code text; win bigint; now_win bigint := floor(extract(epoch from now()) / 300);
-  m profiles; via text; t uuid; v_total int; s settings := public._cfg(); cv record;
+  m profiles; via text;
 begin
   if raw like 'HS1.%' then
     parts := string_to_array(raw, '.');
@@ -841,6 +907,17 @@ begin
   end if;
   select * into m from profiles where replace(card_code, '-', '') = code and deleted_at is null;
   if m.id is null then raise exception 'Kartu tidak ditemukan.'; end if;
+  return public._open_card(staff, m, via);
+end $$;
+
+-- Opens a found card for the cashier: checks it isn't a staff card, makes a 10-minute
+-- scan ticket and returns what the cashier sees. Shared by the QR/code lookup, the
+-- WhatsApp number search and the cashier sign-up.
+create or replace function public._open_card(staff uuid, m profiles, via text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare t uuid; v_total int; s settings := public._cfg(); cv record;
+begin
   if m.id = staff then raise exception 'Tidak bisa memakai kartu sendiri.'; end if;
   if public._staff_conflict(m.id) then
     raise exception 'Kartu ini terhubung dengan akun staf, jadi tidak bisa diberi stempel atau hadiah di sini.';
@@ -851,6 +928,9 @@ begin
   select * into cv from public._card_view(m.id);
   return json_build_object(
     'ticket', t, 'via', via, 'first_name', public._first_name(m.full_name),
+    -- The full name only for a number search or a new card, so the cashier can check it.
+    'full_name', case when via in ('nomor', 'daftar') then m.full_name end,
+    'whatsapp', case when via = 'daftar' then m.whatsapp end,
     'card_code', m.card_code, 'total_stamps', v_total, 'position', cv.card_position,
     'waiting', cv.waiting, 'cycle', cv.cycle, 'cards_done', cv.cards_done,
     'card_size', s.card_size, 'rupiah_per_stamp', s.rupiah_per_stamp,
@@ -858,8 +938,200 @@ begin
     'rewards', coalesce((select json_agg(json_build_object('label', x.label, 'cycle', x.cycle, 'slot', x.slot))
                          from public._rewards(m.id) x where x.status = 'tersedia'), '[]'),
     'vouchers', coalesce((select json_agg(json_build_object('kind', v.kind, 'period', v.period, 'title', v.title,
-                           'label', v.label, 'ends_on', v.ends_on))
+                           'label', v.label, 'ends_on', v.ends_on, 'pos_code', v.pos_code))
                          from public._vouchers(m.id) v where v.status = 'tersedia'), '[]'));
+end $$;
+
+-- No card and no QR: the cashier asks for the member's WhatsApp number (SOP Bab 7).
+-- Only the whole number finds a card, so staff can't browse members by typing part of
+-- one. Every search is logged, and sales found this way are flagged for the owner.
+create or replace function public.staff_find_phone(p_phone text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
+  wa text := public._wa(p_phone); m profiles;
+begin
+  if wa is null or wa !~ '^628[0-9]{8,12}$' then raise exception 'Tulis nomor WhatsApp lengkap, misalnya 0812 3456 7890.'; end if;
+  select * into m from profiles where whatsapp = wa and deleted_at is null;
+  perform public._log('cari_nomor', jsonb_build_object('whatsapp', wa, 'found', m.id is not null));
+  if m.id is null then raise exception 'Nomor ini belum terdaftar sebagai member. Tawarkan daftar member.'; end if;
+  return public._open_card(staff, m, 'nomor');
+end $$;
+
+-- The cashier makes a member card on the tablet when the customer asks for help.
+-- Nobody types a password at the counter: every card starts with the fixed password
+-- 12345 (Glenn, 10 Nov 2026, chosen over a random code per card), returned as
+-- start_code for the cashier to send by WhatsApp or say aloud, and must_set_password
+-- makes the member choose their own on first sign-in. Until they do, anyone who knows
+-- the member's number can open the card.
+-- The username is left empty (they sign in with their WhatsApp number). The card
+-- opens straight away in the Kasir step, so the new-member voucher and today's stamps
+-- go on it in the same visit.
+drop function if exists public.staff_create_member(text, date, text, text, text, boolean);
+create or replace function public.staff_create_member(
+  p_name text, p_birth_date date, p_phone text, p_gender text, p_marketing boolean
+) returns json
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare
+  staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
+  wa text := public._wa(p_phone); nm text := nullif(trim(coalesce(p_name, '')), ''); uid uuid; m profiles;
+  code constant text := '12345';
+begin
+  if nm is null then raise exception 'Isi nama lengkap.'; end if;
+  if p_birth_date is null then raise exception 'Isi tanggal lahir.'; end if;
+  if age(current_date, p_birth_date) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
+  if wa is null or wa !~ '^628[0-9]{8,12}$' then raise exception 'Tulis nomor WhatsApp yang aktif, misalnya 0812 3456 7890.'; end if;
+  if exists (select 1 from profiles where whatsapp = wa and deleted_at is null) then
+    raise exception 'Nomor ini sudah punya kartu member. Cari lewat nomor WhatsApp di langkah 1.';
+  end if;
+  if nullif(p_gender, '') is not null and p_gender not in ('perempuan', 'laki-laki', 'tidak_disebut') then
+    raise exception 'Jenis kelamin tidak valid.';
+  end if;
+  perform set_config('hanashuya.signup_method', 'daftar kasir', true);
+  uid := public._create_login(wa, code, null, nm, jsonb_build_object(
+    'birth_date', p_birth_date::text, 'gender', coalesce(p_gender, ''), 'marketing', coalesce(p_marketing, false)));
+  perform set_config('hanashuya.signup_method', '', true);
+  update profiles set must_set_password = true where id = uid returning * into m;
+  perform public._log('daftar_lewat_kasir', jsonb_build_object('member', uid, 'whatsapp', wa));
+  return public._open_card(staff, m, 'daftar')::jsonb || jsonb_build_object('start_code', code);
+end $$;
+
+-- Claims a printed voucher code for member p. Returns {status, message, ...} and never
+-- raises for a wrong code, so the try is logged even when it fails (members get 5 wrong
+-- tries an hour). status: tersimpan (saved now), sudah (already on this card), or an
+-- error: salah, terlalu_sering, dipakai_lain, kedaluwarsa, sudah_punya.
+create or replace function public._claim_code(p uuid, p_code text, p_via text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  k text := upper(regexp_replace(coalesce(p_code, ''), '[^A-Za-z0-9]', '', 'g'));
+  c voucher_codes; b voucher_batches;
+begin
+  if p_via = 'app' and (select count(*) from audit_log where actor = p and action = 'kode_salah'
+                         and created_at > now() - interval '1 hour') >= 5 then
+    return json_build_object('status', 'terlalu_sering', 'message', 'Terlalu banyak kode yang salah. Coba lagi 1 jam lagi, atau tunjukkan voucher ke kasir.');
+  end if;
+  select * into c from voucher_codes where code = k for update;
+  if c.id is null then
+    insert into audit_log (actor, action, detail) values (auth.uid(), 'kode_salah', jsonb_build_object('member', p, 'via', p_via));
+    return json_build_object('status', 'salah', 'message', 'Kode voucher tidak dikenal. Periksa lagi kode di bawah QR voucher.');
+  end if;
+  select * into b from voucher_batches where id = c.batch_id;
+  if c.claimed_by = p then
+    return json_build_object('status', 'sudah', 'message', 'Voucher ini sudah tersimpan di kartu Anda.', 'title', b.title, 'label', b.label, 'ends_on', b.ends_on);
+  end if;
+  if c.claimed_by is not null then
+    return json_build_object('status', 'dipakai_lain', 'message', 'Kode ini sudah dipakai akun lain. Kalau ini voucher Anda, hubungi Hanashuya lewat WhatsApp.');
+  end if;
+  if public._local(now())::date > b.ends_on then
+    return json_build_object('status', 'kedaluwarsa', 'message', 'Voucher ini sudah tidak berlaku.');
+  end if;
+  if b.one_per_member and exists (select 1 from voucher_codes where batch_id = b.id and claimed_by = p) then
+    return json_build_object('status', 'sudah_punya', 'message', b.title || ' hanya 1 per member, dan kartu ini sudah punya.');
+  end if;
+  update voucher_codes set claimed_by = p, claimed_at = now(), claimed_via = p_via where id = c.id;
+  insert into audit_log (actor, action, detail) values (auth.uid(), 'simpan_kode', jsonb_build_object('member', p, 'code_id', c.id, 'via', p_via));
+  return json_build_object('status', 'tersimpan', 'message', b.title || ' tersimpan di kartu Anda.', 'title', b.title, 'label', b.label, 'ends_on', b.ends_on);
+end $$;
+
+-- The member saves a voucher code to their own card (from the voucher QR, or typed in Hadiah).
+create or replace function public.claim_voucher_code(p_code text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := auth.uid();
+begin
+  if not exists (select 1 from profiles where id = me and role = 'member' and deleted_at is null) then
+    return json_build_object('status', 'bukan_member', 'message', 'Voucher hanya untuk akun member.');
+  end if;
+  return public._claim_code(me, p_code, 'app');
+end $$;
+
+-- The cashier saves a voucher code to the scanned card (the customer shows the paper
+-- voucher), then uses it from the ready list. Returns the card again with the voucher.
+create or replace function public.staff_claim_code(p_ticket uuid, p_code text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan email Anda.');
+  tk scan_tickets; m profiles; r json;
+begin
+  select * into tk from scan_tickets where id = p_ticket and staff_id = staff and expires_at > now();
+  if tk.id is null then raise exception 'Scan kartu sudah lewat 10 menit. Scan ulang kartunya.'; end if;
+  select * into m from profiles where id = tk.member_id and deleted_at is null;
+  if m.id is null then raise exception 'Kartu tidak ditemukan.'; end if;
+  r := public._claim_code(m.id, p_code, 'kasir');
+  if r->>'status' not in ('tersimpan', 'sudah') then
+    return json_build_object('status', r->>'status', 'message', replace(replace(r->>'message', 'kartu Anda', 'kartu ini'), 'Kalau ini voucher Anda, hubungi Hanashuya lewat WhatsApp.', 'Minta pembeli menghubungi Hanashuya lewat WhatsApp.'));
+  end if;
+  return (public._open_card(staff, m, tk.via)::jsonb || jsonb_build_object('status', r->>'status'))::json;
+end $$;
+
+-- The owner moves a claimed, unused code to the right member (someone else scanned the
+-- voucher first), or frees it with p_login null.
+create or replace function public.owner_move_code(p_code text, p_login text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+  k text := upper(regexp_replace(coalesce(p_code, ''), '[^A-Za-z0-9]', '', 'g'));
+  c voucher_codes; to_p profiles;
+begin
+  select * into c from voucher_codes where code = k;
+  if c.id is null then raise exception 'Kode voucher tidak dikenal.'; end if;
+  if exists (select 1 from redemptions where kind = 'kode' and cycle = c.id and reversed_at is null) then
+    raise exception 'Voucher ini sudah dipakai di booth, jadi tidak bisa dipindah.';
+  end if;
+  if nullif(trim(coalesce(p_login, '')), '') is null then
+    update voucher_codes set claimed_by = null, claimed_at = null, claimed_via = null where id = c.id;
+  else
+    to_p := public._find_login(p_login);
+    if to_p.id is null or to_p.role <> 'member' then raise exception 'Akun member tidak ditemukan.'; end if;
+    if exists (select 1 from voucher_codes x join voucher_batches b on b.id = x.batch_id
+               where x.batch_id = c.batch_id and x.claimed_by = to_p.id and b.one_per_member and x.id <> c.id) then
+      raise exception 'Member itu sudah punya voucher dari kelompok ini.';
+    end if;
+    update voucher_codes set claimed_by = to_p.id, claimed_at = now(), claimed_via = 'pemilik' where id = c.id;
+  end if;
+  perform public._log('pindah_kode', jsonb_build_object('code_id', c.id, 'from', c.claimed_by, 'to', to_p.id));
+  return json_build_object('code', c.code, 'member', to_p.full_name);
+end $$;
+
+-- Per batch: how many codes are printed, saved to a card, and used at the booth. The
+-- weekly check: "dipakai" should equal the number of MANIS uses in VireoPOS.
+create or replace function public.owner_code_report() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+begin
+  return coalesce((select json_agg(x order by x.ends_on desc) from (
+    select b.id, b.title, b.label, b.pos_code, b.ends_on,
+      (select count(*) from voucher_codes c where c.batch_id = b.id) as printed,
+      (select count(*) from voucher_codes c where c.batch_id = b.id and c.claimed_by is not null) as claimed,
+      (select count(*) from voucher_codes c join redemptions d on d.kind = 'kode' and d.cycle = c.id and d.reversed_at is null
+        where c.batch_id = b.id) as used
+    from voucher_batches b) x), '[]');
+end $$;
+
+-- First sign-in of a card made by the cashier: the member replaces the starting code
+-- with their own password. Lupa password (reset_with_code) also clears the flag.
+create or replace function public.set_first_password(p_password text) returns json
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare me uuid := auth.uid(); p profiles;
+begin
+  select * into p from profiles where id = me and deleted_at is null;
+  if p.id is null then raise exception 'Silakan masuk dulu.'; end if;
+  if not p.must_set_password then raise exception 'Password sudah dibuat. Untuk menggantinya, buka Akun.'; end if;
+  if length(coalesce(p_password, '')) < 8 then raise exception 'Password minimal 8 karakter.'; end if;
+  if exists (select 1 from auth.users where id = me and encrypted_password = extensions.crypt(p_password, encrypted_password)) then
+    raise exception 'Buat password baru, jangan pakai password awal dari kasir.';
+  end if;
+  perform public._set_password(me, p_password);
+  update profiles set must_set_password = false where id = me;
+  perform public._log('buat_password_pertama', jsonb_build_object('member', me));
+  return public.whoami();
 end $$;
 
 -- The cashier uses the new-member or birthday voucher from the card scan, like a stamp reward.
@@ -943,6 +1215,7 @@ begin
         'Rp' || replace(to_char(p_total, 'FM999,999,999'), ',', '.'), to_char(public._local(prev.created_at), 'HH24:MI');
     end if;
     if tk.via = 'kode' then f := array_append(f, 'kode_diketik'); end if;
+    if tk.via = 'nomor' then f := array_append(f, 'nomor_dicari'); end if;
     if (select count(*) from sales where member_id = m.id and staff_id = staff
           and created_at > now() - interval '7 days' and reversed_at is null) >= 3 then
       f := array_append(f, 'staf_sama_sering');
@@ -1531,7 +1804,7 @@ grant execute on function public._issue_reset_code(text, uuid) to service_role;
 
 revoke all on public.settings, public.redeem_codes, public.scan_tickets, public.undo_requests,
   public.pos_receipts, public.audit_log, public.password_resets, public.consent_log from anon, authenticated;
-revoke all on public.card_cycles from anon, authenticated;
+revoke all on public.card_cycles, public.voucher_batches, public.voucher_codes from anon, authenticated;
 
 -- Fill card_cycles for every member who already has stamps (safe to repeat).
 select public._sync_cycles(id) from public.profiles where role = 'member' and deleted_at is null;

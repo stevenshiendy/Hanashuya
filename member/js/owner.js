@@ -2,7 +2,7 @@ import { sb, configured, $, $$, esc, rpc, busy, notice, toast, rupiah, when, day
 
 const app = $('#app');
 const DAYS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
-const FLAG = { kode_diketik: 'Kode kartu diketik', staf_sama_sering: 'Staf yang sama sering memberi stempel ke kartu ini', banyak_stempel_sehari: 'Banyak stempel dalam sehari' };
+const FLAG = { kode_diketik: 'Kode kartu diketik', nomor_dicari: 'Kartu dicari lewat nomor WhatsApp', staf_sama_sering: 'Staf yang sama sering memberi stempel ke kartu ini', banyak_stempel_sehari: 'Banyak stempel dalam sehari' };
 const PROBLEM = { tidak_ada_struk_cocok: 'Tidak ada struk dengan total dan jam yang sama', nama_beda: 'Nama pelanggan di VireoPOS beda' };
 const LABEL = { perempuan: 'Perempuan', 'laki-laki': 'Laki-laki', tidak_disebut: 'Tidak disebut', kosong: 'Tidak diisi', '<17': 'Di bawah 17' };
 let range = Number(new URLSearchParams(location.search).get('hari')) || 30;
@@ -433,6 +433,49 @@ async function staff() {
 }
 
 /* ---------------- account help: reset codes sent by hand on WhatsApp */
+/* Paper voucher codes (voucher_codes): per print run, how many are printed, saved to a
+   card and used. "Dipakai" should match the VireoPOS count of the batch's code (MANIS). A
+   code someone else claimed first can be moved to the right member, or freed. */
+async function codePanel(p) {
+  p.insertAdjacentHTML('beforeend', `
+  <section class="panel stack" aria-labelledby="codes-title">
+    <h2 id="codes-title">Voucher kertas</h2>
+    <div id="codes-report"><div class="skeleton"></div></div>
+    <p class="muted small">Cek tiap minggu: jumlah "Dipakai" harus sama dengan jumlah pemakaian kode kasirnya di VireoPOS. Selisih berarti kode kasir dipakai tanpa voucher.</p>
+    <form class="stack-sm" id="move-code" novalidate>
+      <h3>Pindahkan voucher</h3>
+      <p class="muted small">Kalau voucher seseorang sudah tersimpan di akun lain (misalnya orang lain scan duluan). Kosongkan nomor untuk melepas kodenya.</p>
+      <div class="row">
+        <label class="field" style="flex:1 1 10rem"><span>Kode voucher</span><input type="text" id="mv-code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="K7PX-3MQ9"></label>
+        <label class="field" style="flex:1 1 12rem"><span>Nomor WhatsApp atau username member</span><input type="text" id="mv-to" autocomplete="off"></label>
+        <button class="btn btn-quiet" type="submit" style="align-self:end">Pindahkan</button>
+      </div>
+      <div class="notice" id="mv-msg" hidden></div>
+    </form>
+  </section>`);
+  const report = async () => {
+    try {
+      const rows = await rpc('owner_code_report');
+      $('#codes-report').innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>Voucher</th><th>Kode kasir</th><th>Berlaku s.d.</th><th class="num">Dicetak</th><th class="num">Tersimpan</th><th class="num">Dipakai</th></tr></thead><tbody>
+        ${rows.map((r) => `<tr><td>${esc(r.title)}<br><span class="muted small">${esc(r.label)}</span></td><td>${esc(r.pos_code || '–')}</td><td class="tnum">${esc(day(r.ends_on))}</td><td class="num">${r.printed}</td><td class="num">${r.claimed}</td><td class="num">${r.used}</td></tr>`).join('')}
+        </tbody></table></div>` : '<p class="muted">Belum ada voucher kertas.</p>';
+    } catch (e) { $('#codes-report').innerHTML = `<p class="notice notice-error">${esc(e.message)}</p>`; }
+  };
+  report();
+  $('#move-code').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('button[type="submit"]', e.currentTarget), msg = $('#mv-msg');
+    busy(btn, true, 'Memindahkan…');
+    try {
+      const r = await rpc('owner_move_code', { p_code: $('#mv-code').value, p_login: $('#mv-to').value.trim() || null });
+      notice(msg, r.member ? `Voucher ${r.code} sekarang di kartu ${r.member}.` : `Kode ${r.code} dilepas. Bisa disimpan lagi oleh siapa saja.`, 'ok');
+      e.currentTarget.reset();
+      report();
+    } catch (err) { notice(msg, err.message); }
+    busy(btn, false);
+  });
+}
+
 function help() {
   const p = $('#p-help');
   p.innerHTML = `
@@ -446,6 +489,7 @@ function help() {
     </form>
     <div id="found"></div>
   </div>`;
+  codePanel(p);
   $('#find').addEventListener('submit', async (e) => {
     e.preventDefault();
     const box = $('#found'), q = $('#find-q').value.trim();

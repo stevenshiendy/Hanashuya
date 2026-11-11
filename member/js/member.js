@@ -17,7 +17,7 @@ const clock = fmt({ hour: '2-digit', minute: '2-digit' });
 const longDay = (ymd) => ymd ? new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(ymd + 'T00:00:00Z')) : 'Belum diisi';
 const imgFor = (slot) => REWARD_IMG[slot] || REWARD_IMG[10];
 // New-member and birthday vouchers (my_card.vouchers): open, used or not open yet.
-const VOUCHER_IMG = { welcome: 'img/reward-free.webp', ulang_tahun: '../img/mini-8.webp' };
+const VOUCHER_IMG = { welcome: 'img/reward-free.webp', ulang_tahun: '../img/mini-8.webp', kode: 'img/reward-free.webp' };
 const imgForRedeemed = (r) => VOUCHER_IMG[r.kind] || imgFor(r.slot);
 const ymdShort = (ymd) => new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(ymd + 'T00:00:00Z'));
 const openVouchers = (c) => (c.vouchers || []).filter((v) => v.status === 'tersedia');
@@ -34,6 +34,34 @@ const NAMES = { kartu: 'Kartu', hadiah: 'Hadiah', riwayat: 'Riwayat', akun: 'Aku
 
 let card = null;
 let tokenTimer, pollTimer, fastPoll, wakeLock = null;
+
+/* ---------------- printed voucher codes. The voucher QR opens /v/<code>, which Vercel
+   redirects to /member/?v=<code>. The code waits on this phone (localStorage) until the
+   member has an account and is signed in, then claim_voucher_code saves it to the card.
+   Nothing is claimed by the scan itself, so an unfinished sign-up just scans again. */
+const PENDING = 'hs-voucher-code';
+const prettyCode = (k) => String(k || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^(.{4})(.+)$/, '$1-$2');
+let codeMsg = null;   // { text, kind } shown at the top of Hadiah after a claim
+const pendingCode = () => { try { return localStorage.getItem(PENDING); } catch { return null; } };
+const setPending = (k) => { try { k ? localStorage.setItem(PENDING, k) : localStorage.removeItem(PENDING); } catch { /* private mode: the QR still works when scanned again */ } };
+{
+  const q = new URLSearchParams(location.search), k = q.get('v');
+  if (k) {
+    setPending(k.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+    history.replaceState(null, '', location.pathname + location.hash);
+  }
+}
+
+// Saves a code to the card. Returns true when the card changed and should reload.
+async function claimCode(code) {
+  let r;
+  try { r = await rpc('claim_voucher_code', { p_code: code }); }
+  catch (e) { codeMsg = { text: e.message, kind: 'error' }; return false; }   // network: a pending code stays for next time
+  const ok = r.status === 'tersimpan' || r.status === 'sudah';
+  codeMsg = { text: ok ? `${r.message} ${r.label}, berlaku sampai ${ymdShort(r.ends_on)}. Bawa voucher kertasnya ke booth dan tunjukkan QR kartu ke kasir.` : r.message, kind: ok ? 'ok' : 'warn' };
+  if (r.status !== 'terlalu_sering') setPending(null);
+  return r.status === 'tersimpan';
+}
 
 function choices(name, list, current) {
   return `<div class="choices">${list.map(([v, l]) => `
@@ -60,9 +88,11 @@ async function start() {
       stage: true,
       title: 'Kartu member Hanashuya',
       lead: 'Daftar sekarang, langsung dapat diskon 50% untuk 1 produk. Lalu 1 stempel setiap belanja Rp50.000: stempel ke-3 diskon 10%, ke-7 diskon 20%, ke-10 satu produk gratis.',
-      start: location.hash === '#daftar' ? 'daftar' : 'masuk',
+      start: location.hash === '#daftar' || pendingCode() ? 'daftar' : 'masuk',
       onDone: () => { if (location.hash === '#daftar') history.replaceState(null, '', location.pathname); boot(); },
     });
+    if (pendingCode()) $('.sheet-paper > div')?.insertAdjacentHTML('afterbegin',
+      `<p class="notice notice-ok">Kode voucher <b class="num">${esc(prettyCode(pendingCode()))}</b> tersimpan ke kartu setelah Anda daftar. Sudah punya akun? Pilih Masuk.</p>`);
     $('.sheet-paper > div')?.insertAdjacentHTML('beforeend',
       `<p class="help-line">Ada kendala? <a href="${esc(waLink('Halo Hanashuya, saya mau tanya soal kartu member: '))}" target="_blank" rel="noopener">Chat Hanashuya di WhatsApp</a></p>`);
     return;
@@ -90,6 +120,7 @@ async function boot() {
       $('#out').addEventListener('click', logout);
       return;
     }
+    if (who.must_set_password) return firstPassword(who);
     if (!who.profile_complete) return profileForm(null, who.whatsapp);
     if (who.terms_ok === false) return profileForm(await rpc('my_card'), null, { renew: true });
     await load();
@@ -101,6 +132,53 @@ async function logout() {
   await forgetLogin();
   await sb.auth.signOut();
   location.href = './';
+}
+
+/* ---------------- first sign-in of a card the cashier made: the member signed in with
+   the 6-digit starting code and now chooses their own password (set_first_password). */
+function firstPassword(who) {
+  clearTimers();
+  $('#who').textContent = '';
+  const first = String(who.full_name || '').trim().split(/\s+/)[0];
+  app.innerHTML = `<div class="wrap page-pad">
+  <form class="stack-lg" id="first-pw" novalidate aria-labelledby="fp-title">
+    <div class="stack-sm">
+      <h1 id="fp-title">Buat password Anda</h1>
+      <p class="muted">${first ? `Halo Kak ${esc(first)}, k` : 'K'}artu member Anda dibuat di booth Hanashuya. Satu langkah lagi: ganti password awal dari kasir dengan password Anda sendiri.</p>
+    </div>
+    <div class="field"><span>Nomor WhatsApp</span><p class="num">${esc(prettyPhone(who.whatsapp))}</p>
+      <span class="hint">Masuk berikutnya pakai nomor ini dan password baru Anda.</span></div>
+    <label class="field"><span>Password baru</span>
+      <span class="pw"><input type="password" id="fp-password" autocomplete="new-password" minlength="8" required>
+      <button class="btn btn-text pw-toggle" type="button" id="fp-show" aria-label="Tampilkan password">Lihat</button></span>
+      <span class="hint">Minimal 8 karakter.</span></label>
+    <div class="notice" id="fp-msg" hidden></div>
+    <div class="row">
+      <button class="btn" type="submit">Simpan dan buka kartu</button>
+      <button class="btn btn-text" type="button" id="fp-out">Keluar</button>
+    </div>
+  </form></div>`;
+  const input = $('#fp-password');
+  $('#fp-show').addEventListener('click', (e) => {
+    const shown = input.type === 'text';
+    input.type = shown ? 'password' : 'text';
+    e.currentTarget.textContent = shown ? 'Lihat' : 'Tutup';
+    e.currentTarget.setAttribute('aria-label', shown ? 'Tampilkan password' : 'Sembunyikan password');
+  });
+  $('#fp-out').addEventListener('click', logout);
+  $('#first-pw').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = $('#fp-msg'), btn = $('button[type="submit"]', e.currentTarget);
+    if (input.value.length < 8) { notice(msg, 'Password minimal 8 karakter.'); input.focus(); return; }
+    notice(msg, '');
+    busy(btn, true, 'Menyimpan…');
+    try {
+      await rpc('set_first_password', { p_password: input.value });
+      await boot();
+      toast('Password tersimpan. Tunjukkan QR saat membayar.');
+    } catch (err) { notice(msg, err.message); busy(btn, false); }
+  });
+  input.focus();
 }
 
 /* ---------------- first visit and edit */
@@ -118,9 +196,9 @@ function profileForm(c, phone, { renew = false } = {}) {
     </div>
     <label class="field"><span>Nama lengkap</span>
       <input type="text" id="full_name" autocomplete="name" required value="${esc(c?.full_name)}"></label>
-    <label class="field"><span>Username</span>
-      <input type="text" id="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" required value="${esc(c?.username)}">
-      <span class="hint">3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.</span></label>
+    <label class="field"><span>Username <span class="hint">tidak wajib</span></span>
+      <input type="text" id="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="${esc(c?.username)}">
+      <span class="hint">3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah. Tanpa username, masuk pakai nomor WhatsApp.</span></label>
     ${c?.birth_date ? `<div class="field"><span>Tanggal lahir</span><p>${esc(longDay(c.birth_date))}</p>
       <input type="hidden" id="birth_date" value="${esc(c.birth_date)}">
       <span class="hint">Dipakai untuk hadiah ulang tahun. Untuk menggantinya, <a href="${esc(waLink(helpText(c) + 'saya mau mengganti tanggal lahir.'))}" target="_blank" rel="noopener">hubungi Hanashuya</a>.</span></div>`
@@ -145,7 +223,7 @@ function profileForm(c, phone, { renew = false } = {}) {
     const msg = $('#pf-msg'), btn = $('button[type="submit"]', f);
     const name = $('#full_name').value.trim(), username = $('#username').value.trim().toLowerCase(), birth = $('#birth_date').value;
     if (!name) { notice(msg, 'Isi nama lengkap.'); $('#full_name').focus(); return; }
-    if (!/^[a-z0-9._]{3,20}$/.test(username)) { notice(msg, 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'); $('#username').focus(); return; }
+    if (username && !/^[a-z0-9._]{3,20}$/.test(username)) { notice(msg, 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'); $('#username').focus(); return; }
     if (!birth) { notice(msg, 'Isi tanggal lahir.'); $('#birth_date').focus(); return; }
     if (birth > maxBirth) { notice(msg, 'Kartu member hanya untuk usia 17 tahun ke atas.'); $('#birth_date').focus(); return; }
     busy(btn, true, 'Menyimpan…');
@@ -162,9 +240,15 @@ function profileForm(c, phone, { renew = false } = {}) {
 async function load(go, fresh = []) {
   clearTimers();
   try { card = await rpc('my_card'); } catch (e) { return errorView(e.message, () => load(go)); }
+  const waiting = pendingCode();
+  if (waiting) {
+    if (await claimCode(waiting)) { try { card = await rpc('my_card'); } catch { /* shown on the next poll */ } }
+    go = 'hadiah';
+  }
   remember(card);
   if (!$('#views')) shell();
   render(fresh);
+  codeMsg = null;   // shown once
   if (go && location.hash !== '#' + go) location.hash = go; else route(false);
   pollTimer = setInterval(poll, 15000);
 }
@@ -243,6 +327,15 @@ function render(fresh) {
   $('#show-qr').addEventListener('click', openQR);
   $$('[data-show-qr]').forEach((b) => b.addEventListener('click', openQR));
   $('#edit').addEventListener('click', () => profileForm(card));
+  $('#code-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const k = $('#code-in').value.toUpperCase().replace(/[^A-Z0-9]/g, ''), btn = $('button[type="submit"]', e.currentTarget);
+    if (k.length !== 8) { notice($('#code-msg'), 'Kode voucher terdiri dari 8 huruf dan angka, misalnya K7PX-3MQ9.'); $('#code-in').focus(); return; }
+    busy(btn, true, 'Menyimpan…');
+    await claimCode(k);
+    await load('hadiah');
+    $('#h-hadiah')?.focus();
+  });
   $('#logout').addEventListener('click', logout);
   $('#pw-open').addEventListener('click', () => { $('#pw-form').hidden = false; $('#pw-new').focus(); });
   $('#pw-cancel').addEventListener('click', () => { $('#pw-form').hidden = true; });
@@ -334,11 +427,12 @@ function viewRewards(c, ready) {
     <header class="view-head"><h1 id="h-hadiah" tabindex="-1">Hadiah</h1>
       <p>${openCount ? `${openCount} hadiah siap dipakai. Di kasir, tunjukkan QR kartu Kakak. Kasir yang memakaikannya.` : 'Kumpulkan stempel untuk membuka hadiah berikutnya.'}</p></header>
     <div class="view-body">
+      ${codeMsg ? `<p class="notice notice-${codeMsg.kind}" role="status">${esc(codeMsg.text)}</p>` : ''}
       <ul class="tickets">${vouchers.map((v) => {
         const open = v.status === 'tersedia';
         return `<li class="ticket ${open ? 'is-ready' : 'is-locked'}"><img src="${VOUCHER_IMG[v.kind]}" alt="" loading="lazy">
           <div class="body"><span class="title">${esc(v.label)}</span>
-          <span class="meta">${esc(v.title)}. ${open ? `Berlaku sampai ${esc(ymdShort(v.ends_on))}` : `Bisa dipakai ${esc(ymdShort(v.starts_on))} sampai ${esc(ymdShort(v.ends_on))}`}</span>
+          <span class="meta">${esc(v.title)}. ${open ? `Berlaku sampai ${esc(ymdShort(v.ends_on))}` : `Bisa dipakai ${esc(ymdShort(v.starts_on))} sampai ${esc(ymdShort(v.ends_on))}`}${v.kind === 'kode' ? '. Bawa voucher kertasnya ke booth' : ''}</span>
           ${open ? '<button class="btn" type="button" data-show-qr>Tunjukkan QR ke kasir</button>' : ''}
           </div></li>`;
       }).join('')}${list.map((r) => {
@@ -351,6 +445,16 @@ function viewRewards(c, ready) {
           : `<span class="meta">Kurang ${left} stempel lagi</span><span class="mini-track" aria-hidden="true"><i style="--p:${Math.min(1, c.position / r.slot)}"></i></span>`}
           </div></li>`;
       }).join('')}</ul>
+      <form class="sec stack-sm" id="code-form" novalidate aria-labelledby="code-title">
+        <h2 id="code-title">Punya voucher kertas?</h2>
+        <p class="muted small">Scan QR di voucher dengan kamera HP, atau ketik kodenya di sini.</p>
+        <div class="code-row">
+          <label class="field"><span>Kode voucher</span>
+            <input type="text" id="code-in" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="K7PX-3MQ9"></label>
+          <button class="btn btn-quiet" type="submit">Simpan</button>
+        </div>
+        <div class="notice" id="code-msg" hidden></div>
+      </form>
       <section class="sec" aria-labelledby="used-title">
         <h2 id="used-title">Sudah dipakai</h2>
         ${c.redeemed.length ? `<ul class="plain">${c.redeemed.map((r) => `
@@ -558,7 +662,8 @@ async function poll() {
   if (document.hidden || !card || $('#voucher')?.open) return;
   try {
     const next = await rpc('my_card');
-    if (next.total_stamps === card.total_stamps && next.redeemed.length === card.redeemed.length) return;
+    if (next.total_stamps === card.total_stamps && next.redeemed.length === card.redeemed.length
+      && (next.vouchers || []).length === (card.vouchers || []).length) return;
     const fresh = [];
     if (next.cycle === card.cycle) for (let i = card.position + 1; i <= next.position; i++) fresh.push(i);
     else for (let i = 1; i <= next.position; i++) fresh.push(i);

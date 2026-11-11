@@ -7,7 +7,7 @@ Digital version of the Hanashuya loyalty card: 1 stamp per Rp50.000, 10% off at 
 | Page | Who | What |
 | --- | --- | --- |
 | `/member/` | Members | Sign up or sign in (username or WhatsApp number + password), forgot password by WhatsApp code; four tabs: Kartu (card, stamps, QR), Hadiah (redeem with Ya/Tidak, voucher), Riwayat (visits), Akun (details, password, delete) |
-| `/member/staf.html` | Cashiers | Scan QR (camera, photo or typed code) and see the member's stamps and ready rewards, record a sale with its total and items, tag walk-ins, see today's sales and redemptions in Hari ini, request undo |
+| `/member/staf.html` | Cashiers | Find the card (scan QR, photo, typed card code, or the member's WhatsApp number) and see the member's stamps and ready rewards, record a sale with its total and items, tag walk-ins, make a member card on the tablet for a customer who asks for help, see today's sales and redemptions in Hari ini, request undo |
 | `/member/pemilik.html` | Owner | Busy-hours heatmap, top items, customer mix, staff activity, flagged stamps, VireoPOS receipt matching, undo approvals, add and remove staff, reset codes (Bantuan akun), rules, menu, promos |
 
 Plain HTML, CSS and JavaScript with no build step. Supabase holds the data, login and every rule (`supabase/schema.sql`).
@@ -127,6 +127,18 @@ Members are then asked to read and accept the new version the next time they ope
 - **Hadiah ulang tahun:** 1 box Mini Choux isi 8, once a year, from 7 days before to 7 days after the birthday, for members who joined at least 30 days before that birthday.
 
 Both appear on their own in the member's Kartu and Hadiah tabs and in the cashier's "Hadiah siap dipakai" list after a scan. The cashier taps **Pakai**, then enters **NEWMEMBER50** (new member) or **BIRTHDAYGIFT** (birthday) in VireoPOS. Members can't change their birth date after it is set; the owner corrects it in **Bantuan akun > Tanggal lahir**.
+
+## No card on hand: search by WhatsApp number
+
+In step 1 the cashier types the member's WhatsApp number into the same field as the card code (9 or more digits counts as a number). Only the whole number finds a card, so nobody can browse members by typing part of one. The card then shows the member's full name: ask "Atas nama siapa Kak?" and check it matches before giving stamps or using a reward. Every search is in the activity log, and sales found this way are flagged in Ringkasan > Perlu dicek ("Kartu dicari lewat nomor WhatsApp"), like typed codes. An unknown number shows **Daftarkan nomor ini**, which opens the sign-up form with the number filled in.
+
+## Cashier helps make the card
+
+In **Daftar member > Daftarkan di tablet ini** the cashier types the customer's name, birth date (17+), WhatsApp number and, if they want, gender. Nobody types a password at the counter. Ask before ticking the WhatsApp promo box. No username is needed: the member signs in with the WhatsApp number. The new card opens straight in the Kasir step with the 50% welcome voucher ready. Every card made this way starts with the password **12345**. **Kirim link kartu ke WhatsApp-nya** sends the card link and that password to the member's number. The member signs in with the number and 12345, and is asked straight away to choose their own password ("Buat password Anda") before the card opens. Until they do, anyone who knows their number can open the card, so ask members to sign in soon. **Lupa password** also works for these cards. The form clears itself after each card. The promo choice is recorded as `daftar kasir` in `consent_log`.
+
+## Paper vouchers with their own code
+
+Each printed voucher (first: the Papaya cashier voucher, 1 Signature, VireoPOS code MANIS) has its own 8-character code, printed under its QR. The QR opens sign-up; once the customer has an account and is signed in, the code saves to their card by itself. Scanning again is always safe: nothing is used until the code is saved, and a code saved to your own card just says so. Members can also type the code in **Hadiah > Punya voucher kertas?**. At the booth, the cashier scans the member card and types the code in the card panel, or scans the voucher QR before or after the member QR. The voucher then shows in the ready list with its code. The paper voucher must be handed over at the booth even when the code is already saved in the app: take it, check its code matches, then tap **Pakai** and enter the VireoPOS code shown. One code works for one member, and one member gets one voucher per print run. In the owner dashboard, **Bantuan akun > Voucher kertas** shows how many were printed, saved and used (compare "Dipakai" with the VireoPOS count of MANIS each week) and moves a code to the right member if someone else saved it first. Codes go into the database with the SQL file made for each print run; run it once in the SQL Editor.
 
 ## Sign-up QR
 

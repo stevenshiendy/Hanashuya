@@ -272,3 +272,6 @@ tr.is-reversed td { color: var(--color-muted); text-decoration: line-through; }
 .phone .cc { display: grid; place-items: center; padding-inline: var(--space-sm); border: var(--rule-hair) solid var(--color-line); border-right: 0; border-radius: var(--radius-control) 0 0 var(--radius-control); background: var(--color-paper-3); color: var(--color-ink); font-variant-numeric: tabular-nums; }
 .phone input { border-radius: 0 var(--radius-control) var(--radius-control) 0; font-variant-numeric: tabular-nums; }
 .join-actions { justify-content: center; }
+
+/* The starting password shown after the cashier makes a card. */
+.start-code { font-size: var(--text-lg); letter-spacing: 0.08em; }

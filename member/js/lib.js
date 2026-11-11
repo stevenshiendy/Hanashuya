@@ -171,7 +171,7 @@ export function mountLogin(root, { title, lead, onDone, stage = false, staff = f
     <form id="login-form" class="stack" novalidate>
       <label class="field"><span>Username atau nomor WhatsApp</span>
         <input type="text" id="login" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
-      ${pw('password', 'Password', 'current-password')}
+      ${pw('password', 'Password', 'current-password', staff ? '' : '<span class="hint">Didaftarkan kasir di booth? Pakai password awal dari kasir.</span>')}
       <div class="notice" id="login-msg" hidden></div>
       <button class="btn btn-block" type="submit">Masuk</button>
       <button class="btn btn-text" type="button" id="to-forgot">Lupa password?</button>

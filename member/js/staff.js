@@ -7,6 +7,7 @@ let qty = {};
 let stream = null, scanning = false;
 let settingsRupiah = 50000;
 let rewards = [];       // [{ slot, label }] from the rewards table
+let waitingCode = null; // a voucher QR scanned before the member card: saved once the card is found
 
 const GENDERS = [['perempuan', 'Perempuan'], ['laki-laki', 'Laki-laki']];
 const AGES = [['<17', 'Di bawah 17'], ['17-24', '17–24'], ['25-34', '25–34'], ['35-44', '35–44'], ['45+', '45+']];
@@ -70,6 +71,13 @@ const VOUCHER_STEP = {
   welcome: 'Masukkan kode NEWMEMBER50 di VireoPOS',
   ulang_tahun: 'Masukkan kode BIRTHDAYGIFT di VireoPOS',
 };
+// Printed voucher codes carry their own VireoPOS code (pos_code, MANIS for the Papaya voucher).
+// A paper voucher must be handed over at the booth: take it and match its code first.
+const voucherStep = (v) => v.kind === 'kode'
+  ? `Terima voucher kertasnya dan cocokkan kodenya, lalu masukkan kode ${v.pos_code} di VireoPOS`
+  : v.pos_code ? `Masukkan kode ${v.pos_code} di VireoPOS` : (VOUCHER_STEP[v.kind] || '');
+// A printed voucher's QR holds https://…/v/<code>; a typed code is 8 letters and numbers.
+const voucherFromScan = (raw) => (String(raw || '').match(/\/v\/([A-Za-z0-9-]{8,9})\b/) || [])[1]?.toUpperCase().replace(/-/g, '') || null;
 
 function saleForm() {
   member = null; qty = {};
@@ -82,11 +90,12 @@ function saleForm() {
       <div class="scan-view" id="cam" hidden><video id="video" playsinline muted></video><span class="frame" aria-hidden="true"></span></div>
       <button class="btn btn-quiet btn-block" type="button" id="cam-stop" hidden>Tutup kamera</button>
       <form id="code-form" class="code-row" novalidate>
-        <label class="field"><span>Atau ketik kode kartu</span>
-          <input type="text" id="card-code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD-2345" maxlength="9"></label>
+        <label class="field"><span>Tanpa QR: nomor WhatsApp atau kode kartu</span>
+          <input type="text" id="card-code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="0812 3456 7890" maxlength="20"></label>
         <button class="btn btn-quiet" type="submit">Cari</button>
       </form>
       <div class="notice" id="m-msg" hidden></div>
+      <button class="btn btn-quiet btn-block" type="button" id="m-join" hidden>Daftarkan nomor ini</button>
       <div class="row-between alt-row">
         <button class="btn btn-text" type="button" id="photo-btn">Scan dari foto</button>
         <input type="file" id="photo" accept="image/*" capture="environment" hidden>
@@ -131,6 +140,7 @@ function saleForm() {
   $('#code-form').addEventListener('submit', (e) => { e.preventDefault(); lookup($('#card-code').value); });
   $('#walkin').addEventListener('click', () => choose({ walkin: true }));
   $('#join-qr').addEventListener('click', () => $('#t-join').click());
+  $('#m-join').addEventListener('click', () => openJoinForm($('#card-code').value));
   $$('.stepper').forEach((s) => s.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     const id = s.dataset.id; qty[id] = Math.max(0, (qty[id] || 0) + Number(b.dataset.d));
@@ -179,29 +189,43 @@ function choose(m) {
   } else {
     const ready = m.rewards || [], vouchers = m.vouchers || [];
     chip.innerHTML = `<div class="mem">
-      <div class="mem-head"><span><strong class="mem-name">${esc(m.first_name)}</strong>
+      <div class="mem-head"><span><strong class="mem-name">${esc(m.full_name || m.first_name)}</strong>
         <span class="muted small num">Kartu ${esc(m.card_code)}</span></span>
         <button class="btn btn-quiet" type="button" id="change">Ganti</button></div>
+      ${m.via === 'nomor' ? `<p class="notice notice-warn">Dicari lewat nomor WhatsApp. Tanya dulu "Atas nama siapa Kak?" lalu cocokkan dengan nama di atas.</p>` : ''}
+      ${m.via === 'daftar' ? `<div class="notice notice-ok stack-sm"><p>Kartu baru sudah aktif. Password awal: <b class="num start-code">${esc(m.start_code)}</b></p>
+        <p class="small">Member masuk pakai nomor WhatsApp dan password awal ini, lalu langsung membuat password sendiri.</p></div>
+        <a class="btn btn-quiet btn-block" href="${esc(cardWaLink(m))}" target="_blank" rel="noopener">Kirim link kartu ke WhatsApp-nya</a>` : ''}
       ${stampRow(m.position, m.card_size)}
       <p class="mem-count"><b class="num">${m.position}</b> dari ${m.card_size} stempel<span class="muted">${cardNote(m)}</span></p>
     </div>
     ${ready.length || vouchers.length ? `<div class="ready">
       <h3>Hadiah siap dipakai</h3>
-      <p class="small">Tanya dulu: "Mau dipakai sekarang, Kak?" Kalau iya, tekan Pakai.</p>
+      <p class="small">Tanya dulu: "Mau dipakai sekarang Kak?" Kalau iya, tekan Pakai.</p>
       <ul class="list">${vouchers.map((v) => `<li><span class="grow"><strong>${esc(v.label)}</strong> <span class="tag">${esc(v.title)}</span><br>
-        <span class="muted small">${esc(VOUCHER_STEP[v.kind] || '')}. Berlaku sampai ${esc(day(v.ends_on))}.</span></span>
-        <button class="btn" type="button" data-voucher data-kind="${esc(v.kind)}" data-period="${v.period}">Pakai</button></li>`).join('')}${ready.map((r) => `<li><span class="grow"><strong>${esc(r.label)}</strong><br>
+        <span class="muted small">${esc(voucherStep(v))}. Berlaku sampai ${esc(day(v.ends_on))}.</span></span>
+        <button class="btn" type="button" data-voucher data-kind="${esc(v.kind)}" data-period="${v.period}" data-step="${esc(voucherStep(v))}">Pakai</button></li>`).join('')}${ready.map((r) => `<li><span class="grow"><strong>${esc(r.label)}</strong><br>
         <span class="muted small">${esc(posStep(r.slot))}</span></span>
         <button class="btn" type="button" data-use data-cycle="${r.cycle}" data-slot="${r.slot}">Pakai</button></li>`).join('')}</ul>
       <div class="notice" id="use-msg" hidden></div>
     </div>` : '<p class="muted small">Belum ada hadiah yang siap dipakai.</p>'}
-    ${m.via === 'kode' ? '<p class="muted small">Kode diketik manual. Pemilik akan melihat catatan ini.</p>' : ''}`;
+    <form id="vc-form" class="code-row" novalidate>
+      <label class="field"><span>Voucher kertas: kode di bawah QR-nya</span>
+        <input type="text" id="vc-code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="K7PX-3MQ9"></label>
+      <button class="btn btn-quiet" type="submit">Simpan</button>
+    </form>
+    <div class="notice" id="vc-msg" hidden></div>
+    ${m.via === 'kode' ? '<p class="muted small">Kode diketik manual. Pemilik akan melihat catatan ini.</p>' : ''}
+    ${m.via === 'nomor' ? '<p class="muted small">Dicari lewat nomor. Pemilik akan melihat catatan ini.</p>' : ''}`;
   }
   $('#change').addEventListener('click', () => {
     member = null; $('#m-chip').hidden = true; $('#m-pick').hidden = false; $('#sale').hidden = true; preview();
   });
   $$('[data-use]', chip).forEach((b) => b.addEventListener('click', () => useReward(b)));
   $$('[data-voucher]', chip).forEach((b) => b.addEventListener('click', () => useVoucher(b)));
+  $('#vc-form')?.addEventListener('submit', (e) => { e.preventDefault(); saveCode($('#vc-code').value); });
+  if (waitingCode && !m.walkin) { const k = waitingCode; waitingCode = null; saveCode(k); }
+  else if (waitingCode && m.walkin) { waitingCode = null; toast('Voucher kertas hanya untuk member. Scan atau buat kartu member dulu.'); }
   const needDemo = m.walkin || !m.has_demography;
   $('#demo').hidden = !needDemo;
   $('#ages').innerHTML = AGES.filter(([v]) => m.walkin || v !== '<17')
@@ -210,6 +234,19 @@ function choose(m) {
   preview();
   $('#total').focus({ preventScroll: true });
   $('#m-title').scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+// Saves a paper voucher's code to the scanned card; it then shows in the ready list.
+async function saveCode(raw) {
+  const msg = $('#vc-msg'), k = (voucherFromScan(raw) || String(raw || '')).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (k.length !== 8) { notice(msg, 'Kode voucher terdiri dari 8 huruf dan angka, misalnya K7PX-3MQ9.'); $('#vc-code')?.focus(); return; }
+  notice(msg, '');
+  try {
+    const r = await rpc('staff_claim_code', { p_ticket: member.ticket, p_code: k });
+    if (r.status !== 'tersimpan' && r.status !== 'sudah') { notice(msg, r.message, 'warn'); return; }
+    choose({ ...r, start_code: member.start_code });   // keep a new card's starting password on screen
+    toast(r.status === 'sudah' ? 'Voucher sudah ada di kartu ini. Tekan Pakai.' : 'Voucher tersimpan. Tekan Pakai.');
+  } catch (e) { notice(msg, e.message); }
 }
 
 // The cashier uses a reward from the card scan; the member's phone shows it within seconds.
@@ -236,8 +273,8 @@ async function useVoucher(btn) {
   try {
     const r = await rpc('staff_use_voucher', { p_ticket: member.ticket, p_kind: kind, p_period: Number(btn.dataset.period) });
     li.innerHTML = `<span class="grow"><strong>${esc(r.label)}</strong> <span class="tag tag-ok">Dipakai ${esc(time(r.created_at))}</span><br>
-      <span class="used-step">${esc(VOUCHER_STEP[kind] || '')}</span></span>`;
-    member.vouchers = (member.vouchers || []).filter((v) => v.kind !== kind);
+      <span class="used-step">${esc(btn.dataset.step)}</span></span>`;
+    member.vouchers = (member.vouchers || []).filter((v) => !(v.kind === kind && v.period === Number(btn.dataset.period)));
     if (navigator.vibrate) navigator.vibrate(40);
   } catch (e) { busy(btn, false); notice(msg, e.message); }
 }
@@ -253,14 +290,32 @@ function preview() {
   out.textContent = total ? (n > 0 ? `${member.first_name} dapat ${n} stempel.` : `Belum dapat stempel. 1 stempel setiap ${rupiah(settingsRupiah)}.`) : '';
 }
 
+// A typed entry is a WhatsApp number when it is 9 or more digits; a card code is
+// 8 letters and numbers, and a scanned QR starts with HS1.
+const looksLikePhone = (raw) => /^\+?[\d\s().-]+$/.test(raw.trim()) && raw.replace(/\D/g, '').length >= 9;
+
 async function lookup(raw) {
-  const msg = $('#m-msg');
-  notice(msg, '');
-  if (!raw || !raw.trim()) { notice(msg, 'Tulis kode kartu dari layar member.'); $('#card-code').focus(); return; }
+  const msg = $('#m-msg'), join = $('#m-join');
+  notice(msg, ''); join.hidden = true;
+  if (!raw || !raw.trim()) { notice(msg, 'Tulis nomor WhatsApp member, atau kode kartu dari layar member.'); $('#card-code').focus(); return; }
+  const vk = voucherFromScan(raw);
+  if (vk) {
+    if (member && !member.walkin) return saveCode(vk);
+    waitingCode = vk;
+    notice(msg, `QR voucher ${vk.slice(0, 4)}-${vk.slice(4)} terbaca. Sekarang scan QR member, voucher langsung masuk ke kartunya.`, 'ok');
+    return;
+  }
+  const phone = looksLikePhone(raw);
   try {
-    const m = await rpc('staff_lookup', { p_scan: raw });
+    const m = phone ? await rpc('staff_find_phone', { p_phone: raw }) : await rpc('staff_lookup', { p_scan: raw });
+    $('#card-code').value = '';
     choose(m);
-  } catch (e) { notice(msg, e.message); }
+  } catch (e) {
+    // An unknown number isn't a mistake: offer to make the card for it straight away.
+    const unknown = phone && /belum terdaftar/i.test(e.message);
+    notice(msg, e.message, unknown ? 'warn' : 'error');
+    join.hidden = !unknown;
+  }
 }
 
 async function saveSale(e) {
@@ -299,9 +354,25 @@ function done(r, total) {
   $('#done').focus();
 }
 
-/* ---------------- Daftar member tab: QR for the customer's phone, plus the link itself.
-   The tablet is signed in as kasir and the member page shares that sign-in, so the form
-   is meant to be opened on the customer's own phone (scan, or the link sent by WhatsApp). */
+/* ---------------- Daftar member tab: QR for the customer's phone (fastest), the cashier
+   filling in the card on this tablet when the customer asks for help (staff_create_member),
+   and the link sent by WhatsApp for later. The member page itself can't be used on the
+   tablet: it shares the kasir sign-in. */
+const GENDER_CHOICES = [['perempuan', 'Perempuan'], ['laki-laki', 'Laki-laki'], ['tidak_disebut', 'Tidak ingin menyebutkan']];
+const cardWaLink = (m) => {
+  const text = `Halo Kak ${m.first_name}, kartu member Hanashuya sudah aktif. Buka ${location.origin}/member/ lalu masuk pakai nomor WhatsApp ini dan password awal ${m.start_code}. Setelah masuk, Kakak langsung diminta membuat password sendiri.`;
+  return `https://wa.me/${String(m.whatsapp || '').replace(/\D/g, '')}?text=${encodeURIComponent(text)}`;
+};
+
+// Opens the sign-up form, with the number the cashier already typed in step 1.
+function openJoinForm(raw) {
+  $('#t-join').click();
+  const phone = toPhone(raw);
+  if (phone) $('#jf-phone').value = phone.slice(3);
+  $('#join-form').scrollIntoView({ block: 'start', behavior: 'smooth' });
+  $('#jf-name').focus({ preventScroll: true });
+}
+
 function joinTab() {
   const url = signupUrl();
   const message = `Halo Kak, ini link daftar member Hanashuya: ${url} Setelah daftar, tunjukkan QR kartu ke kasir untuk pakai diskon 50% untuk 1 produk.`;
@@ -318,6 +389,23 @@ function joinTab() {
       <button class="btn btn-quiet" type="button" id="join-copy">Salin link</button>
     </div>
   </section>
+  <form class="panel stack" id="join-form" novalidate aria-labelledby="join-form-title">
+    <h2 id="join-form-title">Daftarkan di tablet ini</h2>
+    <p class="muted small">Kalau pembeli minta dibantu. Kasir mengisi datanya, kartu langsung terbuka di Kasir dengan password awal. Member membuat password sendiri saat pertama masuk.</p>
+    <label class="field"><span>Nama lengkap</span><input type="text" id="jf-name" autocomplete="off" required></label>
+    <label class="field"><span>Tanggal lahir</span><input type="date" id="jf-birth" autocomplete="off" max="${maxBirth()}" required>
+      <span class="hint">Kartu member untuk usia 17 tahun ke atas.</span></label>
+    <label class="field"><span>Nomor WhatsApp aktif</span>
+      <span class="phone"><span class="cc" aria-hidden="true">+62</span>
+      <input type="tel" id="jf-phone" inputmode="tel" autocomplete="off" placeholder="812 3456 7890" required></span>
+      <span class="hint">Dipakai member untuk masuk ke kartunya.</span></label>
+    <fieldset class="field"><legend>Jenis kelamin <span class="hint">tidak wajib</span></legend>
+      <div class="choices">${GENDER_CHOICES.map(([v, l]) => `<label class="choice"><input type="radio" name="jf-gender" value="${v}"><span>${l}</span></label>`).join('')}</div></fieldset>
+    <label class="check"><input type="checkbox" id="jf-marketing">
+      <span>Pembeli mau dapat info promo Hanashuya lewat WhatsApp. Tanya dulu, centang hanya kalau pembeli setuju.</span></label>
+    <div class="notice" id="jf-msg" hidden></div>
+    <button class="btn btn-block btn-big" type="submit">Buat kartu dan lanjut ke kasir</button>
+  </form>
   <form class="panel stack" id="join-wa" novalidate aria-labelledby="join-wa-title">
     <h2 id="join-wa-title">Kirim link ke WhatsApp pembeli</h2>
     <p class="muted small">Untuk pembeli yang buru-buru: link daftar dikirim ke HP-nya, isi nanti.</p>
@@ -326,8 +414,8 @@ function joinTab() {
       <input type="tel" id="join-phone" inputmode="tel" autocomplete="off" placeholder="812 3456 7890"></span></label>
     <div class="notice" id="join-msg" hidden></div>
     <button class="btn" type="submit">Kirim lewat WhatsApp</button>
-  </form>
-  <p class="muted small">Formulir daftar tidak bisa diisi di tablet ini selama tablet masuk sebagai kasir. Buka di HP pembeli.</p>`;
+  </form>`;
+  $('#join-form').addEventListener('submit', createMember);
   $('#join-copy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(url); toast('Link daftar tersalin'); }
     catch { toast(url); }
@@ -340,6 +428,38 @@ function joinTab() {
     window.open(`https://wa.me/${phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
     $('#join-phone').value = '';
   });
+}
+
+function maxBirth() {
+  const t = new Date();
+  return new Date(t.getFullYear() - 17, t.getMonth(), t.getDate()).toISOString().slice(0, 10);
+}
+
+async function createMember(e) {
+  e.preventDefault();
+  const form = e.currentTarget, msg = $('#jf-msg'), btn = $('button[type="submit"]', form);
+  const name = $('#jf-name').value.trim(), birth = $('#jf-birth').value, phone = toPhone($('#jf-phone').value);
+  const gender = $('input[name="jf-gender"]:checked')?.value || '';
+  const fail = (text, id) => { notice(msg, text); if (id) $('#' + id).focus(); };
+  if (!name) return fail('Isi nama lengkap.', 'jf-name');
+  if (!birth) return fail('Isi tanggal lahir.', 'jf-birth');
+  if (birth > maxBirth()) return fail('Kartu member hanya untuk usia 17 tahun ke atas.', 'jf-birth');
+  if (!phone) return fail('Tulis nomor WhatsApp yang aktif, misalnya 0812 3456 7890.', 'jf-phone');
+  notice(msg, '');
+  busy(btn, true, 'Membuat kartu…');
+  try {
+    const m = await rpc('staff_create_member', {
+      p_name: name, p_birth_date: birth, p_phone: phone, p_gender: gender,
+      p_marketing: $('#jf-marketing').checked,
+    });
+    busy(btn, false);
+    // Clear the form so the next customer never sees this one's details.
+    form.reset();
+    $('#t-sale').click();
+    saleForm();
+    choose(m);
+    toast(`Kartu ${m.first_name} sudah aktif`);
+  } catch (err) { busy(btn, false); fail(err.message); }
 }
 
 /* ---------------- QR reading */
