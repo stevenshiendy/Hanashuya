@@ -25,6 +25,7 @@ export function fastReceiptBytes(r, header, card, { dots = 384, cut = true, draw
   if (r.local_no && r.local_no !== r.receipt_no) meta('No. offline', r.local_no);
   meta('Tanggal', receiptDate(r.sold_at));
   if (r.served_by) meta('Kasir', r.served_by);
+  if (r.customer_name) meta('Atas nama', 'Kak ' + r.customer_name);
   if (r.member) meta('Member', 'Kak ' + r.member);
   if (r.channel && r.channel !== 'toko') meta('Pesanan', r.channel_label);
   if (r.status === 'batal' || r.status === 'refund') {
@@ -138,4 +139,32 @@ export async function fastReceipt(r, { dots = 384, cut = true, drawer = false } 
   const cardC = r.card ? cropSides(await cardCanvas(r, { dots, pad: 24 })) : null;
   const receipt = fastReceiptBytes(r, bitmap(head), cardC ? bitmap(cardC) : null, { dots, cut, drawer });
   return { receipt, bytes: receipt.bytes(), header: head, card: cardC };
+}
+
+// Nota antrian (Glenn, 14 Nov 2026): a small slip with the name staff typed, so they can call
+// the customer when the order is ready. Printer font only (no pictures), so it prints in a second.
+// Same input as the receipt (pos_checkout / pos_receipt output, with customer_name).
+export function queueSlipBytes(r, { dots = 384, margin = 2 } = {}) {
+  const p = new Receipt({ dots, margin });
+  p.init();
+  p.align('center');
+  p.text('NOTA ANTRIAN');
+  p.line(1);
+  p.size(2, 2).bold(true).text(r.customer_name ? 'Kak ' + r.customer_name : (r.member ? 'Kak ' + r.member : r.receipt_no)).bold(false).size(1, 1);
+  p.line(1);
+  p.text(r.receipt_no);
+  if (r.time || r.sold_at) p.text(r.time || receiptDate(r.sold_at));
+  p.align('left');
+  p.rule('-');
+  for (const l of r.lines || []) {
+    if (l.free_bag) continue;
+    p.text(`${l.qty}x ${l.name}`);
+    if (l.flavour) p.text('   ' + l.flavour);
+  }
+  if (r.note) { p.rule('-'); p.text('Catatan: ' + r.note); }
+  p.rule('-');
+  p.align('center');
+  if (r.served_by) p.text('Dilayani ' + r.served_by);
+  p.cut();
+  return p.bytes();
 }

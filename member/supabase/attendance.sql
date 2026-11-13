@@ -596,6 +596,37 @@ begin
   return json_build_object('location_set', p_lat is not null, 'radius_m', r);
 end $$;
 
+-- The booth location comes from the till tablet's own GPS (Glenn, 14 Nov 2026: the booth is in
+-- Papaya Fresh Gallery Bandung, Jl. Sukaasih No.1, Gegerkalong, Sukajadi). Each time the tablet
+-- shows QR absen or QR istirahat it sends its position; staff phones are checked against it.
+-- Only the kasir tablet account; a reading worse than 200 m is ignored so a bad fix never moves it.
+create or replace function public.att_tablet_location(p_lat double precision, p_lng double precision,
+  p_acc double precision default null) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  me uuid := public._require(array['staff', 'owner'], 'Masuk dengan akun kasir tablet.');
+  st settings := public._cfg(); moved double precision;
+begin
+  if not exists (select 1 from profiles where id = me and role = 'kasir' and deleted_at is null) then
+    raise exception 'Lokasi booth hanya diambil dari tablet kasir.' using errcode = '42501';
+  end if;
+  if p_lat is null or p_lng is null or p_lat not between -90 and 90 or p_lng not between -180 and 180 then
+    raise exception 'Lokasi tablet tidak terbaca.';
+  end if;
+  if p_acc is null or p_acc > 200 then
+    return json_build_object('saved', false, 'acc_m', round(p_acc), 'location_set', st.att_lat is not null);
+  end if;
+  moved := case when st.att_lat is null then null else public._att_distance(st.att_lat, st.att_lng, p_lat, p_lng) end;
+  update settings set att_lat = p_lat, att_lng = p_lng, att_location_at = now(), att_location_by = me where id = 1;
+  -- Logged when first set or moved more than 50 m, not on every QR screen.
+  if moved is null or moved > 50 then
+    perform public._log('lokasi_booth_dari_tablet', jsonb_build_object('lat', p_lat, 'lng', p_lng, 'acc_m', round(p_acc), 'pindah_m', round(moved)));
+  end if;
+  return json_build_object('saved', true, 'acc_m', round(p_acc), 'location_set', true);
+end $$;
+grant execute on function public.att_tablet_location(double precision, double precision, double precision) to authenticated;
+
 -- Reset a person's absen phone, so their next scan binds a new one. Manager or owner;
 -- never your own.
 create or replace function public.att_reset_device(p_staff uuid) returns json
@@ -652,7 +683,8 @@ begin
         'status', l.status, 'note', l.decision_note, 'created_at', l.created_at) order by l.start_date desc)
       from att_leave l where l.staff_id = me and l.end_date >= today - 60), '[]'),
     'leave_from', today + 7,
-    'location_required', (select att_lat is not null and att_lng is not null from settings where id = 1));
+    -- Every scan needs the phone's location (Glenn, 14 Nov 2026), set booth location or not.
+    'location_required', true);
 end $$;
 
 -- The phone scans the tablet QR. With p_action null it only checks the QR, the phone and
@@ -709,11 +741,15 @@ begin
     raise exception 'HP ini sudah dipakai absen akun lain.';
   end if;
 
-  -- Location, once the booth location is set.
-  if st.att_lat is not null and st.att_lng is not null then
-    if p_lat is null or p_lng is null or p_lat not between -90 and 90 or p_lng not between -180 and 180 then
-      raise exception 'Lokasi HP tidak terbaca. Absen perlu lokasi untuk memastikan Anda ada di booth. Izinkan lokasi untuk browser ini (iPhone: Pengaturan > Privasi & Keamanan > Layanan Lokasi > Safari > Saat Menggunakan App; Android: ketuk ikon di samping alamat > Izin > Lokasi), nyalakan lokasi HP, lalu scan ulang.';
-    end if;
+  -- Location (Glenn, 14 Nov 2026): every scan needs the phone's location, so staff must turn it on.
+  -- The distance to the booth is checked once the booth location is set; until then the scan is
+  -- kept with its location and flagged lokasi_booth_belum_diatur for the owner.
+  if p_lat is null or p_lng is null or p_lat not between -90 and 90 or p_lng not between -180 and 180 then
+    raise exception 'Lokasi HP tidak terbaca. Absen perlu lokasi untuk memastikan Anda ada di booth. Izinkan lokasi untuk browser ini (iPhone: Pengaturan > Privasi & Keamanan > Layanan Lokasi > Safari > Saat Menggunakan App; Android: ketuk ikon di samping alamat > Izin > Lokasi), nyalakan lokasi HP, lalu scan ulang.';
+  end if;
+  if st.att_lat is null or st.att_lng is null then
+    fl := fl || 'lokasi_booth_belum_diatur'::text;
+  else
     acc := greatest(coalesce(p_acc, 0), 0);
     dist := public._att_distance(st.att_lat, st.att_lng, p_lat, p_lng);
     if dist - acc > st.att_radius_m then

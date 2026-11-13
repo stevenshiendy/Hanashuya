@@ -228,6 +228,31 @@ begin
   perform public._log('ubah_tanggal_lahir', jsonb_build_object('member', p.id, 'dari', p.birth_date, 'jadi', p_birth_date));
 end $$;
 
+-- Invoice numbers (Glenn, 14 Nov 2026): the last 4 digits are random, not a running count, so
+-- customers can't read the day's sales from their receipt. Unique per day; the running count
+-- stays in pos_receipt_counters for the owner.
+create or replace function public._pos_receipt_no(v_day date) returns text
+language plpgsql volatile security definer set search_path = public
+as $$
+declare rno text; tries int := 0;
+begin
+  loop
+    rno := 'HS-' || to_char(v_day, 'YYMMDD') || '-' || lpad((1000 + floor(random() * 9000))::int::text, 4, '0');
+    exit when not exists (select 1 from pos_orders where receipt_no = rno);
+    tries := tries + 1;
+    if tries > 200 then raise exception 'Nomor invoice hari ini habis. Hubungi pemilik.'; end if;
+  end loop;
+  return rno;
+end $$;
+revoke all on function public._pos_receipt_no(date) from public, anon, authenticated;
+
+-- Pesanan atas nama (Glenn, 14 Nov 2026): the name staff type so they can call the customer
+-- instead of a queue number. Kept on the order only (invoice, receipt, order history); it never
+-- makes or changes a member.
+alter table public.pos_orders add column if not exists customer_name text;
+alter table public.pos_orders drop constraint if exists pos_orders_customer_name_check;
+alter table public.pos_orders add constraint pos_orders_customer_name_check check (customer_name is null or length(customer_name) <= 40);
+
 -- from pos.sql
 create or replace function public._pos_create(staff uuid, p_order jsonb) returns uuid
 language plpgsql volatile security definer set search_path = public
@@ -237,6 +262,7 @@ declare
   v_day date := public._local(now())::date; seq int; rno text; rid bigint; f text[] := '{}';
   g text := nullif(p_order->>'gender', ''); a text := nullif(p_order->>'age_range', ''); ln jsonb;
   nt text := nullif(trim(coalesce(p_order->>'note', '')), '');
+  cn text := nullif(left(regexp_replace(trim(coalesce(p_order->>'customer_name', '')), '\s+', ' ', 'g'), 40), '');
 begin
   begin oid := (p_order->>'id')::uuid; exception when others then oid := null; end;
   if oid is null then raise exception 'Pesanan tanpa nomor. Muat ulang halaman kasir.'; end if;
@@ -273,7 +299,7 @@ begin
   insert into pos_receipt_counters (outlet_id, day, last) values ('papaya-bdg', v_day, 1)
   on conflict (outlet_id, day) do update set last = pos_receipt_counters.last + 1
   returning last into seq;
-  rno := 'HS-' || to_char(v_day, 'YYMMDD') || '-' || lpad(seq::text, 4, '0');
+  rno := public._pos_receipt_no(v_day);
 
   insert into pos_orders (id, channel_id, receipt_no, sale_day, status, cashier_id, served_by, member_id, via,
     subtotal, discount, total, promo_kind, promo_label, payment_method, gender, age_range, flags, sold_at)
@@ -281,6 +307,7 @@ begin
     (q->>'subtotal')::int, (q->>'discount')::int, (q->>'total')::int, q#>>'{promo,kind}', q#>>'{promo,label}', null, g, a, f, now());
   if q#>>'{promo,kind}' = 'promo' then update pos_orders set promo_id = (q#>>'{promo,cycle}')::int where id = oid; end if;
   update pos_orders set note = nt where id = oid and nt is not null;
+  update pos_orders set customer_name = cn where id = oid and cn is not null;
   if q#>>'{promo,kind}' = 'instruksi50' then
     update pos_orders set promo_by = (q#>>'{promo,by}')::uuid, flags = flags || array['diskon_instruksi'] where id = oid;
   end if;

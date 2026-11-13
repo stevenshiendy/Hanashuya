@@ -14,7 +14,7 @@
 // (Tunai, Transfer, QRIS), Diskon 50% malam (box products from 19.00) and Diskon 50% atas
 // instruksi (any time, names the manager or owner who said so). No DP on pre-orders.
 import { configured, $, esc, rpc, busy, notice, toast, rupiah, time, mountLogin, setupMissing, session, signOut, prettyPhone, toPhone, qrSvg, setRpcTimeout, maxBirth17 } from './lib.js';
-import { fastReceipt } from './receipt-fast.js';
+import { fastReceipt, queueSlipBytes } from './receipt-fast.js';
 import { receiptBlob } from './receipt.js';
 import * as printer from './printer.js';
 import { SAMPLES } from './print-samples.js';
@@ -72,6 +72,7 @@ const S = {
   paid: null,               // pos_pay receipt
   cash: null,
   note: '',                 // Catatan pesanan (max 200), typed before Konfirmasi
+  customerName: '',         // Pesanan atas nama Kak … (max 40): for calling the customer, kept on the order only
   noteOpen: false,
   split: null,              // Bayar 2 cara: { tunai, cash } (QRIS part = total - tunai)
   waitingCode: null,        // a voucher QR read before the member card
@@ -89,6 +90,11 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } },
 };
 const paper = () => (store.get('hs-till-paper') === '80' ? '80' : '58');
+// Nota antrian (14 Nov 2026): the owner turns it on for the booth (settings.queue_slip, loaded with the
+// catalogue); this tablet can turn it off for itself (Printer screen). It shows only when both are on.
+const queueDevice = () => store.get('hs-till-queue-slip') !== '0';
+const queueOn = () => !!S.queueSlip && queueDevice();
+async function loadQueueSlip() { try { S.queueSlip = !!(await rpc('pos_queue_slip')); } catch { /* keep the last value; older databases have no switch */ } }
 const product = (code) => (S.cat?.products || []).find((p) => p.code === code);
 const flavour = (id) => (S.cat?.flavours || []).find((f) => f.id === id);
 const unitPrice = (p, f) => p.price + (f && f.surcharge ? p.flavour_surcharge : 0);
@@ -146,7 +152,7 @@ async function boot(offline = false) {
   S.me = who; S.role = who.role;
   if (offline) S.cat = kept.cat;
   else {
-    try { S.cat = await rpc('pos_catalog'); off.saveBoot(who, S.cat); markCatalog(); }
+    try { S.cat = await rpc('pos_catalog'); off.saveBoot(who, S.cat); markCatalog(); loadQueueSlip(); }
     catch (e) { app.innerHTML = `<div class="notice notice-error tl-solo" role="alert">${esc(e.message)}</div>`; return; }
   }
   S.shift = S.cat.shift;
@@ -188,7 +194,7 @@ function markOffline() {
 }
 async function goOnline() {
   S.online = true;
-  try { S.cat = { ...(await rpc('pos_catalog')), staff: S.cat.staff }; S.shift = S.cat.shift; off.saveBoot(S.me, S.cat); markCatalog(); } catch { /* next tick */ }
+  try { S.cat = { ...(await rpc('pos_catalog')), staff: S.cat.staff }; S.shift = S.cat.shift; off.saveBoot(S.me, S.cat); markCatalog(); loadQueueSlip(); } catch { /* next tick */ }
   await ensureShift();
   renderBar();
   if (S.screen === 'order') requote();
@@ -266,6 +272,7 @@ function orderPayload() {
     free_bags: freeBags(), promo,
     gender: S.gender, age_range: S.age,
     note: S.note.trim() || null,
+    customer_name: S.customerName.trim().replace(/\s+/g, ' ') || null,
   };
 }
 
@@ -320,7 +327,7 @@ function freshOrder() {
   Object.assign(S, {
     left: 'tiles', pick: null, tab: null, items: [], member: null, memberPhone: null, promo: null, bags: null,
     gender: null, age: null, quote: null, quoteErr: '', quoting: false, orderId: newId(), placed: null, paid: null, cash: null,
-    waitingCode: null, confirming: false, localNo: null, note: '', noteOpen: false, split: null,
+    waitingCode: null, confirming: false, localNo: null, note: '', noteOpen: false, split: null, customerName: '',
   });
   // Back from a pre-order pickup: the order the cashier had in progress comes back.
   if (S.stash) { Object.assign(S, S.stash); S.stash = null; }
@@ -529,7 +536,7 @@ const stopQr = () => { clearTimeout(qrTimer); qrTimer = null; qrRun++; };
 // printer, pick the paper, print a test receipt (no sale is recorded), or forget the printer.
 function renderPrinter() {
   const ok = printer.supported(), on = printer.isConnected(), name = printer.current()?.name;
-  app.innerHTML = `<section class="tl-solo stack" aria-labelledby="tl-pr-t">
+  app.innerHTML = `<section class="tl-solo tl-printer stack" aria-labelledby="tl-pr-t">
     <div><button class="tl-link" type="button" data-act="back">← Dashboard</button></div>
     <h1 id="tl-pr-t" class="tl-title">Printer struk</h1>
     ${!ok ? '<p class="notice notice-warn">Browser ini tidak bisa memakai Bluetooth. Buka kasir di Chrome pada tablet Android.</p>' : ''}
@@ -537,6 +544,11 @@ function renderPrinter() {
     <div class="tl-paper">
       <span class="tl-h">Kertas printer</span>
       ${['58', '80'].map((w) => `<button type="button" class="tl-chip is-sm${paper() === w ? ' is-on' : ''}" aria-pressed="${paper() === w}" data-act="paper" data-v="${w}">${w} mm</button>`).join('')}
+    </div>
+    <div class="tl-paper">
+      <span class="tl-h">Nota antrian di tablet ini</span>
+      ${[['1', 'Cetak'], ['0', 'Jangan cetak']].map(([v, l]) => `<button type="button" class="tl-chip is-sm${(queueDevice() ? '1' : '0') === v ? ' is-on' : ''}" aria-pressed="${(queueDevice() ? '1' : '0') === v}" data-act="queue-device" data-v="${v}">${l}</button>`).join('')}
+      <span class="muted small">${S.queueSlip ? 'Aktif dari pemilik.' : 'Dimatikan pemilik di Pengaturan, Nota antrian.'}</span>
     </div>
     <div class="tl-acts">
       <button class="btn tl-btn" type="button" data-act="printer-connect" ${ok ? '' : 'disabled'}>${on ? 'Sambungkan ulang' : 'Sambungkan printer'}</button>
@@ -572,6 +584,7 @@ async function renderQr() {
     <div class="tl-qrbig" id="tl-qr" role="img" aria-label="${brk ? 'QR istirahat' : 'QR absen'}"></div>
     <p class="muted small num" id="tl-qr-count" aria-live="off"></p>
     <div class="notice" id="tl-qr-msg" hidden></div>
+    <p class="small muted" id="tl-qr-loc" aria-live="polite"></p>
     <p class="small muted">Buka halaman absen di HP masing-masing (${esc(location.host)}/staf), masuk dengan akun staf, lalu scan.</p>
   </section>`;
   const run = qrRun;
@@ -589,6 +602,30 @@ async function renderQr() {
     qrTimer = setTimeout(tick, wait * 1000);
   };
   tick();
+  boothFromTablet(run);
+}
+
+// The booth location is this tablet's GPS (Glenn, 14 Nov 2026). Sent each time the QR screen opens;
+// staff phones must be near it to clock in. A poor reading (worse than 200 m) is ignored by the server.
+async function boothFromTablet(run) {
+  const out = () => (run === qrRun && S.screen === 'qr' ? $('#tl-qr-loc') : null);
+  if (!navigator.geolocation) { const o = out(); if (o) o.textContent = 'Tablet ini tidak bisa membaca lokasi. Lokasi booth tidak diperbarui.'; return; }
+  const pos = await new Promise((res) => navigator.geolocation.getCurrentPosition(
+    (p) => res({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
+    (e) => res({ error: e.code === 1 ? 'denied' : 'other' }), { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 }));
+  let o = out(); if (!o) return;
+  if (pos.error) {
+    o.textContent = pos.error === 'denied'
+      ? 'Izinkan lokasi untuk aplikasi kasir di tablet ini (Pengaturan > Aplikasi > Chrome > Izin > Lokasi), supaya absen staf bisa dicek ke lokasi booth.'
+      : 'Lokasi tablet belum terbaca. Nyalakan lokasi tablet supaya absen staf bisa dicek ke lokasi booth.';
+    return;
+  }
+  try {
+    const r = await rpc('att_tablet_location', { p_lat: pos.lat, p_lng: pos.lng, p_acc: pos.acc });
+    o = out(); if (!o) return;
+    o.textContent = r.saved ? `Lokasi booth dari GPS tablet ini, akurasi ± ${r.acc_m} m.`
+      : `GPS tablet kurang akurat (± ${Math.round(pos.acc)} m), lokasi booth tidak diubah.`;
+  } catch (e) { o = out(); if (o) o.textContent = e.message; }
 }
 
 async function renderStock() {
@@ -659,6 +696,7 @@ function flavourTiles(p, tall) {
 
 function renderLeft() {
   const el = $('#tl-left'); if (!el) return;
+  el.classList.toggle('is-fit', false);
   if (S.left === 'find' || S.left === 'voucher') return renderFind(el);
   if (S.left === 'join') return renderJoin(el);
   if (S.left === 'flavour' && S.pick && PICKER === 'inplace') {
@@ -670,6 +708,7 @@ function renderLeft() {
       ${flavourTiles(p, true)}</div>`;
     return;
   }
+  el.classList.add('is-fit');
   el.innerHTML = tilesHtml(S.left === 'flavour' ? S.pick?.code : null);
   if (S.left === 'flavour' && S.pick) {
     const p = product(S.pick.code), [n, d] = splitName(p.name);
@@ -804,8 +843,9 @@ function openPromos() {
 function memberHtml() {
   const m = S.member;
   if (!m) {
-    return `<div class="tl-nomem"><span class="tl-nomem-t"><b>Tanpa kartu member</b></span>
-      <button class="tl-use" type="button" data-act="find">Cari member</button></div>${promoStrip()}`;
+    // Scan member first and clear (Glenn, 14 Nov 2026); typing a number is the second button.
+    return `<div class="tl-scanrow"><button class="btn tl-scan-btn" type="button" data-act="scan">Scan member</button>
+      <button class="btn btn-quiet tl-scan-alt" type="button" data-act="find">Ketik nomor</button></div>${promoStrip()}`;
   }
   return `<div class="tl-member">
       <div class="tl-row"><span class="tl-mname">${esc(m.full_name || m.first_name)}</span><button class="tl-mlink" type="button" data-act="member-clear">Ganti</button></div>
@@ -840,7 +880,7 @@ function malamOn() {
 function halfRows() {
   const from = S.cat?.promos?.malam50_from || '19.00';
   return [
-    ...(malamOn() ? [{ key: 'malam50:0', label: 'Diskon 50% malam', sub: `Produk box setengah harga, mulai ${from}.` }] : []),
+    ...(malamOn() ? [{ key: 'malam50:0', label: 'Diskon 50% flash sale', sub: `Produk box setengah harga, mulai ${from}.` }] : []),
     ...(S.promo?.kind === 'instruksi50' ? [{ key: 'instruksi50:0', label: S.promo.label || 'Diskon 50% atas instruksi',
       sub: 'Semua produk setengah harga. Tercatat untuk pemilik.' }] : []),
   ];
@@ -976,9 +1016,11 @@ function renderRight() {
   // The panel fits the screen (13 Nov 2026); only the order lines scroll. Keep their place on re-render
   // and bring a newly added line into view.
   const keep = $('.tl-lines', el)?.scrollTop || 0, added = S.items.length > (el._lines || 0);
-  const typing = document.activeElement?.id === 'tl-note-in';
+  const typing = ['tl-note-in', 'tl-name-in'].includes(document.activeElement?.id) ? document.activeElement.id : null;
   el._lines = S.items.length;
   el.innerHTML = `
+    <label class="tl-cname"><span class="tl-h">Pesanan atas nama Kak</span>
+      <input type="text" id="tl-name-in" maxlength="40" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Nama pembeli" value="${esc(S.customerName)}"></label>
     <div class="tl-served"><span class="tl-h">Dilayani</span><span class="tl-who" role="group" aria-label="Dilayani oleh">${S.cat.staff.map((x) =>
       `<button type="button" class="tl-chip is-sm${S.served === x.id ? ' is-on' : ''}" aria-pressed="${S.served === x.id}" data-act="served" data-v="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</span></div>
     <div class="tl-mem">${memberHtml()}</div>
@@ -996,7 +1038,7 @@ function renderRight() {
     </div>`;
   const ln = $('.tl-lines', el); if (ln) ln.scrollTop = keep;
   if (added && ln) ln.scrollTop = ln.scrollHeight;
-  if (typing) { const t = $('#tl-note-in'); if (t) { t.focus({ preventScroll: true }); t.setSelectionRange(t.value.length, t.value.length); } }
+  if (typing) { const t = $('#' + typing); if (t) { t.focus({ preventScroll: true }); t.setSelectionRange(t.value.length, t.value.length); } }
 }
 // Catatan pesanan (Glenn, 13 Nov 2026): optional, typed before Konfirmasi, printed on the receipt.
 // Closed by default so the fast path stays one tap.
@@ -1008,7 +1050,7 @@ function noteHtml() {
 
 /* ---------------------------------------------------------------- payment screens */
 function summaryHtml(r) {
-  const who = [r.member ? `Kak ${r.member}` : 'Tanpa kartu member', r.served_by ? `dilayani ${r.served_by}` : ''].filter(Boolean).join(' · ');
+  const who = [r.customer_name ? `Atas nama Kak ${r.customer_name}` : '', r.member ? `member ${r.member}` : 'Tanpa kartu member', r.served_by ? `dilayani ${r.served_by}` : ''].filter(Boolean).join(' · ');
   const per = S.cat.rupiah_per_stamp || 50000;
   return `<div class="tl-h">${esc(who)}</div>
     <div class="tl-lines">${r.lines.map((l) => `<div class="tl-line"><b>${esc(l.name)}</b><b class="num">${l.free_bag ? 'Gratis' : rupiah(l.line_total - (l.discount || 0))}</b>
@@ -1033,9 +1075,11 @@ function renderPay() {
     <span class="muted">${esc(r.time || '')} · ${esc(r.channel_label || 'Di booth')}</span></div>`;
   const lock = r.offline ? `<div class="tl-lock"><span>Tidak ada internet. Pesanan ini tersimpan di tablet setelah dibayar.</span>
     <button class="tl-use" type="button" data-act="offline-edit">Ubah pesanan</button></div>`
-    : `<div class="tl-lock"><span>Pesanan sudah masuk pembayaran. Hanya manajer atau pemilik yang bisa membatalkan.</span>
-    ${canCancel() ? '<button class="tl-use" type="button" data-act="cancel-order">Batalkan pesanan</button>'
-      : '<button class="tl-use" type="button" data-act="ask-void">Minta batal</button>'}</div>`;
+    // Once confirmed, staff can't cancel or ask to cancel here (Glenn, 14 Nov 2026); only a manager
+    // or the owner signed in on the till sees Batalkan pesanan.
+    : canCancel() ? `<div class="tl-lock"><span>Pesanan sudah dikonfirmasi. Hanya manajer atau pemilik yang bisa membatalkan.</span>
+    <button class="tl-use" type="button" data-act="cancel-order">Batalkan pesanan</button></div>`
+    : '<p class="small muted">Pesanan sudah dikonfirmasi dan tidak bisa dibatalkan.</p>';
   let left = '';
   if (S.screen === 'method') {
     left = r.total === 0 ? `${inv}
@@ -1047,14 +1091,14 @@ function renderPay() {
         <button class="tl-mth" type="button" data-act="to-cash"><span class="tl-ic" aria-hidden="true">Rp</span>Tunai<small>Hitung kembalian</small></button>
         <button class="tl-mth" type="button" data-act="to-qris"><span class="tl-ic" aria-hidden="true">QR</span>QRIS<small>Tampilkan QRIS Hanashuya</small></button>
       </div>
-      ${r.offline ? '' : '<button class="tl-mini" type="button" data-act="to-split">Bayar 2 cara: sebagian Tunai, sisanya QRIS</button>'}${lock}`;
+      ${r.offline ? '' : '<button class="tl-mini" type="button" data-act="to-split">Split payment: sebagian Tunai, sisanya QRIS</button>'}${lock}`;
   } else if (S.screen === 'split') {
     // Bayar 2 cara (Glenn, 13 Nov 2026): the Tunai part first, the rest by QRIS. The change comes
     // only from the Tunai part.
     const sp = S.split || (S.split = { tunai: null, cash: null });
     const opts = [10000, 20000, 50000, 100000].filter((v) => v < r.total);
     left = `${inv}
-      <p class="tl-h is-lead">Bayar 2 cara · sebagian Tunai, sisanya QRIS</p>
+      <p class="tl-h is-lead">Split payment · sebagian Tunai, sisanya QRIS</p>
       <div class="tl-quick">${opts.map((v) => `<button type="button" class="tl-q num${sp.tunai === v ? ' is-on' : ''}" data-act="sp-t" data-v="${v}">Tunai ${rupiah(v)}</button>`).join('')}</div>
       <div class="tl-sp-grid">
         <label class="field"><span>Bagian tunai</span>
@@ -1068,11 +1112,13 @@ function renderPay() {
         <button class="btn tl-btn" type="button" data-act="split-qris" id="tl-sp-go" ${splitOk(r.total) ? '' : 'disabled'}>Lanjut ke QRIS</button></div>`;
   } else if (S.screen === 'qris') {
     const sp = S.split, part = sp ? r.total - sp.tunai : r.total;
-    left = `<div class="tl-inv is-center"><span><span class="tl-h">No. invoice</span><br><span class="tl-no is-xl num">${esc(r.receipt_no)}</span></span></div>
-      <div class="tl-qrlay">
+    // QRIS as big as the screen allows (Glenn, 14 Nov 2026): the invoice number moves beside it
+    // and the order summary on the right gets narrower.
+    left = `<div class="tl-qrlay">
         <div class="tl-qrbox"><img id="tl-qris" src="${QRIS_IMG}" alt="QRIS Hanashuya Bakehouse, Papaya Bandung">
           <p class="tl-qr-missing" hidden>Gambar QRIS belum dipasang. Minta pemilik mengirim file QRIS-nya.</p></div>
         <div class="tl-qrside">
+          <span><span class="tl-h">No. invoice</span><br><span class="tl-no num">${esc(r.receipt_no)}</span></span>
           <span class="tl-h">${sp ? 'Sisa lewat QRIS' : 'Total'}</span>
           <span class="tl-amt num">${rupiah(part)}</span>
           ${sp ? `<span class="small num">Tunai ${rupiah(sp.tunai)} · diterima ${rupiah(sp.cash ?? sp.tunai)} · kembali ${rupiah((sp.cash ?? sp.tunai) - sp.tunai)}</span>` : ''}
@@ -1102,7 +1148,7 @@ function renderPay() {
       <div class="tl-row2"><button class="btn btn-quiet tl-btn" type="button" data-act="to-qris">Ganti ke QRIS</button>
         <button class="btn tl-btn" type="button" data-act="pay-cash" id="tl-pay-cash" ${enough ? '' : 'disabled'}>Selesai</button></div>`;
   }
-  app.innerHTML = `<div class="tl-pay"><section class="tl-pl" aria-label="Pembayaran">${left}</section>
+  app.innerHTML = `<div class="tl-pay${S.screen === 'qris' ? ' is-qris' : ''}"><section class="tl-pl" aria-label="Pembayaran">${left}</section>
     <section class="tl-pr" aria-label="Ringkasan pesanan">${summaryHtml(r)}</section></div>`;
   const img = $('#tl-qris');
   if (img) {
@@ -1189,6 +1235,7 @@ function placeOffline() {
   S.placed = off.localReceipt({ id: S.orderId, localNo: S.localNo, quote, servedBy: served?.name });
   S.placed.quote = quote;
   S.placed.note = S.note.trim() || null;
+  S.placed.customer_name = S.customerName.trim() || null;
   S.screen = 'method';
   render();
 }
@@ -1249,6 +1296,7 @@ function renderDone() {
     ${r.note ? `<p class="tl-onote"><span class="tl-h">Catatan</span> ${esc(r.note)}</p>` : ''}
     ${r.new_rewards?.length ? `<p class="notice notice-ok">Hadiah baru: ${esc(r.new_rewards.join(', '))}. Bisa dipakai di kunjungan berikutnya.</p>` : ''}
     <div class="tl-acts">
+      ${queueOn() ? '<button class="btn btn-quiet tl-btn" type="button" data-act="print-queue">Cetak nota antrian</button>' : ''}
       <button class="btn btn-quiet tl-btn" type="button" data-act="print">Cetak struk</button>
       <button class="btn btn-quiet tl-btn" type="button" data-act="share">Kirim struk WhatsApp</button>
       <button class="btn tl-btn" type="button" data-act="new">Pesanan baru</button>
@@ -1262,6 +1310,18 @@ function renderDone() {
     </div>
   </section>`;
   $('#tl-done').focus();
+}
+
+async function printQueue(r, btn, msg) {
+  const say = (t, k = 'ok') => notice(msg, t, k);
+  busy(btn, true, 'Mencetak…');
+  try {
+    const p = await printer.print(queueSlipBytes(r, { dots: paper() === '80' ? 576 : 384 }), (t) => say(t));
+    say(`Nota antrian ${r.customer_name ? 'Kak ' + r.customer_name : r.receipt_no} terkirim ke ${p.name}.`);
+  } catch (e) {
+    if (e && e.name === 'NotFoundError') { printer.forget(); say('Tidak ada printer yang dipilih.', 'warn'); }
+    else say(e.message || String(e), 'error');
+  } finally { busy(btn, false); }
 }
 
 async function printReceipt(r, btn, msg) {
@@ -1312,6 +1372,7 @@ const looksLikePhone = (raw) => /^\+?[\d\s().-]+$/.test(raw.trim()) && raw.repla
 function setMember(m) {
   const keepStart = S.member?.start_code;
   S.member = { ...m, start_code: m.start_code || keepStart };
+  if (!S.customerName.trim()) S.customerName = m.first_name || String(m.full_name || '').split(' ')[0] || '';
   if (m.whatsapp) S.memberPhone = m.whatsapp;
   if (m.rupiah_per_stamp) S.cat.rupiah_per_stamp = m.rupiah_per_stamp;
   S.promo = null;
@@ -1663,7 +1724,7 @@ async function renderClose() {
       <div>
         ${row('Penjualan tunai', rupiah(sh.by_method?.tunai || 0))}
         ${row('Penjualan QRIS', rupiah(sh.by_method?.qris || 0))}
-        ${sh.split_count ? row('Bayar 2 cara (sudah masuk di atas)', `${sh.split_count} pesanan`) : ''}
+        ${sh.split_count ? row('Split payment (sudah masuk di atas)', `${sh.split_count} pesanan`) : ''}
         ${row('Uang diterima dari pembeli', rupiah(sh.cash_received))}
         ${row('Kembalian diberikan', rupiah(sh.change_given))}
         ${row('Kas masuk', rupiah(sh.cash_in))}
@@ -1847,7 +1908,7 @@ const inTab = (o, k) => k === 'semua' || (k === 'batal' ? ['batal', 'refund'].in
 function drawToday() {
   const q = String(S.todayQ || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const rows = (S.todayList || []).filter((o) => inTab(o, S.todayTab || 'semua'))
-    .filter((o) => !q || [o.receipt_no, o.member, o.served_by, o.promo_label, METHOD[o.payment_method], o.note]
+    .filter((o) => !q || [o.receipt_no, o.member, o.customer_name, o.served_by, o.promo_label, METHOD[o.payment_method], o.note]
       .some((v) => String(v || '').toLowerCase().includes(q)));
   $('#tl-today-list').innerHTML = rows.length ? `<ul class="tl-olist">${rows.map((o) => {
     const [label, cls] = STATUS[o.status] || [o.status, ''];
@@ -1862,7 +1923,7 @@ function drawToday() {
     }
     return `<li class="tl-orow"><span class="tl-otime num">${esc(time(o.sold_at))}</span>
       <span class="tl-omain"><b class="num">${esc(o.receipt_no)}</b> <span class="tag ${cls}">${esc(label)}</span>${o.status === 'dibayar' && o.refunded ? ` <span class="tag tag-bad num">Refund ${esc(rupiah(o.refunded))}</span>` : ''}${o.void_pending ? ' <span class="tag tag-warn">Menunggu persetujuan</span>' : ''}<br>
-        <span class="muted small">${esc(o.member ? 'Kak ' + o.member : 'Tanpa member')}${o.served_by ? ' · dilayani ' + esc(o.served_by) : ''}${o.promo_label ? ' · ' + esc(o.promo_label) : ''}${o.stamps ? ` · ${o.stamps} stempel` : ''}</span>
+        <span class="muted small">${o.customer_name ? 'Atas nama Kak ' + esc(o.customer_name) + ' · ' : ''}${esc(o.member ? 'member ' + o.member : 'Tanpa member')}${o.served_by ? ' · dilayani ' + esc(o.served_by) : ''}${o.promo_label ? ' · ' + esc(o.promo_label) : ''}${o.stamps ? ` · ${o.stamps} stempel` : ''}</span>
         ${o.note ? `<br><span class="small">Catatan: ${esc(o.note)}</span>` : ''}</span>
       <span class="tl-oamt"><b class="num">${rupiah(o.total)}</b><br><span class="muted small">${esc(METHOD[o.payment_method] || '')}</span></span>
       <span class="tl-oacts">${acts.join('')}</span></li>`;
@@ -1889,9 +1950,13 @@ async function todayAction(act, id, btn) {
 /* ---------------------------------------------------------------- taps */
 // What can't change while Konfirmasi pesanan is on its way.
 const LOCKED = new Set(['tile', 'flavour', 'pick-qty', 'pick-add', 'qty', 'bags', 'promo', 'promo-off', 'promo-line', 'member-clear',
-  'find', 'voucher', 'join', 'served', 'gender', 'age', 'sample-on', 'bogo-start', 'confirm', 'note-open', 'half-ask']);
+  'find', 'scan', 'voucher', 'join', 'served', 'gender', 'age', 'sample-on', 'bogo-start', 'confirm', 'note-open', 'half-ask']);
 // The order note is kept as it is typed (no re-render, so the keyboard stays up).
 app.addEventListener('input', (e) => {
+  if (e.target.id === 'tl-name-in') {
+    if (S.confirming) { e.target.value = S.customerName; return; }
+    S.customerName = e.target.value.slice(0, 40); return;
+  }
   if (e.target.id !== 'tl-note-in') return;
   if (S.confirming) { e.target.value = S.note; return; }
   S.note = e.target.value.slice(0, NOTE_MAX);
@@ -1940,6 +2005,7 @@ async function onTap(e) {
     case 'qty': changeQty(Number(b.dataset.i), Number(b.dataset.d)); return;
     case 'bags': S.bags = Math.max(0, Math.min(bagsMax(), freeBags() + Number(b.dataset.d))); requote(); return;
     case 'find': S.left = 'find'; renderLeft(); return;
+    case 'scan': S.left = 'find'; renderLeft(); startCamera(); return;
     case 'voucher': S.left = 'voucher'; renderLeft(); return;
     case 'join': stopCamera(); S.left = 'join'; renderLeft(); return;
     case 'find-close': stopCamera(); S.left = 'tiles'; renderLeft(); return;
@@ -1975,6 +2041,8 @@ async function onTap(e) {
     case 'cancel-order': askCancel(S.placed, resetOrder); return;
     case 'ask-void': askVoid(S.placed, resetOrder); return;
     case 'print': printReceipt(S.paid, b, $('#tl-print-msg')); return;
+    case 'print-queue': printQueue(S.paid, b, $('#tl-print-msg')); return;
+    case 'queue-device': store.set('hs-till-queue-slip', b.dataset.v); renderPrinter(); return;
     case 'share': shareReceipt(S.paid, b); return;
     case 'new': resetOrder(); return;
     case 'offline-edit': S.placed = null; S.screen = 'order'; render(); return;
@@ -1982,8 +2050,12 @@ async function onTap(e) {
     case 'printer-forget': printer.forget(); if (S.screen === 'printer') { renderPrinter(); notice($('#tl-print-msg'), 'Printer dilupakan. Tekan Sambungkan printer untuk memilih lagi.', 'ok'); return; } notice($('#tl-print-msg'), 'Printer dilupakan. Tekan Cetak struk untuk memilih lagi.', 'ok'); return;
     case 'printer-connect': {
       const msg = $('#tl-print-msg'); busy(b, true, 'Menyambungkan…');
-      try { const pr = await printer.connect((t) => notice(msg, t, 'ok')); renderPrinter(); notice($('#tl-print-msg'), `Tersambung ke ${pr.name}.`, 'ok'); }
-      catch (e) { busy(b, false); notice(msg, e && e.name === 'NotFoundError' ? 'Tidak ada printer yang dipilih.' : (e.message || String(e)), e && e.name === 'NotFoundError' ? 'warn' : 'error'); }
+      // Chrome's printer list sometimes never opens inside the installed app (TWA). Say so
+      // after 10 s instead of leaving the cashier staring at "Menyambungkan…" (14 Nov 2026).
+      const fresh = !printer.hasDevice();
+      const stuck = setTimeout(() => { if (fresh && !printer.hasDevice()) { busy(b, false); notice(msg, 'Jendela pilih printer tidak muncul. Pastikan Bluetooth tablet menyala dan Chrome boleh memakai Perangkat di sekitar (Pengaturan Android > Aplikasi > Chrome > Izin). Kalau tetap tidak muncul, buka kasir di aplikasi Chrome biasa dan sambungkan dari sana.', 'warn'); } }, 10000);
+      try { const pr = await printer.connect((t) => notice(msg, t, 'ok')); clearTimeout(stuck); renderPrinter(); notice($('#tl-print-msg'), `Tersambung ke ${pr.name}.`, 'ok'); }
+      catch (e) { clearTimeout(stuck); busy(b, false); notice(msg, e && e.name === 'NotFoundError' ? 'Tidak ada printer yang dipilih.' : (e.message || String(e)), e && e.name === 'NotFoundError' ? 'warn' : 'error'); }
       return;
     }
     case 'printer-test': await printReceipt({ ...SAMPLES.walk, receipt_no: 'UJI-CETAK' }, b, $('#tl-print-msg')); if (S.screen === 'printer') $('#tl-pr-state').textContent = printer.isConnected() ? `Tersambung ke ${printer.current()?.name || 'printer'}` : 'Belum ada printer'; return;
@@ -2001,7 +2073,7 @@ async function onTap(e) {
         // Keep the order in progress; it comes back when the cashier leaves this done screen.
         if (!S.paid && (S.items.length || S.member)) {
           S.stash = { items: S.items, member: S.member, memberPhone: S.memberPhone, promo: S.promo, bags: S.bags, gender: S.gender, age: S.age,
-            orderId: S.orderId, placed: S.placed, localNo: S.localNo, waitingCode: S.waitingCode, quote: S.quote, note: S.note, noteOpen: S.noteOpen };
+            orderId: S.orderId, placed: S.placed, localNo: S.localNo, waitingCode: S.waitingCode, quote: S.quote, note: S.note, noteOpen: S.noteOpen, customerName: S.customerName };
         }
         S.paid = r; S.screen = 'done'; render();
       } }).catch((err) => toast(err.message)).finally(() => { rsvOpen = false; b.removeAttribute('aria-busy'); });

@@ -108,7 +108,7 @@ const R = {
       ['stempel', 'Stempel', 'n', 1], ['terakhir', 'Terakhir', 'd']] },
   jual_saluran: { t: 'Penjualan per saluran', d: 'Di booth dan aplikasi pesan-antar.',
     c: [['saluran', 'Saluran'], ['struk', 'Struk', 'n', 1], ['kotor', 'Kotor', 'rp', 1], ['diskon', 'Diskon', 'rp', 1], ['bersih', 'Bersih', 'rp', 1], ['rata_rata', 'Rata-rata', 'rp']] },
-  jual_promo: { t: 'Penjualan per promo', d: 'Per jenis promo (BOGO, Diskon 50% malam, Diskon 50% instruksi, Tebus Murah, voucher, hadiah stempel, Promo POS): struk, item promo, diskon dan penjualan bersihnya. Item promo adalah barang yang mendapat harga promo.',
+  jual_promo: { t: 'Penjualan per promo', d: 'Per jenis promo (BOGO, Diskon 50% flash sale, Diskon 50% instruksi, Tebus Murah, voucher, hadiah stempel, Promo POS): struk, item promo, diskon dan penjualan bersihnya. Item promo adalah barang yang mendapat harga promo.',
     f: [F.promoGroup], c: [['jenis', 'Jenis'], ['promo', 'Promo'], ['dipakai', 'Struk', 'n', 1], ['item', 'Item promo', 'n', 1], ['kotor', 'Kotor', 'rp', 1], ['diskon', 'Diskon', 'rp', 1], ['bersih', 'Bersih', 'rp', 1]] },
   jual_batal: { t: 'Batal dan refund', d: 'Setiap batal dan refund yang disetujui di rentang ini (menurut tanggal disetujui), dengan jumlah uang yang kembali, alasan, yang meminta dan yang menyetujui.',
     f: [F.statusBatal], c: [['waktu', 'Disetujui'], ['waktu_jual', 'Dijual'], ['struk', 'Nomor struk'], ['status', 'Status'], ['bagian', 'Bagian'], ['metode', 'Uang kembali lewat'],

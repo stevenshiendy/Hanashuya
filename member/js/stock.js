@@ -45,8 +45,11 @@ const itemOptions = (items, pick) => items.map((i) => `<option value="${i.id}"${
 const qtyInput = (id, label, extra = '') => `<label class="field"><span>${label} ${REQ}</span><input type="text" inputmode="decimal" id="${id}" autocomplete="off" ${extra}></label>`;
 
 // Staff chips for "Penanggung jawab": staff clocked in first, nobody picked, so staff must tap one.
+// The owner account ("Hanashuya") is left out on the till and staff page (Glenn, 13 Nov 2026);
+// the owner's back office (owner-transaksi.js) still lists it.
 let chipSeq = 0;
-function staffChips(staff) {
+function staffChips(all) {
+  const staff = (all || []).filter((s) => s.role !== 'owner');
   const name = `sk-who-${++chipSeq}`;
   const onDuty = staff.some((s) => s.on_duty);
   return `<fieldset class="field" data-who><legend>Penanggung jawab ${REQ}</legend>

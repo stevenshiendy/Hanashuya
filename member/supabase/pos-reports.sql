@@ -82,7 +82,7 @@ as $$ select case when to_regclass('public.' || p_table) is null then false when
 -- Promo kinds, as the reports name them. 'malam50' (50% malam) and 'instruksi50' (50% atas instruksi) come from the till.
 create or replace function public._rep_promo_label(k text) returns text
 language sql immutable
-as $$ select case k when 'bogo' then 'BOGO Deals' when 'malam50' then 'Diskon 50% malam' when 'instruksi50' then 'Diskon 50% instruksi'
+as $$ select case k when 'bogo' then 'BOGO Deals' when 'malam50' then 'Diskon 50% flash sale' when 'instruksi50' then 'Diskon 50% instruksi'
   when 'tebus_murah' then 'Tebus Murah Rp1' when 'welcome' then 'Diskon member baru 50%' when 'ulang_tahun' then 'Hadiah ulang tahun'
   when 'kode' then 'Voucher kertas' when 'stempel' then 'Hadiah stempel' when 'promo' then 'Promo POS' else coalesce(k, '') end $$;
 

@@ -514,6 +514,13 @@ button.tl-mlink { min-height: var(--tl-tap); text-decoration: underline; text-un
 .tl-ok { font-family: var(--font-display); font-weight: 500; font-size: var(--text-3xl); letter-spacing: 0.04em; color: var(--color-success); }
 .tl-acts { display: grid; grid-template-columns: repeat(3, 260px); gap: var(--space-md); }
 .tl-paper { display: flex; gap: var(--space-xs); align-items: center; }
+/* Printer struk (14 Nov 2026): labels in one column so the chips line up; Sambungkan on its own row,
+   Cetak struk uji and Lupakan printer side by side under it, all inside the page width. */
+.tl-printer { max-width: 40rem; padding-inline: var(--space-lg); }
+.tl-printer .tl-paper { display: grid; grid-template-columns: 13rem auto auto 1fr; column-gap: var(--space-xs); row-gap: var(--space-3xs); }
+.tl-printer .tl-paper > .small { grid-column: 2 / -1; }
+.tl-printer .tl-acts { grid-template-columns: 1fr 1fr; }
+.tl-printer .tl-acts > :first-child { grid-column: 1 / -1; }
 .tl-wa { display: grid; gap: var(--space-xs); justify-items: center; }
 
 /* shift and Hari ini */
@@ -972,3 +979,29 @@ body.is-gate main#app { max-width: none; padding: 0; }
   .sg-list { display: none; }
   .sg-form { align-content: start; padding-block: var(--space-xl) var(--space-2xl); }
 }
+
+/* Mode penjualan, 14 Nov 2026 (Glenn: "do not enable scroll, it is not intuitive").
+ * The product view fits the left panel: tiles share the height left over, nothing scrolls.
+ * The flavour sheet, member search and sign-up keep their own scrolling. */
+.tl-left.is-fit { display: flex; flex-direction: column; gap: clamp(var(--space-xs), 1.6vh, 20px); overflow: hidden; padding-block: clamp(var(--space-sm), 2vh, var(--space-lg)); }
+.tl-left.is-fit > * { flex: none; }
+.tl-left.is-fit > .tl-tiles { flex: 1 1 0; min-height: 0; grid-auto-rows: minmax(0, 1fr); }
+.tl-left.is-fit .tl-tile { min-height: 0; padding-block: clamp(var(--space-xs), 1.6vh, 20px); overflow: hidden; }
+.tl-left.is-fit .tl-extra { min-height: 48px; }
+.tl-left.is-fit .tl-demo { padding-top: clamp(var(--space-xs), 1.2vh, var(--space-md)); }
+/* Pesanan atas nama Kak … (staff type it to call the customer; kept on the order only). */
+.tl-cname { display: grid; gap: var(--space-3xs); }
+.tl-cname input { min-height: var(--tl-tap); padding: 0 var(--space-md); border: 1.5px solid var(--color-ink); border-radius: var(--radius-control); background: var(--color-paper); color: var(--color-ink); font: inherit; font-size: var(--text-lg); }
+.tl-cname input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+/* Scan member: the clear first choice; typing a number is beside it. */
+.tl-scanrow { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: var(--space-xs); }
+.tl-scanrow .btn { min-height: var(--tl-tap); padding-inline: var(--space-sm); white-space: nowrap; }
+.tl-scan-alt { border: 1.5px solid var(--color-ink); background: var(--color-paper); }
+/* QRIS screen (Glenn, 14 Nov 2026: "the QRIS is too small"): the poster fills the height,
+ * the order summary narrows, the invoice number sits above the total. */
+.tl-pay.is-qris { grid-template-columns: minmax(0, 1fr) clamp(220px, 20vw, 300px); }
+.tl-pay.is-qris .tl-pl { align-content: center; padding-block: var(--space-md); }
+.tl-pay.is-qris .tl-qrbox { --qr-h: calc(100dvh - var(--tl-bar) - 2 * var(--space-md) - 8px); }
+.tl-pay.is-qris .tl-qrlay { gap: var(--space-lg); }
+.tl-pay.is-qris .tl-qrside { gap: var(--space-sm); }
+.tl-pay.is-qris .tl-pr { padding: var(--space-md); }

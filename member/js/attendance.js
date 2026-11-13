@@ -18,7 +18,8 @@ const FLAG = {
   tidak_scan_pulang: ['Tidak scan pulang', 'tag-bad'], tidak_scan_kembali: ['Tidak scan kembali', 'tag-bad'],
   istirahat_lebih: ['Istirahat lebih lama', 'tag-warn'], pulang_awal: ['Pulang lebih awal', 'tag-warn'],
   pulang_lewat: ['Pulang lewat 10 menit', 'tag-warn'], lembur: ['Lembur, perlu disetujui', 'tag-warn'],
-  di_luar_jadwal: ['Di luar jadwal', 'tag-warn'], sedang_bekerja: ['Sedang bekerja', 'tag-ok'], sedang_istirahat: ['Sedang istirahat', 'tag'],
+  di_luar_jadwal: ['Di luar jadwal', 'tag-warn'], lokasi_kurang_akurat: ['Lokasi kurang akurat', 'tag-warn'],
+  lokasi_booth_belum_diatur: ['Jarak tidak dicek: lokasi booth belum disimpan', 'tag-warn'], sedang_bekerja: ['Sedang bekerja', 'tag-ok'], sedang_istirahat: ['Sedang istirahat', 'tag'],
 };
 const LEAVE = { menunggu: ['Menunggu', 'tag-warn'], disetujui: ['Disetujui', 'tag-ok'], ditolak: ['Ditolak', 'tag-bad'], dibatalkan: ['Dibatalkan', 'tag'] };
 
@@ -211,7 +212,7 @@ function locPanel(box, t) {
     <h2 id="ab-loc-title">Lokasi booth</h2>
     <p class="muted small">${st.set
       ? `Tersimpan${st.at ? ' ' + esc(dmy(ymd(new Date(st.at)))) : ''}. Absen hanya diterima dari HP yang berada dalam ${st.radius} m dari titik ini.`
-      : 'Belum disimpan. Selama belum disimpan, absen diterima tanpa cek lokasi.'}</p>
+      : 'Belum disimpan. Staf tetap wajib menyalakan lokasi saat absen, tapi jaraknya ke booth baru dicek setelah lokasi booth disimpan.'}</p>
     <label class="field" style="max-width:14rem"><span>Jarak absen (meter)</span>
       <input type="number" id="ab-loc-r" min="50" max="2000" step="10" value="${st.radius}" inputmode="numeric"></label>
     ${found ? `<p>Lokasi perangkat terbaca, akurasi ± ${Math.round(found.acc)} m.${found.acc > 100 ? ' Kurang tepat: coba di dekat jendela atau tunggu sebentar.' : ''}</p>
@@ -1098,7 +1099,7 @@ async function scanTab() {
     : `<button class="btn btn-block btn-big" type="button" id="ab-scan">Scan QR di tablet kasir</button>
       <div class="scan-view" id="cam" hidden><video id="video" playsinline muted></video><span class="frame" aria-hidden="true"></span></div>
       <button class="btn btn-quiet btn-block" type="button" id="cam-stop" hidden>Tutup kamera</button>
-      <p class="muted small">Berikutnya: ${s.next.map((a) => ACTION[a]).join(' atau ')}. Jam yang dicatat adalah jam server saat Anda menekan tombol. Absen hanya dari HP Anda sendiri${s.location_required ? ', di booth' : ''}.</p>`}
+      <p class="muted small">Berikutnya: ${s.next.map((a) => ACTION[a]).join(' atau ')}. Jam yang dicatat adalah jam server saat Anda menekan tombol. Absen hanya dari HP Anda sendiri, di booth, dengan lokasi HP menyala.</p>`}
     <div class="notice" id="ab-note" hidden></div>
   </section>
   <section class="panel stack">

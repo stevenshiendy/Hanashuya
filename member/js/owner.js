@@ -51,7 +51,7 @@ const MENU = [
     ['t-stamp', 'koreksi-stempel', 'Koreksi stempel']]],
   // Akunting (Glenn, 12 Nov 2026, like VireoPOS): chart of accounts, journals (automatic from sales, purchases, cash and stock; manual), reports.
   ['akunting', 'book', 'Akunting', [['t-acc', 'akun-buku-besar', 'Akun buku besar'], ['t-jurnal', 'buat-jurnal', 'Buat jurnal'], ['t-lacc', 'laporan-akunting', 'Laporan akunting']]],
-  ['pengaturan', 'gear', 'Pengaturan', [['t-set', 'cadangan', 'Cadangan data']]],
+  ['pengaturan', 'gear', 'Pengaturan', [['t-set', 'cadangan', 'Cadangan data'], ['t-queue', 'nota-antrian', 'Nota antrian']]],
 ];
 // Hashes that no longer name a view. Every other old hash (produk, stok, staf, absensi,
 // member, promo, laporan-pos, ...) is still the first view of its feature.
@@ -167,7 +167,7 @@ async function boot() {
     jadwal: () => mountOwnerAbsensi(P('p-att-plan'), { part: 'jadwal' }),
     'bonus-stempel': () => mountStampBoosts(P('p-boost'), { rpc }), 'template-wa': () => mountWaTemplates(P('p-wa'), { rpc }),
     komisi: () => mountCommission(P('p-komisi'), { rpc }),
-    cadangan: backupView,
+    cadangan: backupView, 'nota-antrian': queueSlipView,
   };
   // Laporan hubs (13 Nov 2026): each Laporan item lists its sub-reports; the old views are its last item.
   for (const [h, hub, id] of [['stok-laporan', 'stok', 'p-stock-rep'], ['laporan-pembelian', 'pembelian', 'p-lbuy'], ['laporan-pos', 'penjualan', 'p-rep'],
@@ -887,6 +887,32 @@ async function backupView() {
     <button class="btn" type="button" id="backup" style="justify-self:start">Unduh cadangan</button>
   </section>`;
   $('#backup').addEventListener('click', downloadBackup);
+}
+
+// Nota antrian (Glenn, 14 Nov 2026): on or off for the booth. Each till tablet can also turn it
+// off for itself on its Printer screen; it prints only when both are on (nota-antrian.sql).
+async function queueSlipView() {
+  const p = $('#p-queue');
+  p.innerHTML = '<div class="panel" aria-busy="true"><div class="skeleton"></div></div>';
+  let on;
+  try { on = await rpc('pos_queue_slip'); } catch (e) { p.innerHTML = `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`; return; }
+  p.innerHTML = `
+  <section class="panel stack" aria-labelledby="queue-title">
+    <h1 id="queue-title">Nota antrian</h1>
+    <p>Setelah pembayaran, kasir mencetak nota kecil berisi nama pembeli ("Pesanan atas nama Kak …"), nomor invoice dan isi pesanan, supaya staf bisa memanggil pembeli saat pesanannya siap.</p>
+    <label class="check"><input type="checkbox" id="queue-on"${on ? ' checked' : ''}><span>Cetak nota antrian di kasir</span></label>
+    <p class="muted small">Tiap tablet kasir juga bisa mematikannya sendiri di Printer. Nama pembeli hanya tersimpan di pesanan, tidak menjadi data member.</p>
+    <div class="notice" id="queue-msg" hidden></div>
+  </section>`;
+  $('#queue-on').addEventListener('change', async (e) => {
+    const box = e.target; box.disabled = true;
+    try {
+      const v = await rpc('owner_set_queue_slip', { p_on: box.checked });
+      box.checked = !!v;
+      notice($('#queue-msg'), v ? 'Nota antrian aktif di kasir.' : 'Nota antrian dimatikan.', 'ok');
+    } catch (err) { box.checked = !box.checked; notice($('#queue-msg'), err.message); }
+    finally { box.disabled = false; }
+  });
 }
 
 async function cardRules() {

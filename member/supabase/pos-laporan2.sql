@@ -46,7 +46,7 @@ create or replace function public._lap2_promo_label(k text) returns text
 language sql immutable
 as $$ select case k when 'stempel' then 'Hadiah stempel' when 'welcome' then 'Diskon member baru' when 'ulang_tahun' then 'Hadiah ulang tahun'
   when 'kode' then 'Voucher kertas' when 'tebus_murah' then 'Tebus Murah Rp1' when 'bogo' then 'BOGO Deals' when 'promo' then 'Promo POS'
-  when 'malam50' then 'Diskon 50% malam' when 'instruksi50' then 'Diskon 50% instruksi' else coalesce(k, '') end $$;
+  when 'malam50' then 'Diskon 50% flash sale' when 'instruksi50' then 'Diskon 50% instruksi' else coalesce(k, '') end $$;
 
 -- The Tunai part of a shift's paid orders (pos_order_payments, 13 Nov 2026). Called only when that table exists.
 create or replace function public._rep_shift_tunai(p_shift bigint) returns bigint
@@ -249,7 +249,7 @@ begin
     select json_agg(x order by x.at, x.struk) into r from (
       select o.id, o.sold_at as at, public._pos_stamp(o.sold_at) as waktu, o.receipt_no as struk, coalesce(o.local_no, '') as no_offline,
         ch.label as saluran, coalesce(public._first_name(sp.full_name), '') as staf, coalesce(public._first_name(cp.full_name), '') as kasir,
-        coalesce(mp.full_name, '') as pelanggan, public._pos_status_label(o.status) as status, public._pos_pay_label(o.payment_method) as metode,
+        coalesce(mp.full_name, o.customer_name, '') as pelanggan, public._pos_status_label(o.status) as status, public._pos_pay_label(o.payment_method) as metode,
         coalesce(o.payment_ref, '') as referensi, coalesce(o.promo_label, '') as promo,
         o.subtotal, o.discount as diskon, o.total, coalesce(o.cash_received, case when o.status = 'dibayar' then o.total end, 0) as dibayar,
         coalesce(o.change_given, 0) as kembalian,
@@ -495,7 +495,7 @@ begin
 
   when 'diskon' then
     select json_agg(x order by x.at) into r from (
-      select o.id, o.sold_at as at, public._pos_stamp(o.sold_at) as waktu, o.receipt_no as struk, coalesce(m.full_name, '') as pelanggan,
+      select o.id, o.sold_at as at, public._pos_stamp(o.sold_at) as waktu, o.receipt_no as struk, coalesce(m.full_name, o.customer_name, '') as pelanggan,
         coalesce(o.promo_label, public._lap2_promo_label(o.promo_kind), '') as promo, o.subtotal, o.discount as diskon, o.total
       from pos_orders o left join profiles m on m.id = o.member_id
       where o.sale_day between d1 and d2 and o.status = 'dibayar' and o.discount > 0

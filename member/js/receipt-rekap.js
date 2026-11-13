@@ -65,7 +65,7 @@ export function rekapReceipt(k, { dots = 384, reprint = false, cut = true, at = 
   p.bold(true).text('Pembayaran').bold(false).rule('-');
   if (!k.payments.length) p.text('Belum ada pembayaran.');
   for (const m of k.payments) p.row(`${(METHOD[m.method] || m.method).padEnd(7)}Diterima`, rp(m.amount));
-  if (k.split_count) p.small(true).text(`${k.split_count} pesanan bayar 2 cara, masuk di QRIS dan Tunai`).small(false);
+  if (k.split_count) p.small(true).text(`${k.split_count} pesanan split payment, masuk di QRIS dan Tunai`).small(false);
   p.rule('-');
   p.bold(true).row('Total Akhir', rp(k.total)).bold(false);
   p.rule('-');
@@ -129,7 +129,7 @@ export function rekapPdf(k) {
   b.push({ h: 'Pembayaran' });
   b.push(k.payments.length ? { table: { head: ['Cara bayar', 'Pesanan', 'Diterima'], align: ['l', 'r', 'r'],
     rows: k.payments.map((m) => [METHOD[m.method] || m.method, String(m.count), rp(m.amount)]) } } : { p: 'Belum ada pembayaran.' });
-  if (k.split_count) b.push({ p: `${k.split_count} pesanan bayar 2 cara, masuk di QRIS dan Tunai.` });
+  if (k.split_count) b.push({ p: `${k.split_count} pesanan split payment, masuk di QRIS dan Tunai.` });
   b.push({ kv: ['Pesanan dibayar', String(k.orders)] },
     { kv: [`Batal (${k.voids.batal_count})`, rp(k.voids.batal_amount)] },
     { kv: [`Refund (${k.voids.refund_count})`, rp(k.voids.refund_amount)] });

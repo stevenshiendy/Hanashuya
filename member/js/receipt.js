@@ -271,6 +271,7 @@ export async function receiptCanvas(r, { mode = 'print', dots = 384, headerOnly 
   if (r.local_no && r.local_no !== r.receipt_no) s.meta('No. offline', r.local_no);
   s.meta('Tanggal', receiptDate(r.sold_at));
   if (r.served_by) s.meta('Kasir', r.served_by);
+  if (r.customer_name) s.meta('Atas nama', 'Kak ' + r.customer_name);
   if (r.member) s.meta('Member', 'Kak ' + r.member);
   if (r.channel && r.channel !== 'toko') s.meta('Pesanan', r.channel_label);
   if (r.status === 'batal' || r.status === 'refund') {

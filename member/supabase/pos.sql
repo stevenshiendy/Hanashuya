@@ -500,6 +500,12 @@ create unique index if not exists pos_void_one_open on public.pos_void_requests 
 alter table public.pos_orders add column if not exists note text;
 alter table public.pos_orders drop constraint if exists pos_orders_note_check;
 alter table public.pos_orders add constraint pos_orders_note_check check (note is null or length(note) <= 200);
+-- Pesanan atas nama (Glenn, 14 Nov 2026): the name staff type so they can call the customer
+-- instead of a queue number. Kept on the order only (invoice, receipt, order history); it never
+-- makes or changes a member.
+alter table public.pos_orders add column if not exists customer_name text;
+alter table public.pos_orders drop constraint if exists pos_orders_customer_name_check;
+alter table public.pos_orders add constraint pos_orders_customer_name_check check (customer_name is null or length(customer_name) <= 40);
 -- Diskon 50% instruksi: the manager or owner who told staff to give it (flagged for the owner).
 alter table public.pos_orders add column if not exists promo_by uuid references public.profiles (id) on delete set null;
 -- Partial refunds: what has gone back so far (rupiah) and per line (pieces).
@@ -729,7 +735,7 @@ begin
         raise exception 'Diskon 50%% malam mulai pukul %. Sebelum itu hanya Diskon 50%% atas instruksi manajer atau pemilik.',
           to_char((select half_from from settings where id = 1), 'HH24.MI');
       end if;
-      rule := 'half_box'; val := 50; lbl := 'Diskon 50% malam';
+      rule := 'half_box'; val := 50; lbl := 'Diskon 50% flash sale';
     elsif pk = 'instruksi50' then
       -- Diskon 50% any time, when a manager or the owner says so. Who said it is stored and the
       -- order is flagged diskon_instruksi for the owner (13 Nov 2026).
@@ -778,7 +784,7 @@ begin
         if d > 0 then lines := jsonb_set(lines, array[i::text, 'discount'], to_jsonb(d)); disc := disc + d; end if;
       end loop;
       if disc <= 0 then
-        raise exception '%', case when rule = 'half_box' then 'Diskon 50% malam hanya untuk produk box. Tambahkan box ke pesanan.'
+        raise exception '%', case when rule = 'half_box' then 'Diskon 50% flash sale hanya untuk produk box. Tambahkan box ke pesanan.'
                                   else 'Diskon 50% perlu minimal 1 produk di pesanan.' end;
       end if;
     elsif rule = 'bogo' then
@@ -888,7 +894,7 @@ begin
     -- Till v2 (13 Nov 2026): the split per method, the order note, Diskon 50% instruksi and refunds.
     'payments', coalesce((select json_agg(json_build_object('method', p.method, 'amount', p.amount)
       order by array_position(array['qris', 'tunai'], p.method)) from pos_order_payments p where p.order_id = o.id), '[]'),
-    'note', o.note, 'promo_kind', o.promo_kind,
+    'note', o.note, 'customer_name', o.customer_name, 'promo_kind', o.promo_kind,
     'promo_by', (select public._first_name(full_name) from profiles where id = o.promo_by),
     'refunded', o.refunded,
     'refunds', coalesce((select json_agg(json_build_object('id', v.id, 'amount', coalesce(v.amount, o.total), 'method', v.refund_method,
@@ -978,6 +984,24 @@ end $$;
 --   gender, age_range   for walk-ins, as on the cashier page today
 -- and for pos_checkout also payment {method, cash} and client_at.
 
+-- Invoice numbers (Glenn, 14 Nov 2026): the last 4 digits are random, not a running count, so
+-- customers can't read the day's sales from their receipt. Unique per day; the running count
+-- stays in pos_receipt_counters for the owner.
+create or replace function public._pos_receipt_no(v_day date) returns text
+language plpgsql volatile security definer set search_path = public
+as $$
+declare rno text; tries int := 0;
+begin
+  loop
+    rno := 'HS-' || to_char(v_day, 'YYMMDD') || '-' || lpad((1000 + floor(random() * 9000))::int::text, 4, '0');
+    exit when not exists (select 1 from pos_orders where receipt_no = rno);
+    tries := tries + 1;
+    if tries > 200 then raise exception 'Nomor invoice hari ini habis. Hubungi pemilik.'; end if;
+  end loop;
+  return rno;
+end $$;
+revoke all on function public._pos_receipt_no(date) from public, anon, authenticated;
+
 -- Step 1. Creates the order as 'menunggu'. Returns its id.
 create or replace function public._pos_create(staff uuid, p_order jsonb) returns uuid
 language plpgsql volatile security definer set search_path = public
@@ -987,6 +1011,7 @@ declare
   v_day date := public._local(now())::date; seq int; rno text; rid bigint; f text[] := '{}';
   g text := nullif(p_order->>'gender', ''); a text := nullif(p_order->>'age_range', ''); ln jsonb;
   nt text := nullif(trim(coalesce(p_order->>'note', '')), '');
+  cn text := nullif(left(regexp_replace(trim(coalesce(p_order->>'customer_name', '')), '\s+', ' ', 'g'), 40), '');
 begin
   begin oid := (p_order->>'id')::uuid; exception when others then oid := null; end;
   if oid is null then raise exception 'Pesanan tanpa nomor. Muat ulang halaman kasir.'; end if;
@@ -1023,7 +1048,7 @@ begin
   insert into pos_receipt_counters (outlet_id, day, last) values ('papaya-bdg', v_day, 1)
   on conflict (outlet_id, day) do update set last = pos_receipt_counters.last + 1
   returning last into seq;
-  rno := 'HS-' || to_char(v_day, 'YYMMDD') || '-' || lpad(seq::text, 4, '0');
+  rno := public._pos_receipt_no(v_day);
 
   insert into pos_orders (id, channel_id, receipt_no, sale_day, status, cashier_id, served_by, member_id, via,
     subtotal, discount, total, promo_kind, promo_label, payment_method, gender, age_range, flags, sold_at)
@@ -1031,6 +1056,7 @@ begin
     (q->>'subtotal')::int, (q->>'discount')::int, (q->>'total')::int, q#>>'{promo,kind}', q#>>'{promo,label}', null, g, a, f, now());
   if q#>>'{promo,kind}' = 'promo' then update pos_orders set promo_id = (q#>>'{promo,cycle}')::int where id = oid; end if;
   update pos_orders set note = nt where id = oid and nt is not null;
+  update pos_orders set customer_name = cn where id = oid and cn is not null;
   if q#>>'{promo,kind}' = 'instruksi50' then
     update pos_orders set promo_by = (q#>>'{promo,by}')::uuid, flags = flags || array['diskon_instruksi'] where id = oid;
   end if;
@@ -1374,7 +1400,7 @@ as $$
 declare staff uuid := public._require(array['staff', 'owner'], public._pos_staff_msg());
 begin
   return coalesce((select json_agg(x order by x.sold_at desc) from (
-    select o.id, o.receipt_no, o.sold_at, o.total, o.payment_method, o.status, o.stamps, o.promo_label, o.note, o.refunded,
+    select o.id, o.receipt_no, o.sold_at, o.total, o.payment_method, o.status, o.stamps, o.promo_label, o.note, o.refunded, o.customer_name,
       public._first_name(sp.full_name) as served_by,
       case when o.member_id is not null then public._first_name(mp.full_name) end as member,
       exists (select 1 from pos_void_requests v where v.order_id = o.id and v.status = 'menunggu') as void_pending
