@@ -268,7 +268,7 @@ async function summary() {
       <span class="muted small">${esc(u.requested_by || 'Staf')}, ${esc(when(u.created_at))}: ${esc(u.reason)}</span></span>
       <span class="row"><button class="btn" type="button" data-undo="${u.id}" data-ok="1">Setujui</button><button class="btn btn-quiet" type="button" data-undo="${u.id}" data-ok="0">Tolak</button></span></li>`).join('')}</ul>
   </section>` : ''}
-  ${t.sales === 0 ? `<div class="panel stack"><h2>Belum ada penjualan ${d.days === 1 ? 'di tanggal ini' : 'di rentang ini'}</h2><p class="muted">Angka di sini terisi begitu kasir mencatat penjualan di halaman kasir.</p><a class="btn" href="staf.html">Buka halaman kasir</a></div>` : `
+  ${t.sales === 0 ? `<div class="panel stack"><h2>Belum ada penjualan ${d.days === 1 ? 'di tanggal ini' : 'di rentang ini'}</h2><p class="muted">Angka di sini terisi begitu kasir mencatat penjualan di halaman kasir.</p><a class="btn" href="kasir.html">Buka halaman kasir</a></div>` : `
   <div class="stats">
     <div class="stat"><b>${t.sales}</b><span>Penjualan</span></div>
     <div class="stat"><b>${pct(t.member_sales, t.sales)}%</b><span>Penjualan oleh member (${t.member_sales})</span></div>

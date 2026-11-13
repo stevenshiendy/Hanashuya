@@ -121,7 +121,7 @@ async function boot() {
       app.innerHTML = `<div class="wrap page-pad"><section class="stack"><h1>Ini akun staf</h1>
         ${location.hash === '#daftar' ? '<p class="notice notice-warn">Perangkat ini sedang masuk sebagai kasir, jadi formulir daftar member tidak bisa dibuka di sini. Minta pembeli scan QR di tab Daftar member dengan HP-nya, atau kirim link lewat WhatsApp dari tab itu.</p>' : ''}
         <p>Akun staf tidak bisa mengumpulkan stempel. Pakai nomor WhatsApp lain untuk kartu member pribadi.</p>
-        <div class="row"><a class="btn" href="staf.html">Buka halaman kasir</a>${who.role === 'owner' ? '<a class="btn btn-quiet" href="pemilik.html">Buka dasbor pemilik</a>' : ''}
+        <div class="row"><a class="btn" href="kasir.html">Buka halaman kasir</a>${who.role === 'owner' ? '<a class="btn btn-quiet" href="pemilik.html">Buka dasbor pemilik</a>' : ''}
         <button class="btn btn-text" type="button" id="out">Keluar</button></div></section></div>`;
       $('#out').addEventListener('click', logout);
       return;

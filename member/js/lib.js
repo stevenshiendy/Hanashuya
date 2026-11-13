@@ -406,14 +406,14 @@ export async function signOut() {
 }
 
 /* ---------------------------------------------------------------- staff landing pages
- * Retiring the old cashier page (Glenn, 13 Nov 2026). While RETIRE_STAF_PAGE is false,
- * staf.html works as before. Set it to true in the push that makes kasir.html the till:
- * staf.html then sends everyone on, and staffHome() decides where:
+ * Retiring the old cashier page.
+ * On since 13 Nov 2026 (Glenn: "if there is a web version it must be the new version"): staf.html
+ * sends everyone to kasir.html. staffHome() still picks a landing page for other callers:
  *   kasir tablet account  -> kasir.html (the till)
  *   staff, manager        -> absen.html (their own phone: absen, izin, profil)
  *   owner                 -> kasir.html (the owner opened the cashier page; Dasbor is pemilik.html)
  * Signed out, staf.html goes to kasir.html, which has its own sign-in. */
-export const RETIRE_STAF_PAGE = false;
+export const RETIRE_STAF_PAGE = true; // on since 13 Nov 2026 (Glenn): the new till is live
 export function staffHome(who) {
   if (!who || who.kasir_tablet || who.role === 'owner') return 'kasir.html';
   if (who.role === 'staff' || who.role === 'manager') return 'absen.html';

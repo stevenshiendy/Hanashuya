@@ -1,4 +1,4 @@
-import { sb, configured, $, $$, esc, rpc, busy, notice, toast, rupiah, time, day, mountLogin, setupMissing, session, signOut, tabs, prettyPhone, toPhone, signupUrl, qrSvg, maxBirth17, RETIRE_STAF_PAGE, staffHome } from './lib.js';
+import { sb, configured, $, $$, esc, rpc, busy, notice, toast, rupiah, time, day, mountLogin, setupMissing, session, signOut, tabs, prettyPhone, toPhone, signupUrl, qrSvg, maxBirth17, RETIRE_STAF_PAGE } from './lib.js';
 
 import { mountApprovals, loadApprovals } from './approvals.js';
 import { staffStock } from './stock.js';
@@ -31,7 +31,7 @@ async function boot() {
   $('#logout').hidden = false;
   let who;
   try { who = await rpc('whoami'); } catch (e) { app.innerHTML = `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`; return; }
-  if (RETIRE_STAF_PAGE && who && ['staff', 'manager', 'owner'].includes(who.role)) return location.replace(staffHome(who));
+  if (RETIRE_STAF_PAGE && who && ['staff', 'manager', 'owner'].includes(who.role)) return location.replace('kasir.html');
   if (!who || !['staff', 'manager', 'owner'].includes(who.role)) {
     app.innerHTML = `<section class="panel stack"><h1>Belum terdaftar sebagai kasir</h1>
       <p>Nomor <strong class="num">${esc(prettyPhone(who?.whatsapp) || 'ini')}</strong> bukan akun kasir. Akun kasir dibuat pemilik di dasbor pemilik, bagian Staf.</p>
