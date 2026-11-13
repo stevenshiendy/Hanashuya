@@ -10,7 +10,7 @@
 // version) left the till stuck on its loading screen offline. When supabase-js is upgraded in
 // js/lib.js, list its imports again (open its +esm file and copy every "/npm/..." it names)
 // and bump CACHE.
-const CACHE = 'hs-kasir-v6';
+const CACHE = 'hs-kasir-v8';
 const CDN = 'https://cdn.jsdelivr.net';
 const SB = `${CDN}/npm/@supabase`;
 const VENDOR = [

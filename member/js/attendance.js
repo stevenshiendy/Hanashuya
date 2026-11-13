@@ -4,7 +4,8 @@
 //   stopKasirAbsen()        stops the QR refresh when the tab is left.
 //   mountOwnerAbsensi(panel, { part }) owner page, Tim: one part per menu item (Absen
 //                           harian, Per staf, Izin dan cuti, Lembur, Jadwal, Rekap, Profil staf).
-//   absen.html              boots the staff phone page (data-page="absen") by itself.
+//   /staf (staf/index.html) boots the staff phone page (data-page="absen") by itself, with its
+//                           own sign-in. member/absen.html only forwards there (Glenn, 13 Nov 2026).
 import { configured, $, $$, esc, rpc, busy, notice, toast, time, mountLogin, setupMissing, session, signOut, tabs, prettyPhone, qrSvg } from './lib.js';
 import { parseScheduleRows, WEEKDAYS } from './schedule.js';
 import { formDialog, confirmDialog } from './data-table.js';
@@ -164,7 +165,7 @@ export async function mountKasirAbsen(panel) {
     try {
       if (who && !device) { await loadDuty(); qrTimer = setTimeout(tick, 30000); return; }
       const t = await rpc('att_qr_token');
-      $('#ab-qr', panel).innerHTML = qrSvg(location.origin + '/member/absen.html#t=' + t.token);
+      $('#ab-qr', panel).innerHTML = qrSvg(location.origin + '/staf/#t=' + t.token);
       $('#ab-lead', panel).textContent = `Scan QR ini dengan HP Anda sendiri, masuk dengan akun staf Anda. QR berganti setiap ${t.seconds} detik.`;
       notice($('#ab-msg', panel), '');
       wait = Math.max(1, t.expires_in) + 0.3;
@@ -944,7 +945,7 @@ function deviceId() {
       : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''));
   }
   try { localStorage.setItem(DEV_KEY, id); } catch { /* storage blocked */ }
-  try { document.cookie = `${DEV_COOKIE}=${id}; max-age=${400 * 86400}; path=/member/; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`; } catch { /* cookies blocked */ }
+  try { document.cookie = `${DEV_COOKIE}=${id}; max-age=${400 * 86400}; path=/; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`; } catch { /* cookies blocked */ }
   return id;
 }
 // A short name for the phone, shown to the owner next to "Reset HP absen".
@@ -962,30 +963,98 @@ async function geoGranted() {
 async function bootPhone() {
   const app = $('#app');
   if (!configured) return setupMissing(app);
-  const hash = location.hash.match(/^#t=(HSA1\.[0-9]+\.[0-9a-f]+)$/i);
+  const hash = location.hash.match(/^#t=(HS[AB]1\.[0-9]+\.[0-9a-f]+)$/i);
   if (hash) { token = hash[1]; history.replaceState(null, '', location.pathname); }
-  if (!(await session())) return mountLogin(app, { staff: true, title: 'Absen staf', lead: 'Masuk dengan akun staf Anda sendiri, bukan akun tablet kasir.', onDone: phone });
+  if (!(await session())) return gate(app);
   phone();
+}
+
+// Staff sign-in (Glenn, 13 Nov 2026): its own page at /staf, apart from the member card's.
+function gate(app) {
+  document.body.classList.add('is-gate');
+  app.innerHTML = `<div class="sg">
+    <section class="sg-stage" aria-label="Halaman staf Hanashuya">
+      <img class="sg-logo" src="/member/img/logotype-cream.webp" width="600" height="96" alt="Hanashuya">
+      <div class="sg-copy">
+        <p class="sg-title">Ruang staf</p>
+        <p class="sg-lead">Absen, jadwal shift, izin dan profil kerja, dari HP Anda sendiri.</p>
+      </div>
+      <ul class="sg-list">
+        <li><b>Absen</b><span>Scan QR di tablet kasir untuk masuk, istirahat dan pulang.</span></li>
+        <li><b>Jadwal</b><span>Shift minggu ini dan dua minggu ke depan.</span></li>
+        <li><b>Izin</b><span>Ajukan paling lambat 7 hari sebelumnya.</span></li>
+      </ul>
+    </section>
+    <div class="sg-form" id="sg-form"></div>
+  </div>`;
+  mountLogin($('#sg-form'), {
+    staff: true, level: 1, title: 'Masuk',
+    lead: 'Pakai username dan password akun staf Anda, bukan akun tablet kasir.',
+    onDone: () => { document.body.classList.remove('is-gate'); phone(); },
+  });
+}
+
+// First sign-in with the starting password: the staff member chooses their own (set_first_password).
+function firstPassword(who) {
+  const app = $('#app');
+  const first = String(who.full_name || '').trim().split(/\s+/)[0];
+  app.innerHTML = `<form class="panel stack-lg" id="fp" novalidate aria-labelledby="fp-t">
+    <div class="stack-sm">
+      <h1 id="fp-t">Buat password Anda</h1>
+      <p class="muted">${first ? `Halo ${esc(first)}, ini` : 'Ini'} pertama kali Anda masuk. Ganti password awal dengan password Anda sendiri sebelum lanjut.</p>
+    </div>
+    <div class="field"><span>Username</span><p>${esc(who.username || prettyPhone(who.whatsapp))}</p>
+      <span class="hint">Masuk berikutnya pakai username ini atau nomor WhatsApp Anda, dengan password baru.</span></div>
+    <label class="field"><span>Password baru</span>
+      <span class="pw"><input type="password" id="fp-pw" autocomplete="new-password" minlength="8" required>
+      <button class="btn btn-text pw-toggle" type="button" id="fp-show" aria-label="Tampilkan password">Lihat</button></span>
+      <span class="hint">Minimal 8 karakter, jangan 123456.</span></label>
+    <label class="field"><span>Ulangi password baru</span>
+      <input type="password" id="fp-pw2" autocomplete="new-password" minlength="8" required></label>
+    <div class="notice" id="fp-msg" hidden></div>
+    <div class="row"><button class="btn" type="submit">Simpan password</button></div>
+  </form>`;
+  const pw = $('#fp-pw'), pw2 = $('#fp-pw2');
+  $('#fp-show').addEventListener('click', (e) => {
+    const shown = pw.type === 'text';
+    pw.type = pw2.type = shown ? 'password' : 'text';
+    e.currentTarget.textContent = shown ? 'Lihat' : 'Tutup';
+    e.currentTarget.setAttribute('aria-label', shown ? 'Tampilkan password' : 'Sembunyikan password');
+  });
+  $('#fp').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = $('#fp-msg'), btn = $('button[type="submit"]', e.currentTarget);
+    if (pw.value.length < 8) { notice(msg, 'Password minimal 8 karakter.'); pw.focus(); return; }
+    if (pw.value !== pw2.value) { notice(msg, 'Kedua password belum sama.'); pw2.focus(); return; }
+    notice(msg, '');
+    busy(btn, true, 'Menyimpan…');
+    try { await rpc('set_first_password', { p_password: pw.value }); toast('Password baru tersimpan'); phone(); }
+    catch (err) { notice(msg, err.message); busy(btn, false); }
+  });
+  pw.focus();
 }
 
 async function phone() {
   const app = $('#app');
+  document.body.classList.remove('is-gate');
   $('#logout').hidden = false;
   let who;
   try { who = await rpc('whoami'); } catch (e) { return errBox(app, e); }
   // The kasir tablet account shows the QR; it never scans one (Glenn, 13 Nov 2026).
   if (who?.kasir_tablet) {
     app.innerHTML = `<section class="panel stack"><h1>Ini akun kasir tablet</h1><p>Akun kasir tablet hanya untuk tablet kasir: menampilkan QR absen dan mencatat penjualan. Untuk absen, keluar lalu masuk dengan akun staf Anda sendiri di HP Anda.</p>
-      <div class="row"><a class="btn" href="kasir.html">Buka kasir</a><button class="btn btn-quiet" type="button" id="out">Keluar</button></div></section>`;
+      <div class="row"><a class="btn" href="/member/kasir.html">Buka kasir</a><button class="btn btn-quiet" type="button" id="out">Keluar</button></div></section>`;
     $('#out').addEventListener('click', signOut);
     return;
   }
   if (!who || !['staff', 'manager'].includes(who.role)) {
-    app.innerHTML = `<section class="panel stack"><h1>Khusus akun staf</h1><p>Halaman absen dipakai staf dengan akunnya sendiri. Akun ${esc(prettyPhone(who?.whatsapp) || 'ini')} bukan akun staf.</p>
-      <button class="btn btn-quiet" type="button" id="out">Keluar</button></section>`;
+    app.innerHTML = `<section class="panel stack"><h1>Khusus akun staf</h1><p>Halaman ini dipakai staf dengan akunnya sendiri. Akun ${esc(prettyPhone(who?.whatsapp) || 'ini')} bukan akun staf.</p>
+      <div class="row"><a class="btn" href="/member/">Buka kartu member</a><button class="btn btn-quiet" type="button" id="out">Keluar</button></div></section>`;
     $('#out').addEventListener('click', signOut);
     return;
   }
+  if (who.must_set_password) return firstPassword(who);
+  if ($('#to-card')) $('#to-card').hidden = false;
   app.innerHTML = `
   <div class="stack-lg">
     <div class="tabs" role="tablist" aria-label="Absen">
@@ -1157,7 +1226,7 @@ async function startCamera() {
       ctx.drawImage(v, 0, 0, w, h);
       const hit = window.jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
       if (hit && hit.data) {
-        const m = hit.data.match(/HSA1\.[0-9]+\.[0-9a-f]+/i);
+        const m = hit.data.match(/HS[AB]1\.[0-9]+\.[0-9a-f]+/i);
         stopCamera();
         if (navigator.vibrate) navigator.vibrate(60);
         if (!m) { notice($('#ab-note'), 'Ini bukan QR absen. Scan QR di tab Absen pada tablet kasir.'); $('#ab-scan').hidden = false; return; }
@@ -1208,6 +1277,8 @@ async function meTab() {
       : 'Isi sekali dengan teliti. Setelah disimpan, perubahan harus lewat Minta perubahan dan disetujui pemilik atau manajer.'}</p>
     <label class="field"><span>Nama lengkap${req}</span><input type="text" id="me-name" value="${esc(m.full_name)}" autocomplete="name" required${ro}></label>
     <div class="field"><span>Nomor WhatsApp</span><p class="num">${esc(prettyPhone(m.whatsapp))}</p><span class="hint">Nomor ini dipakai untuk masuk. Kalau berganti, minta pemilik mengubahnya.</span></div>
+    ${m.username ? `<div class="field"><span>Username</span><p>${esc(m.username)}</p><span class="hint">Huruf besar atau kecil sama saja saat masuk.</span></div>` : ''}
+    ${m.employer ? `<div class="field"><span>Bekerja untuk</span><p>${esc(m.employer)}</p></div>` : ''}
     <h3 class="h-small">Rekening untuk gaji</h3>
     <label class="field"><span>Nama bank${req}</span><input type="text" id="me-bank" value="${esc(m.bank_name)}" placeholder="Contoh: BCA" maxlength="40" required${ro}></label>
     <label class="field"><span>Nomor rekening${req}</span><input type="text" id="me-acct" value="${esc(m.bank_account)}" inputmode="numeric" autocomplete="off" maxlength="24" required${ro}></label>
@@ -1219,7 +1290,12 @@ async function meTab() {
       ${lock ? `<button class="btn btn-quiet" type="button" id="me-ask"${waiting ? ' disabled' : ''}>Minta perubahan</button>` : ''}
     </div>
     ${waiting ? '<p class="muted small">Minta perubahan bisa lagi setelah permintaan yang menunggu diputuskan atau dibatalkan.</p>' : ''}
-  </form>`;
+  </form>
+  <section class="panel stack" aria-labelledby="me-card-t">
+    <h2 id="me-card-t">Kartu member saya</h2>
+    <p class="muted small">Akun staf ini juga kartu member Hanashuya Anda, dengan nama dan nomor yang sama. Kalau belanja di booth, minta rekan yang bertugas memindai kartunya. Kartu sendiri tidak bisa dipakai saat Anda yang melayani.</p>
+    <div><a class="btn btn-quiet" href="/member/">Buka kartu member</a></div>
+  </section>`;
   $('#me-form', p).addEventListener('submit', async (e) => {
     e.preventDefault();
     if (lock || p.dataset.asking) return; // a fast double tap must not open two check dialogs

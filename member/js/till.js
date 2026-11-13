@@ -413,12 +413,21 @@ function targetHtml(t) {
     <span class="hm-s num">${f(t.current)} dari ${f(t.value)}${unit}${money_ ? '<br>' : ' · '}${t.remaining > 0 ? `${f(t.remaining)} lagi` : 'Target tercapai'}</span></div>`;
 }
 // Stok minimum warning (Glenn, 12 Nov 2026): items at or under the minimum a manager or the owner set.
+// One calm line (Glenn, 13 Nov 2026: the list was "too hectic"); Lihat opens the list in a sheet.
 function lowHtml() {
   if (!S.low?.length) return '';
-  const q = (n) => Number(n).toLocaleString('id-ID', { maximumFractionDigits: 2 });
-  return `<div class="notice notice-warn hm-low" role="status"><span><b>Stok menipis</b>: ${S.low.map((x) =>
-    `${esc(x.name)} ${q(x.qty)} ${esc(x.unit)} (minimum ${q(x.low_level)})`).join(', ')}.</span>
-    <button class="btn btn-quiet" type="button" data-act="low-request">Buat permintaan barang</button></div>`;
+  return `<button class="hm-lowbar" type="button" data-act="low-open"><span><b>Stok menipis</b> · <span class="num">${S.low.length}</span> barang</span><span class="hm-lowgo">Lihat <span aria-hidden="true">›</span></span></button>`;
+}
+const qtyText = (n, unit) => (Number(n) <= 0 ? 'Habis' : `${Number(n).toLocaleString('id-ID', { maximumFractionDigits: 2 })} ${unit || ''}`.trim());
+function openLow() {
+  const rows = (S.low || []).slice().sort((a, b) => a.qty - b.qty);
+  sheet({
+    title: `Stok menipis · ${rows.length} barang`,
+    body: `<div class="table-wrap"><table class="tl-lowt"><thead><tr><th>Barang</th><th class="num">Stok</th><th class="num">Minimum</th></tr></thead><tbody>
+      ${rows.map((x) => `<tr><td>${esc(x.name)}</td><td class="num${Number(x.qty) <= 0 ? ' is-out' : ''}">${esc(qtyText(x.qty, x.unit))}</td><td class="num">${esc(qtyText(x.low_level, x.unit))}</td></tr>`).join('')}
+    </tbody></table></div>`,
+    actions: '<button class="btn tl-btn" type="button" data-act="low-request">Buat permintaan barang</button>',
+  });
 }
 function homeLeft(h) {
   if (!h) return '<div class="hm-dash" aria-busy="true"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
@@ -427,11 +436,13 @@ function homeLeft(h) {
     ${lowHtml()}
     <div class="hm-tiles">
       <div class="hm-kpi"><span class="hm-l">Omzet hari ini</span><span class="hm-v num">${rupiah(h.revenue)}</span>
-        <span class="hm-s num">${h.orders} pesanan<br>QRIS ${rupiah(h.by_method.qris)}<br>Tunai ${rupiah(h.by_method.tunai)}</span></div>
+        <span class="hm-s num">${h.orders} pesanan · rata-rata ${short(h.average)}<br>QRIS ${short(h.by_method.qris)} · Tunai ${short(h.by_method.tunai)}</span></div>
       <div class="hm-kpi"><span class="hm-l">Produk terjual</span><span class="hm-v num">${h.products_sold}</span>
         <span class="hm-s num">${esc(h.by_category.map((c) => `${c.name} ${c.qty}`).join(' · ') || 'Belum ada')}</span></div>
-      <div class="hm-kpi"><span class="hm-l">Rata-rata per pesanan</span><span class="hm-v num">${rupiah(h.average)}</span>
-        <span class="hm-s num">Dibatalkan ${h.cancelled}</span></div>
+      <div class="hm-kpi"><span class="hm-l">Pesanan dibatalkan</span><span class="hm-v num">${h.cancelled_count ?? h.cancelled ?? 0}</span>
+        <span class="hm-s num">${(h.cancelled_count ?? h.cancelled) ? `${rupiah(h.cancelled_amount || 0)} batal dan refund` : 'Tidak ada'}</span></div>
+      <button class="hm-kpi is-tap${(h.pending_count ?? h.waiting) ? ' is-due' : ''}" type="button" data-act="home-pending"><span class="hm-l">Tagihan gantung</span><span class="hm-v num">${h.pending_count ?? h.waiting ?? 0}</span>
+        <span class="hm-s num">${(h.pending_count ?? h.waiting) ? `${rupiah(h.pending_amount || 0)} belum dibayar` : 'Semua sudah dibayar'}</span></button>
       ${targetHtml(h.target)}
     </div>
     ${chartHtml(h)}
@@ -450,11 +461,11 @@ function homeRight(h) {
   return `<aside class="hm-tools" aria-label="Menu kasir">
     <button class="hm-sell" type="button" data-act="sell" ${open ? '' : 'disabled'}>Mode penjualan<small>${S.items.length ? 'Lanjutkan pesanan' : 'Mulai pesanan baru'}</small></button>
     <span class="hm-sec">Kasir</span>
-    ${tool('home-cash', 'Kas masuk / keluar', 'Catat uang masuk atau keluar', !open)}
-    ${tool('stock', 'Stok', 'Barang masuk, keluar, stok opname')}
-    ${tool('home-today', 'Detail pesanan', h ? (h.waiting ? `${h.waiting} menunggu bayar` : `${h.orders} pesanan dibayar`) : 'Pesanan hari ini')}
-    ${tool('home-rsv', 'Pesanan di muka', 'Ambil pesanan, bayar penuh', !open)}
-    ${tool('home-close', 'Tutup shift / rekap', 'Hitung laci & cetak rekap', !open)}
+    ${tool('home-cash', 'Kas masuk / keluar', 'Uang masuk atau keluar', !open)}
+    ${tool('stock', 'Stok', 'Masuk, keluar, opname')}
+    ${tool('home-today', 'Pesanan hari ini', h ? `${h.orders} dibayar` : 'Semua pesanan')}
+    ${tool('home-rsv', 'Pesanan di muka', 'Ambil, bayar penuh', !open)}
+    ${tool('home-close', 'Tutup shift', 'Hitung laci, cetak rekap', !open)}
     <span class="hm-sec">Absen staf</span>
     <div class="hm-pair">${tool('qr-absen', 'QR absen', 'Masuk, pulang')}
     ${tool('qr-istirahat', 'QR istirahat', 'Mulai, selesai')}</div>
@@ -508,7 +519,7 @@ function renderApprove() {
 
 /* Stok: the till's stock chooser and forms from stock.js. */
 /* QR absen and QR istirahat (Glenn, 12 Nov 2026): the till shows one QR at a time, full size;
- * staff scan it with their own phone on absen.html. The absen QR does Masuk and Pulang, the
+ * staff scan it with their own phone on /staf (staf/index.html). The absen QR does Masuk and Pulang, the
  * istirahat QR starts and ends a break (1 hour, late after 5 minutes over). Both rotate
  * (att_qr_token(kind)); a photo sent home stops working. */
 let qrTimer = null, qrRun = 0;
@@ -546,7 +557,7 @@ async function renderQr() {
       <div><button class="tl-link" type="button" data-act="back">← Dashboard</button></div>
       <h1 id="tl-qr-t" class="tl-title">${brk ? 'QR istirahat' : 'QR absen'}</h1>
       <p class="notice" role="status">QR absen dan QR istirahat hanya tampil di akun kasir tablet. Tablet ini sedang masuk dengan akun ${esc((S.me.full_name || 'staf').split(' ')[0])}. Keluar, lalu masuk dengan akun kasir tablet dari pemilik.</p>
-      <p class="small muted">Akun staf pribadi dipakai untuk scan dari HP masing-masing (${esc(location.host)}/member/absen.html).</p>
+      <p class="small muted">Akun staf pribadi dipakai untuk scan dari HP masing-masing (${esc(location.host)}/staf).</p>
     </section>`;
     return;
   }
@@ -561,7 +572,7 @@ async function renderQr() {
     <div class="tl-qrbig" id="tl-qr" role="img" aria-label="${brk ? 'QR istirahat' : 'QR absen'}"></div>
     <p class="muted small num" id="tl-qr-count" aria-live="off"></p>
     <div class="notice" id="tl-qr-msg" hidden></div>
-    <p class="small muted">Buka halaman absen di HP masing-masing (${esc(location.host)}/member/absen.html), masuk dengan akun staf, lalu scan.</p>
+    <p class="small muted">Buka halaman absen di HP masing-masing (${esc(location.host)}/staf), masuk dengan akun staf, lalu scan.</p>
   </section>`;
   const run = qrRun;
   const tick = async () => {
@@ -570,7 +581,7 @@ async function renderQr() {
     try {
       const t = await rpc('att_qr_token', { p_kind: brk ? 'istirahat' : 'absen' });
       if (run !== qrRun || S.screen !== 'qr') return;
-      $('#tl-qr').innerHTML = qrSvg(`${location.origin}/member/absen.html#t=${t.token}`);
+      $('#tl-qr').innerHTML = qrSvg(`${location.origin}/staf/#t=${t.token}`);
       $('#tl-qr-count').textContent = `QR berganti setiap ${t.seconds} detik`;
       notice($('#tl-qr-msg'), '');
       wait = Math.max(1, t.expires_in) + 0.3;
@@ -750,13 +761,17 @@ function stampDots(pos, size) {
   return `<span class="tl-dots" role="img" aria-label="${pos} dari ${size} stempel">${h}</span>`;
 }
 
-function memberHtml() {
+// Promos in the order panel (Glenn, 13 Nov 2026: the panel must fit the tablet with no scrolling):
+// at most two one-line rows, the active one first; the rest, and the less common actions
+// (voucher kertas, Mulai BOGO, Diskon 50% atas instruksi), sit behind "Promo lainnya".
+const curPromoKey = () => (S.promo ? (S.promo.kind === 'stempel' ? `stempel:${S.promo.cycle}:${S.promo.slot}` : `${S.promo.kind}:${S.promo.period ?? 0}`) : null);
+function promoList() {
   const m = S.member;
   if (!m) {
-    return `<div class="tl-nomem"><span><b>Tanpa kartu member</b><span class="muted small">Scan kartu untuk stempel dan hadiah.</span></span>
-      <button class="tl-use" type="button" data-act="find">Scan / cari member</button></div>${bogoHtml()}`;
+    const rows = [...(bogoOn() ? [{ key: 'bogo:0', label: 'BOGO Deals', sub: 'Beli 1 gratis 1, sisa stok hari ini.' }] : []), ...halfRows(), ...ownerPromos(false)];
+    return { rows, extras: (bogoOn() ? '' : bogoStartHtml()) + halfAskHtml() };
   }
-  const promos = [
+  const rows = [
     ...(m.vouchers || []).map((v) => ({ key: `${v.kind}:${v.period}`, promo: { kind: v.kind, period: v.period }, label: v.label,
       sub: `${v.title}, sampai ${shortDay(v.ends_on)}${v.kind === 'kode' ? '. Terima voucher kertasnya' : ''}` })),
     ...(m.rewards || []).map((r) => ({ key: `stempel:${r.cycle}:${r.slot}`, promo: { kind: 'stempel', cycle: r.cycle, slot: r.slot }, label: r.label,
@@ -768,19 +783,38 @@ function memberHtml() {
     ...halfRows(),
     ...ownerPromos(true),
   ];
-  const cur = S.promo ? (S.promo.kind === 'stempel' ? `stempel:${S.promo.cycle}:${S.promo.slot}` : `${S.promo.kind}:${S.promo.period ?? 0}`) : null;
+  return { rows, extras: '<button class="tl-mini" type="button" data-act="voucher">Ada voucher kertas?</button>' + (bogoOn() ? '' : bogoStartHtml()) + halfAskHtml() };
+}
+const promoCompact = (x, cur) => `<div class="tl-prm${cur === x.key ? ' is-on' : ''}"><span class="tl-prm-t"><b>${esc(x.label)}</b><small title="${esc(x.sub)}">${esc(x.sub)}</small></span>
+  ${cur === x.key ? '<button class="tl-use" type="button" data-act="promo-off">Batal</button>'
+    : `<button class="tl-use" type="button" data-act="promo" data-key="${esc(x.key)}" ${cur ? 'disabled' : ''}>Pakai</button>`}</div>`;
+function promoStrip() {
+  const { rows, extras } = promoList(), cur = curPromoKey();
+  // With the order note open, one row is shown so the panel still fits a 700 px tall tablet.
+  const shown = [...rows.filter((x) => x.key === cur), ...rows.filter((x) => x.key !== cur)].slice(0, S.noteOpen || S.note ? 1 : 2);
+  const more = rows.length - shown.length;
+  return (shown.length ? `<div class="tl-promos">${shown.map((x) => promoCompact(x, cur)).join('')}</div>` : '')
+    + (more || extras ? `<button class="tl-mini" type="button" data-act="promo-more">${more ? `${more} promo lainnya` : 'Voucher dan promo lainnya'}</button>` : '');
+}
+function openPromos() {
+  const { rows, extras } = promoList(), cur = curPromoKey();
+  sheet({ title: 'Promo dan voucher', body: `${rows.length ? `<div class="tl-promos">${rows.map((x) => promoRow(x, cur)).join('')}</div>` : '<p class="muted">Tidak ada promo yang berlaku sekarang.</p>'}
+    ${extras ? `<div class="tl-sheet-x">${extras}</div>` : ''}` });
+}
+function memberHtml() {
+  const m = S.member;
+  if (!m) {
+    return `<div class="tl-nomem"><span class="tl-nomem-t"><b>Tanpa kartu member</b></span>
+      <button class="tl-use" type="button" data-act="find">Cari member</button></div>${promoStrip()}`;
+  }
   return `<div class="tl-member">
       <div class="tl-row"><span class="tl-mname">${esc(m.full_name || m.first_name)}</span><button class="tl-mlink" type="button" data-act="member-clear">Ganti</button></div>
-      <div class="tl-row">${stampDots(Math.min(m.position, m.card_size), m.card_size)}<span class="tl-mlink num">${m.position} dari ${m.card_size} stempel</span></div>
+      <div class="tl-row">${stampDots(Math.min(m.position, m.card_size), m.card_size)}<span class="tl-mlink num" aria-label="${m.position} dari ${m.card_size} stempel">${m.position}/${m.card_size} stempel</span></div>
     </div>
-    ${m.via === 'nomor' ? '<p class="notice notice-warn">Dicari lewat nomor WhatsApp. Tanya dulu "Atas nama siapa Kak?" lalu cocokkan namanya.</p>' : ''}
-    ${m.via === 'daftar' ? `<div class="notice notice-ok tl-new">Kartu baru aktif. Password awal <b class="num start-code">${esc(m.start_code)}</b>
+    ${m.via === 'nomor' ? '<p class="notice notice-warn tl-mnote">Cek nama: "Atas nama siapa Kak?"</p>' : ''}
+    ${m.via === 'daftar' ? `<div class="notice notice-ok tl-new tl-mnote">Kartu baru aktif. Password awal <b class="num start-code">${esc(m.start_code)}</b>
       <a class="btn btn-text" href="${esc(cardWaLink(m))}" target="_blank" rel="noopener">Kirim link kartu ke WhatsApp</a></div>` : ''}
-    ${promos.length ? `<div class="tl-promos">${promos.map((x) => `
-      <div class="tl-vch${cur === x.key ? ' is-on' : ''}"><span><b>${esc(x.label)}</b>${esc(x.sub)}</span>
-        ${cur === x.key ? `<button class="tl-use" type="button" data-act="promo-off">Batal pakai</button>`
-          : `<button class="tl-use" type="button" data-act="promo" data-key="${esc(x.key)}" ${cur ? 'disabled' : ''}>${esc(x.btn || 'Pakai')}</button>`}</div>`).join('')}</div>` : ''}
-    <button class="tl-mini" type="button" data-act="voucher">Ada voucher kertas?</button>${bogoOn() ? '' : bogoStartHtml()}${halfAskHtml()}`;
+    ${promoStrip()}`;
 }
 
 // SOP Bab 6 C: BOGO Deals from 19.00 (settings), or earlier once a manager starts it.
@@ -845,11 +879,6 @@ function ownerPromos(withMember) {
 const promoRow = (x, cur) => `<div class="tl-vch${cur === x.key ? ' is-on' : ''}"><span><b>${esc(x.label)}</b>${esc(x.sub)}</span>
   ${cur === x.key ? '<button class="tl-use" type="button" data-act="promo-off">Batal pakai</button>'
     : `<button class="tl-use" type="button" data-act="promo" data-key="${esc(x.key)}" ${cur ? 'disabled' : ''}>Pakai</button>`}</div>`;
-function bogoHtml() {
-  const cur = S.promo ? `${S.promo.kind}:${S.promo.period ?? 0}` : null;
-  const rows = [...(bogoOn() ? [{ key: 'bogo:0', label: 'BOGO Deals', sub: 'Beli 1 gratis 1, sisa stok hari ini.' }] : []), ...halfRows(), ...ownerPromos(false)];
-  return (rows.length ? `<div class="tl-promos">${rows.map((x) => promoRow(x, cur)).join('')}</div>` : '') + (bogoOn() ? '' : bogoStartHtml()) + halfAskHtml();
-}
 
 // SOP Bab 5, teknik stamp: when the total is at most Rp20.000 short of the next Rp50.000,
 // one more Signature earns one more stamp. Only a hint; staff offer it once.
@@ -944,12 +973,13 @@ function renderRight() {
     : !S.online && S.items.length ? 'Tidak ada internet. Penjualan tanpa kartu tetap bisa. Struknya memakai nomor L dan terkirim saat internet kembali.'
     : '';
   const blocked = liveOnly || !S.served || !S.items.length || S.quoting || !q || S.confirming;
-  // The panel is one scroll area (12 Nov 2026): keep its place on re-render, and bring a newly added line into view.
-  const keep = el.scrollTop, added = S.items.length > (el._lines || 0);
+  // The panel fits the screen (13 Nov 2026); only the order lines scroll. Keep their place on re-render
+  // and bring a newly added line into view.
+  const keep = $('.tl-lines', el)?.scrollTop || 0, added = S.items.length > (el._lines || 0);
   const typing = document.activeElement?.id === 'tl-note-in';
   el._lines = S.items.length;
   el.innerHTML = `
-    <div class="tl-served"><span class="tl-h">Dilayani oleh</span><span class="tl-who">${S.cat.staff.map((x) =>
+    <div class="tl-served"><span class="tl-h">Dilayani</span><span class="tl-who" role="group" aria-label="Dilayani oleh">${S.cat.staff.map((x) =>
       `<button type="button" class="tl-chip is-sm${S.served === x.id ? ' is-on' : ''}" aria-pressed="${S.served === x.id}" data-act="served" data-v="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</span></div>
     <div class="tl-mem">${memberHtml()}</div>
     <div class="tl-lines">${linesHtml()}</div>
@@ -964,8 +994,8 @@ function renderRight() {
       <button class="btn tl-btn" type="button" data-act="confirm" ${blocked ? 'disabled' : ''}${S.confirming ? ' aria-busy="true"' : ''}>${S.confirming ? 'Mengonfirmasi…' : 'Konfirmasi pesanan'}</button>
       <p class="notice" id="tl-confirm-msg" hidden></p>
     </div>`;
-  el.scrollTop = keep;
-  if (added) $('.tl-lines > .tl-line:last-child', el)?.scrollIntoView({ block: 'nearest' });
+  const ln = $('.tl-lines', el); if (ln) ln.scrollTop = keep;
+  if (added && ln) ln.scrollTop = ln.scrollHeight;
   if (typing) { const t = $('#tl-note-in'); if (t) { t.focus({ preventScroll: true }); t.setSelectionRange(t.value.length, t.value.length); } }
 }
 // Catatan pesanan (Glenn, 13 Nov 2026): optional, typed before Konfirmasi, printed on the receipt.
@@ -973,7 +1003,7 @@ function renderRight() {
 function noteHtml() {
   if (!S.noteOpen && !S.note) return '<button class="tl-mini tl-note-add" type="button" data-act="note-open">Tambah catatan pesanan</button>';
   return `<label class="field tl-note"><span>Catatan pesanan <span class="hint" id="tl-note-left">${NOTE_MAX - S.note.length} huruf lagi</span></span>
-    <textarea id="tl-note-in" rows="2" maxlength="${NOTE_MAX}" placeholder="Contoh: tulis Selamat ulang tahun di kotak">${esc(S.note)}</textarea></label>`;
+    <textarea id="tl-note-in" rows="1" maxlength="${NOTE_MAX}" placeholder="Contoh: tulis Selamat ulang tahun di kotak">${esc(S.note)}</textarea></label>`;
 }
 
 /* ---------------------------------------------------------------- payment screens */
@@ -1422,6 +1452,21 @@ async function fromPhoto(e) {
 }
 
 /* ---------------------------------------------------------------- dialogs */
+// A read-only sheet with a Tutup button. Buttons inside with data-act run the till's usual
+// tap handler (onTap) and close the sheet first, so the same actions work from here.
+function sheet({ title, body, actions = '' }) {
+  let d = $('#tl-dlg');
+  if (!d) { d = document.createElement('dialog'); d.id = 'tl-dlg'; d.className = 'tl-dlg'; document.body.append(d); }
+  d.innerHTML = `<div class="stack tl-info"><h2>${esc(title)}</h2>${body}
+    <div class="tl-row2"><button class="btn btn-quiet tl-btn" type="button" data-close>Tutup</button>${actions}</div></div>`;
+  d.querySelector('[data-close]').addEventListener('click', () => d.close());
+  d.querySelector('.tl-info').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b || b.disabled) return;
+    d.close(); onTap(e);
+  });
+  d.showModal();
+}
 // A small modal form. run(form) does the work; an error stays in the dialog.
 function ask({ title, body, confirm, run }) {
   let d = $('#tl-dlg');
@@ -1852,7 +1897,7 @@ app.addEventListener('input', (e) => {
   S.note = e.target.value.slice(0, NOTE_MAX);
   const left = $('#tl-note-left'); if (left) left.textContent = `${NOTE_MAX - S.note.length} huruf lagi`;
 });
-app.addEventListener('click', async (e) => {
+async function onTap(e) {
   const b = e.target.closest('[data-act]');
   if (!b || b.disabled) return;
   const act = b.dataset.act;
@@ -1966,7 +2011,10 @@ app.addEventListener('click', async (e) => {
     case 'approve': if (canCancel()) goTo('approve'); return;
     case 'stock': S.stockMode = null; goTo('stock'); return;
     case 'qr-absen': case 'qr-istirahat': S.qrKind = act === 'qr-istirahat' ? 'istirahat' : 'absen'; if (S.screen === 'qr') renderQr(); else goTo('qr'); return;
-    case 'low-request': S.stockMode = 'permintaan'; goTo('stock'); return;
+    case 'low-request': $('#tl-dlg')?.close(); S.stockMode = 'permintaan'; goTo('stock'); return;
+    case 'low-open': openLow(); return;
+    case 'home-pending': goTo('today'); S.todayTab = 'menunggu'; return;
+    case 'promo-more': openPromos(); return;
     case 'back-home': S.screen = 'home'; S.back = 'home'; render(); return;
     case 'rekap-print': printRekap(S.rekap, b); return;
     case 'rekap-pdf': shareRekap(S.rekap, b); return;
@@ -1977,7 +2025,8 @@ app.addEventListener('click', async (e) => {
     case 'today-tab': S.todayTab = b.dataset.v; app.querySelectorAll('[data-act="today-tab"]').forEach((x) => { x.classList.toggle('is-on', x === b); x.setAttribute('aria-pressed', String(x === b)); }); drawToday(); return;
     default:
   }
-});
+}
+app.addEventListener('click', onTap);
 
 let rsvOpen = false;
 $('#tl-today').addEventListener('click', () => (S.screen === 'today' ? goBack() : goTo('today')));

@@ -11,7 +11,7 @@ const TZ = 'Asia/Jakarta';
 const ymdToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date());
 const STATUS = { menunggu: ['Menunggu bayar', 'tag-warn'], dibayar: ['Dibayar', 'tag-ok'], batal: ['Dibatalkan', 'tag-bad'], refund: ['Refund', 'tag-bad'] };
 const METHOD = { tunai: 'Tunai', qris: 'QRIS', campur: 'Tunai + QRIS', platform: 'Aplikasi', gratis: 'Gratis' };
-const FLAG = { kode_diketik: 'Kode kartu diketik', nomor_dicari: 'Kartu dicari lewat nomor', luar_jam: 'Di luar jam buka', tanpa_shift: 'Tanpa shift', terlambat: 'Dikirim terlambat',
+const FLAG = { kartu_staf: 'Kartu milik staf', kode_diketik: 'Kode kartu diketik', nomor_dicari: 'Kartu dicari lewat nomor', luar_jam: 'Di luar jam buka', tanpa_shift: 'Tanpa shift', terlambat: 'Dikirim terlambat',
   diskon_instruksi: 'Diskon 50% atas instruksi' };
 // Order detail (13 Nov 2026): Tunai with change, QRIS, or Bayar 2 cara with both parts; refunds by where the money went.
 const REFUND_TO = { tunai: 'tunai', transfer: 'transfer', qris: 'QRIS' };

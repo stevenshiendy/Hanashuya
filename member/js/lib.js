@@ -189,7 +189,7 @@ async function signInWith(login, password) {
   return error;
 }
 
-export function mountLogin(root, { title, lead, onDone, stage = false, staff = false, start = 'masuk' }) {
+export function mountLogin(root, { title, lead, onDone, stage = false, staff = false, start = 'masuk', level = 1 }) {
   const maxBirth = maxBirth17();
   const forms = `
     <div class="seg" role="tablist" aria-label="Masuk atau daftar" ${staff ? 'hidden' : ''}>
@@ -200,11 +200,10 @@ export function mountLogin(root, { title, lead, onDone, stage = false, staff = f
     <form id="login-form" class="stack" novalidate>
       <label class="field"><span>Username atau nomor WhatsApp</span>
         <input type="text" id="login" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
-      ${pw('password', 'Password', 'current-password', staff ? '' : '<span class="hint">Didaftarkan kasir di booth? Pakai password awal dari kasir.</span>')}
+      ${pw('password', 'Password', 'current-password', staff ? '<span class="hint">Pertama kali masuk? Pakai password awal dari pemilik, lalu buat password Anda sendiri.</span>' : '<span class="hint">Didaftarkan kasir di booth? Pakai password awal dari kasir.</span>')}
       <div class="notice" id="login-msg" hidden></div>
       <button class="btn btn-block" type="submit">Masuk</button>
       <button class="btn btn-text" type="button" id="to-forgot">Lupa password?</button>
-      ${staff ? '<p class="muted small">Akun staf dibuat oleh pemilik.</p>' : ''}
     </form>
 
     <form id="signup-form" class="stack" novalidate hidden>
@@ -260,7 +259,7 @@ export function mountLogin(root, { title, lead, onDone, stage = false, staff = f
     <div class="sheet-paper"><div>${forms}</div></div>
   </section>` : `
   <section class="panel stack-lg" aria-labelledby="login-title">
-    <div class="stack-sm"><h1 id="login-title">${esc(title)}</h1><p class="muted">${esc(lead)}</p></div>
+    <div class="stack-sm"><h${level} id="login-title">${esc(title)}</h${level}><p class="muted">${esc(lead)}</p></div>
     ${forms}
   </section>`;
 
@@ -340,7 +339,7 @@ export function mountLogin(root, { title, lead, onDone, stage = false, staff = f
   const fgLogin = $('#fg-login', root);
   const waLink = () => {
     const a = $('#fg-wa', root);
-    if (a) a.href = `https://wa.me/${HANASHUYA_WHATSAPP}?text=${encodeURIComponent(`Halo Hanashuya, saya lupa password kartu member. Username atau nomor: ${fgLogin.value.trim()}`)}`;
+    if (a) a.href = `https://wa.me/${HANASHUYA_WHATSAPP}?text=${encodeURIComponent(`Halo Hanashuya, saya lupa password ${staff ? 'akun staf' : 'kartu member'}. Username atau nomor: ${fgLogin.value.trim()}`)}`;
   };
   fgLogin.addEventListener('input', waLink); waLink();
   $('#fg-wa', root)?.addEventListener('click', (e) => {
@@ -410,12 +409,12 @@ export async function signOut() {
  * On since 13 Nov 2026 (Glenn: "if there is a web version it must be the new version"): staf.html
  * sends everyone to kasir.html. staffHome() still picks a landing page for other callers:
  *   kasir tablet account  -> kasir.html (the till)
- *   staff, manager        -> absen.html (their own phone: absen, izin, profil)
+ *   staff, manager        -> /staf/ (their own phone: absen, jadwal, izin, profil)
  *   owner                 -> kasir.html (the owner opened the cashier page; Dasbor is pemilik.html)
  * Signed out, staf.html goes to kasir.html, which has its own sign-in. */
 export const RETIRE_STAF_PAGE = true; // on since 13 Nov 2026 (Glenn): the new till is live
 export function staffHome(who) {
   if (!who || who.kasir_tablet || who.role === 'owner') return 'kasir.html';
-  if (who.role === 'staff' || who.role === 'manager') return 'absen.html';
+  if (who.role === 'staff' || who.role === 'manager') return '/staf/';
   return 'kasir.html';
 }

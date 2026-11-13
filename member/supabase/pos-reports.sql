@@ -270,7 +270,10 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------- statistics
-create or replace function public.owner_pos_stats(p_from date default null, p_to date default null) returns json
+-- p_grain (13 Nov 2026, the Ringkasan chart switch): 'jam' | 'hari' | 'minggu' | 'bulan'; null = by the range
+-- (one day by hour, up to 3 months by day, longer by month). 'jam' over several days sums each hour.
+drop function if exists public.owner_pos_stats(date, date);
+create or replace function public.owner_pos_stats(p_from date default null, p_to date default null, p_grain text default null) returns json
 language plpgsql stable security definer set search_path = public
 as $$
 declare
@@ -282,7 +285,9 @@ begin
   d2 := coalesce(p_to, d1);
   if d2 < d1 then raise exception 'Tanggal akhir tidak boleh sebelum tanggal awal.'; end if;
   if d2 - d1 > 800 then raise exception 'Rentang terlalu panjang. Pilih paling lama sekitar 2 tahun.'; end if;
-  grain := case when d1 = d2 then 'jam' when d2 - d1 > 92 then 'bulan' else 'hari' end;
+  if p_grain is not null and p_grain not in ('jam', 'hari', 'minggu', 'bulan') then raise exception 'Pilih Jam, Hari, Minggu atau Bulan.'; end if;
+  grain := coalesce(p_grain, case when d1 = d2 then 'jam' when d2 - d1 > 92 then 'bulan' else 'hari' end);
+  if grain = 'hari' and d2 - d1 > 400 then raise exception 'Tampilan per hari paling lama sekitar 1 tahun. Pilih Minggu atau Bulan.'; end if;
 
   -- Signed rows (see the rule at the top): sales on their sale day, batal and refund on their approval day.
   with o as (select *, extract(hour from public._local(x.at))::int as hr from public._rep_orders(d1, d2) x),
@@ -302,11 +307,17 @@ begin
     'receipts', t.receipts,
     'average', case when t.receipts > 0 then round(t.sales::numeric / t.receipts) else 0 end,
     'items', coalesce((select sum(l.qty) from l), 0),
+    'discount', coalesce((select sum(discount) filter (where ev = 'jual') from o), 0),
+    'gross_before_discount', coalesce((select sum(subtotal) filter (where ev = 'jual') from o), 0),
     'series', case grain
       when 'jam' then coalesce((
         select json_agg(json_build_object('label', lpad(h::text, 2, '0') || '.00', 'sales', coalesce(x.s, 0), 'receipts', coalesce(x.n, 0)) order by h)
         from generate_series(least(8, coalesce((select min(hr) from o), 8)), greatest(21, coalesce((select max(hr) from o), 21))) h
         left join (select hr, sum(total) as s, sum(receipts) as n from o group by 1) x on x.hr = h), '[]'::json)
+      when 'minggu' then coalesce((
+        select json_agg(json_build_object('label', to_char(g.w, 'DD/MM'), 'sales', coalesce(x.s, 0), 'receipts', coalesce(x.n, 0)) order by g.w)
+        from generate_series(date_trunc('week', d1::timestamp), date_trunc('week', d2::timestamp), interval '1 week') g(w)
+        left join (select date_trunc('week', day::timestamp) as ww, sum(total) as s, sum(receipts) as n from o group by 1) x on x.ww = g.w), '[]'::json)
       when 'hari' then coalesce((
         select json_agg(json_build_object('label', to_char(g.d, 'DD/MM'), 'sales', coalesce(x.s, 0), 'receipts', coalesce(x.n, 0)) order by g.d)
         from generate_series(d1, d2, interval '1 day') g(d)
@@ -530,11 +541,19 @@ begin
     union all
     select x.*, -1, x.reversed_at, public._local(x.reversed_at) from sales x where x.reversed_at >= since and x.reversed_at < until
   ),
+  -- Who gets the credit (13 Nov 2026): the till's "dilayani oleh", else whoever recorded it. Sales made on the
+  -- tablet's kasir account used to land on that account, so the staff showed 0.
+  slw as (
+    select sl.*, coalesce((select o.served_by from pos_orders o where o.sale_id = sl.id limit 1), sl.staff_id) as who,
+      sl.sg * coalesce((select sum(greatest(coalesce((e->>'qty')::int, 1), 1)) from jsonb_array_elements(coalesce(sl.items, '[]'::jsonb)) e), 0) as pcs
+    from sl
+  ),
   rd as (
     select r.*, 1 as sg, public._local(r.created_at)::date as ld from redemptions r where r.created_at >= since and r.created_at < until
     union all
     select r.*, -1, public._local(r.reversed_at)::date from redemptions r where r.reversed_at >= since and r.reversed_at < until
   ),
+  rdw as (select rd.*, coalesce((select o.served_by from pos_orders o where o.redemption_id = rd.id limit 1), rd.staff_id) as who from rd),
   item_rows as (
     select sl.member_id, sl.sg, e->>'name' as name, greatest(coalesce((e->>'qty')::int, 1), 1) * sl.sg as qty
     from sl cross join lateral jsonb_array_elements(coalesce(sl.items, '[]'::jsonb)) e
@@ -590,15 +609,17 @@ begin
       select age_range, sum(sg) as n from sl group by age_range having sum(sg) > 0) a), '[]'),
     'staff', coalesce((select json_agg(st order by st.sales desc) from (
       select p.full_name, case when is_owner then p.whatsapp end as whatsapp,
-        coalesce((select sum(sg) from sl where sl.staff_id = p.id), 0) as sales,
-        coalesce((select sum(sg * stamps) from sl where sl.staff_id = p.id), 0) as stamps,
-        coalesce((select sum(sg) from rd where rd.staff_id = p.id), 0) as redemptions,
-        (select count(*) from sl where sl.staff_id = p.id and sl.sg = 1 and sl.reversed_at is null and cardinality(sl.flags) > 0) as flagged
+        coalesce((select sum(sg) from slw where slw.who = p.id), 0) as sales,
+        coalesce((select sum(sg * total) from slw where slw.who = p.id), 0) as revenue,
+        coalesce((select sum(pcs) from slw where slw.who = p.id), 0) as items,
+        coalesce((select sum(sg * stamps) from slw where slw.who = p.id), 0) as stamps,
+        coalesce((select sum(sg) from rdw where rdw.who = p.id), 0) as redemptions,
+        (select count(*) from slw where slw.who = p.id and slw.sg = 1 and slw.reversed_at is null and cardinality(slw.flags) > 0) as flagged
       from profiles p where p.role in ('staff', 'manager', 'owner') and p.deleted_at is null) st), '[]'),
     'flags', coalesce((select json_agg(fl order by fl.created_at desc) from (
       select sl.id, sl.receipt_no, sl.total, sl.stamps, sl.created_at, sl.flags,
              public._first_name(m.full_name) as member, st.full_name as staff
-      from sl left join profiles m on m.id = sl.member_id left join profiles st on st.id = sl.staff_id
+      from slw sl left join profiles m on m.id = sl.member_id left join profiles st on st.id = sl.who
       where sl.sg = 1 and sl.reversed_at is null and cardinality(sl.flags) > 0 order by sl.created_at desc limit 50) fl), '[]'),
     -- Owner only from here: WhatsApp numbers of lapsed members, backups and the undo requests.
     'lapsed', case when is_owner then coalesce((select json_agg(l order by l.last_at) from (

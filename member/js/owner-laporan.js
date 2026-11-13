@@ -6,7 +6,7 @@ import { presetRange, rangeHtml, wireRange, KEYS_YEAR } from './owner-range.js';
 
 const KIND = { sampel: 'Sampel', buang: 'Dibuang', rusak: 'Rusak', promo: 'Promo' };
 const FLAG = { total_besar: 'Total di atas Rp500.000', offline: 'Penjualan offline', dikirim_terlambat: 'Dikirim terlambat', harga_offline_beda: 'Harga offline beda', bonus_stempel: 'Bonus stempel',
-  kode_diketik: 'Kode kartu diketik', nomor_dicari: 'Kartu dicari lewat nomor', di_luar_jam: 'Di luar jam buka', banyak_stempel_sehari: 'Banyak stempel sehari',
+  kartu_staf: 'Kartu milik staf', kode_diketik: 'Kode kartu diketik', nomor_dicari: 'Kartu dicari lewat nomor', di_luar_jam: 'Di luar jam buka', banyak_stempel_sehari: 'Banyak stempel sehari',
   staf_sama_sering: 'Staf yang sama sering melayani kartu ini' };
 const q = (n) => Number(n || 0).toLocaleString('id-ID', { maximumFractionDigits: 2 });
 const dmy = (s) => s.split('-').reverse().join('/');

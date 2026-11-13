@@ -57,6 +57,12 @@ begin
     'average', case when v_orders > 0 then round(v_rev::numeric / v_orders)::int else 0 end,
     'cancelled', (select count(*) from public._rep_voids(d, d)),
     'waiting', (select count(*) from pos_orders where sale_day = d and status = 'menunggu'),
+    -- Dashboard tiles (Glenn, 13 Nov 2026): Pesanan dibatalkan = batal and refund approved today (the rule
+    -- in pos-reports.sql), Tagihan gantung = orders confirmed today and not paid yet.
+    'cancelled_count', (select count(*) from public._rep_voids(d, d)),
+    'cancelled_amount', coalesce((select sum(v.amount) from public._rep_voids(d, d) v), 0),
+    'pending_count', (select count(*) from pos_orders where sale_day = d and status = 'menunggu'),
+    'pending_amount', coalesce((select sum(total) from pos_orders where sale_day = d and status = 'menunggu'), 0),
     'by_method', json_build_object(
       'tunai', coalesce((select sum(p.amount) from p where p.method = 'tunai'), 0),
       'qris', coalesce((select sum(p.amount) from p where p.method = 'qris'), 0)),

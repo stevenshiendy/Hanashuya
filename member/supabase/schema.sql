@@ -97,6 +97,9 @@ create unique index if not exists profiles_username_once on public.profiles (use
 -- A card made by the cashier starts with the password 12345; the
 -- member must choose their own password on first sign-in (set_first_password).
 alter table public.profiles add column if not exists must_set_password boolean not null default false;
+-- Who a staff member works for at the shared booth (Glenn, 13 Nov 2026): Hanashuya or
+-- Kaaramel Juice. Set by the owner (owner_add_staff); shown on the staff page and Per staf.
+alter table public.profiles add column if not exists employer text;
 -- WhatsApp promos only go to members who ticked the separate promo box.
 alter table public.profiles add column if not exists marketing_opt_in boolean not null default false;
 
@@ -505,7 +508,7 @@ language sql stable security definer set search_path = public
 as $$
   with me as (
     select pr.id, public._local(pr.created_at)::date as joined, pr.birth_date, pr.welcome_voucher
-    from profiles pr where pr.id = p and pr.role = 'member' and pr.deleted_at is null),
+    from profiles pr where pr.id = p and pr.role in ('member', 'staff', 'manager') and pr.deleted_at is null),
   t as (select public._local(now())::date as today),
   welcome as (
     select 'welcome'::text as kind, 0 as period, 'Hadiah member baru'::text as title,
@@ -541,11 +544,16 @@ as $$
   from v, t
 $$;
 
--- True when the card belongs to a staff member or shares their WhatsApp or email.
+-- True when the card can't take stamps or rewards: the owner's or the kasir tablet's
+-- account, or a second account that shares a staff member's WhatsApp or email.
+-- Staff and managers have their own member card on their staff account (Glenn, 13 Nov
+-- 2026: "staff can have member card also with the same data"). The callers still refuse
+-- the signed-in account's own card and, on the till, the card of the person serving; a
+-- sale on a staff card is flagged kartu_staf for the owner (pos_checkout).
 create or replace function public._staff_conflict(p uuid) returns boolean
 language sql stable security definer set search_path = public
 as $$
-  select exists (select 1 from profiles where id = p and role in ('staff', 'manager', 'owner', 'kasir'))
+  select exists (select 1 from profiles where id = p and role in ('owner', 'kasir'))
       or exists (
         select 1 from profiles m join profiles s
           on s.role in ('staff', 'manager', 'owner') and s.id <> m.id and s.deleted_at is null
@@ -1106,7 +1114,7 @@ language plpgsql volatile security definer set search_path = public
 as $$
 declare me uuid := auth.uid();
 begin
-  if not exists (select 1 from profiles where id = me and role = 'member' and deleted_at is null) then
+  if not exists (select 1 from profiles where id = me and role in ('member', 'staff', 'manager') and deleted_at is null) then
     return json_build_object('status', 'bukan_member', 'message', 'Voucher hanya untuk akun member.');
   end if;
   return public._claim_code(me, p_code, 'app');
@@ -1151,7 +1159,7 @@ begin
     update voucher_codes set claimed_by = null, claimed_at = null, claimed_via = null where id = c.id;
   else
     to_p := public._find_login(p_login);
-    if to_p.id is null or to_p.role <> 'member' then raise exception 'Akun member tidak ditemukan.'; end if;
+    if to_p.id is null or to_p.role not in ('member', 'staff', 'manager') then raise exception 'Akun member tidak ditemukan.'; end if;
     if exists (select 1 from voucher_codes x join voucher_batches b on b.id = x.batch_id
                where x.batch_id = c.batch_id and x.claimed_by = to_p.id and b.one_per_member and x.id <> c.id) then
       raise exception 'Member itu sudah punya voucher dari kelompok ini.';
@@ -1190,7 +1198,7 @@ begin
   if not p.must_set_password then raise exception 'Password sudah dibuat. Untuk menggantinya, buka Akun.'; end if;
   if length(coalesce(p_password, '')) < 8 then raise exception 'Password minimal 8 karakter.'; end if;
   if exists (select 1 from auth.users where id = me and encrypted_password = extensions.crypt(p_password, encrypted_password)) then
-    raise exception 'Buat password baru, jangan pakai password awal dari kasir.';
+    raise exception 'Buat password baru, jangan pakai password awal.';
   end if;
   perform public._set_password(me, p_password);
   update profiles set must_set_password = false where id = me;
@@ -1676,8 +1684,9 @@ as $$
 declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
 begin
   return coalesce((select json_agg(x order by x.role desc, x.full_name) from (
-    select id, role, full_name, username, email, whatsapp, created_at, id = me as is_me
-    from profiles where role in ('staff', 'manager', 'owner') and deleted_at is null) x), '[]');
+    select pr.id, pr.role, pr.full_name, pr.username, pr.email, pr.whatsapp, pr.created_at, pr.id = me as is_me,
+      pr.must_set_password as start_password, pr.employer
+    from profiles pr where pr.role in ('staff', 'manager', 'owner') and pr.deleted_at is null) x), '[]');
 end $$;
 
 drop function if exists public.owner_set_role(text, text);
@@ -1692,45 +1701,76 @@ begin
     raise exception 'Nomor % belum pernah masuk. Minta orangnya masuk sekali di halaman kasir, lalu coba lagi.', trim(p_phone);
   end if;
   if p.id = me and p_role <> 'owner' then raise exception 'Anda tidak bisa mencabut akses pemilik dari akun sendiri.'; end if;
-  if p_role <> 'member' and public._total(p.id) > 0 then
-    raise exception 'Nomor ini punya stempel member. Staf perlu memakai nomor lain untuk akun kerja.';
+  -- Staff and managers keep their member card; only owner accounts can't hold stamps.
+  if p_role = 'owner' and public._total(p.id) > 0 then
+    raise exception 'Nomor ini punya stempel member. Akun pemilik perlu memakai nomor lain.';
   end if;
   update profiles set role = p_role where id = p.id;
   perform public._log('ubah_peran', jsonb_build_object('whatsapp', p.whatsapp, 'role', p_role));
 end $$;
 
--- The owner creates a cashier (or second owner) account with a name, username,
--- WhatsApp number and starting password. A removed number is switched back on.
+-- Staff accounts (Glenn, 13 Nov 2026): the full name, the username FrontLastname (the
+-- first and last word of the name; logins ignore case, so KevinHadiyan and kevinhadiyan
+-- both work) and the starting password 123456, which the staff member must replace on
+-- first sign-in at /staf (must_set_password, set_first_password). The account is also
+-- their member card. A number that already has a member card becomes that person's staff
+-- account, stamps kept. p_employer: who they work for at the booth (Hanashuya or
+-- Kaaramel Juice, profiles.employer). A removed number is switched back on.
+create or replace function public._staff_username(p_name text) returns text
+language sql immutable
+as $$
+  select left(case when array_length(w, 1) > 1 then w[1] || w[array_length(w, 1)] else w[1] end, 20)
+  from (select regexp_split_to_array(lower(regexp_replace(trim(coalesce(p_name, '')), '[^A-Za-z ]', '', 'g')), '\s+') w) x
+$$;
+
+create or replace function public._set_start_password(p_user uuid) returns void
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+begin
+  update auth.users set encrypted_password = extensions.crypt('123456', extensions.gen_salt('bf')), updated_at = now()
+  where id = p_user;
+  update profiles set must_set_password = true where id = p_user;
+end $$;
+
 drop function if exists public.owner_add_staff(text, text, text, text);
-create or replace function public.owner_add_staff(p_name text, p_username text, p_phone text, p_password text, p_role text default 'staff') returns json
+drop function if exists public.owner_add_staff(text, text, text, text, text);
+create or replace function public.owner_add_staff(p_name text, p_username text, p_phone text, p_password text default null,
+  p_role text default 'staff', p_employer text default 'Hanashuya') returns json
 language plpgsql volatile security definer set search_path = public, extensions
 as $$
 declare
   me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
-  wa text := public._wa(p_phone); un text := public._clean_username(p_username); p profiles; uid uuid;
+  wa text := public._wa(p_phone); un text := public._clean_username(coalesce(nullif(trim(p_username), ''), public._staff_username(p_name)));
+  emp text := coalesce(nullif(trim(p_employer), ''), 'Hanashuya'); p profiles; uid uuid; was_member boolean := false;
 begin
-  if coalesce(trim(p_name), '') = '' then raise exception 'Isi nama staf.'; end if;
-  if un is null or un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'; end if;
+  if coalesce(trim(p_name), '') = '' then raise exception 'Isi nama lengkap staf.'; end if;
+  if un is null or un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf, angka, titik, atau garis bawah.'; end if;
   if wa is null or wa !~ '^628[0-9]{8,12}$' then raise exception 'Nomor WhatsApp tidak valid. Contoh: 0812 3456 7890.'; end if;
-  if length(coalesce(p_password, '')) < 8 then raise exception 'Password minimal 8 karakter.'; end if;
   if p_role not in ('staff', 'manager', 'owner') then raise exception 'Peran tidak dikenal.'; end if;
+  -- Staff and managers start with 123456; an owner account needs its own password.
+  if p_role = 'owner' and length(coalesce(p_password, '')) < 8 then raise exception 'Akun pemilik perlu password minimal 8 karakter.'; end if;
   select * into p from profiles where whatsapp = wa order by deleted_at nulls first limit 1;
-  if p.id is not null and p.deleted_at is null then
-    if p.role = 'member' then raise exception 'Nomor ini sudah dipakai kartu member. Pakai nomor lain untuk akun staf.'; end if;
-    raise exception 'Nomor ini sudah terdaftar sebagai staf.';
+  if p.id is not null and p.deleted_at is null and p.role <> 'member' then raise exception 'Nomor ini sudah terdaftar sebagai staf.'; end if;
+  if exists (select 1 from profiles where username = un and deleted_at is null and id is distinct from p.id) then
+    raise exception 'Username % sudah dipakai. Tulis username lain.', un;
   end if;
-  if exists (select 1 from profiles where username = un and deleted_at is null) then raise exception 'Username sudah dipakai.'; end if;
   if p.id is not null then
-    update profiles set deleted_at = null, role = p_role, full_name = trim(p_name), username = un where id = p.id;
+    was_member := p.deleted_at is null;
+    if p_role = 'owner' and was_member and public._total(p.id) > 0 then raise exception 'Nomor ini punya stempel member. Akun pemilik perlu memakai nomor lain.'; end if;
+    update profiles set deleted_at = null, role = p_role, full_name = trim(p_name), username = un, adult_confirmed = true,
+      employer = emp where id = p.id;
     update auth.users set banned_until = null where id = p.id;
-    perform public._set_password(p.id, p_password);
     uid := p.id;
   else
-    uid := public._create_login(wa, p_password, un, trim(p_name));
-    update profiles set role = p_role, adult_confirmed = true where id = uid;
+    uid := public._create_login(wa, coalesce(p_password, '12345678'), un, trim(p_name));
+    -- A staff card gets no new-member 50%; that voucher is for customers.
+    update profiles set role = p_role, adult_confirmed = true, welcome_voucher = false, employer = emp where id = uid;
   end if;
-  perform public._log('tambah_staf', jsonb_build_object('whatsapp', wa, 'username', un, 'role', p_role));
-  return json_build_object('id', uid, 'whatsapp', wa, 'username', un);
+  if p_role = 'owner' then perform public._set_password(uid, p_password);
+  else perform public._set_start_password(uid); end if;
+  perform public._log('tambah_staf', jsonb_build_object('whatsapp', wa, 'username', un, 'role', p_role, 'employer', emp, 'dari_kartu_member', was_member));
+  return json_build_object('id', uid, 'whatsapp', wa, 'username', un, 'start_password', case when p_role <> 'owner' then '123456' end,
+    'from_member', was_member);
 end $$;
 
 -- ---------------------------------------------------------------- kasir tablet account
@@ -1849,7 +1889,7 @@ language plpgsql volatile security definer set search_path = public
 as $$
 declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); p profiles := public._find_login(p_login);
 begin
-  if p.id is null or p.role <> 'member' then raise exception 'Akun member tidak ditemukan.'; end if;
+  if p.id is null or p.role not in ('member', 'staff', 'manager') then raise exception 'Akun member tidak ditemukan.'; end if;
   if p_birth_date is null then raise exception 'Isi tanggal lahir.'; end if;
   if age(current_date, p_birth_date) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
   update profiles set birth_date = p_birth_date, age_range = public._age_range(p_birth_date) where id = p.id;

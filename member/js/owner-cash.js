@@ -153,12 +153,12 @@ async function detail(panel, rpc, id) {
     </div>
     <div class="panel stack">
       <h3>Barang terjual</h3>
-      ${k.items.length ? `<div class="table-wrap"><table><thead><tr><th>Barang</th><th class="num">Jumlah</th><th class="num">Total</th></tr></thead><tbody>
+      ${k.items.length ? `<div class="table-wrap"><table><thead><tr><th>Barang</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Total</th></tr></thead><tbody>
         ${k.items.map((i) => `<tr><td>${esc([i.name, i.flavour].filter(Boolean).join(' · '))}${i.promo ? ' <span class="tag tag-warn">promo</span>' : ''}</td>
-          <td class="num">${i.unit != null ? `${i.qty} × ${rupiah(i.unit)}` : i.qty}</td><td class="num">${rupiah(i.total)}</td></tr>`).join('')}
-        <tr><td>Subtotal</td><td></td><td class="num">${rupiah(k.subtotal)}</td></tr>
-        ${k.discount ? `<tr><td>Diskon</td><td></td><td class="num">−${rupiah(k.discount)}</td></tr>` : ''}
-        <tr><td><b>Total akhir</b></td><td></td><td class="num"><b>${rupiah(k.total)}</b></td></tr></tbody></table></div>` : '<p class="muted">Belum ada penjualan.</p>'}
+          <td class="num">${i.qty}</td><td class="num">${i.unit != null ? rupiah(i.unit) : '–'}</td><td class="num">${rupiah(i.total)}</td></tr>`).join('')}
+        <tr><td>Subtotal</td><td></td><td></td><td class="num">${rupiah(k.subtotal)}</td></tr>
+        ${k.discount ? `<tr><td>Diskon</td><td></td><td></td><td class="num">−${rupiah(k.discount)}</td></tr>` : ''}
+        <tr><td><b>Total akhir</b></td><td class="num"><b>${k.items.filter((i) => !i.free_bag).reduce((t, i) => t + i.qty, 0)}</b></td><td></td><td class="num"><b>${rupiah(k.total)}</b></td></tr></tbody></table></div>` : '<p class="muted">Belum ada penjualan.</p>'}
     </div>
   </div>
   <div class="panel stack">

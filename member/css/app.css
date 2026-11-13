@@ -393,13 +393,17 @@ tr.is-reversed td { color: var(--color-muted); text-decoration: line-through; }
 /* right panel */
 /* One scroll area for the whole order panel (12 Nov 2026): the member card and its promos never scroll on
    their own, and the total with Konfirmasi pesanan stays pinned at the bottom on every screen height. */
-.tl-right { display: flex; flex-direction: column; gap: var(--space-sm); min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: 14rem; padding: 20px var(--space-lg) 0; background: var(--color-paper-2); border-left: var(--rule-hair) solid var(--color-rule); }
+.tl-right { display: flex; flex-direction: column; gap: clamp(var(--space-xs), 1.2vh, var(--space-sm)); min-height: 0; overflow: hidden; padding: clamp(var(--space-sm), 2vh, 20px) var(--space-lg) 0; background: var(--color-paper-2); border-left: var(--rule-hair) solid var(--color-rule); }
+/* Sized to the screen (Glenn, 13 Nov 2026: "do not enable scroll on the right side"): every part keeps its
+   natural height and only the order lines give way, scrolling inside themselves when an order is long.
+   Total and Konfirmasi pesanan sit at the bottom on every tablet height. */
 .tl-right > * { flex: none; min-width: 0; }
-.tl-right > .tl-lines { flex: 1 0 auto; }
-.tl-right > .tl-foot { position: sticky; bottom: 0; z-index: var(--z-raised); margin-top: auto; padding-bottom: var(--space-lg); background: var(--color-paper-2); }
-/* Staff names on one line (Glenn, 12 Nov 2026); more names scroll sideways instead of wrapping. */
-.tl-served { display: grid; gap: var(--space-xs); }
-.tl-served .tl-who { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
+.tl-right > .tl-lines { flex: 1 1 0; min-height: 3rem; overflow-y: auto; overscroll-behavior: contain; }
+.tl-right > .tl-foot { margin-top: auto; padding-bottom: clamp(var(--space-sm), 2vh, var(--space-lg)); background: var(--color-paper-2); }
+/* Staff names on one line beside the label (Glenn, 12 Nov 2026); more names scroll sideways instead of wrapping. */
+.tl-served { display: flex; align-items: center; gap: var(--space-sm); }
+.tl-served > .tl-h { flex: none; }
+.tl-served .tl-who { flex: 1; min-width: 0; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
 .tl-served .tl-chip { flex: none; }
 /* Catat sampel as its own clear button under the staff names (Glenn, 12 Nov 2026). */
 .tl-catbar { display: flex; align-items: center; gap: var(--space-md); border-bottom: var(--rule-hair) solid var(--color-rule); }
@@ -411,20 +415,32 @@ tr.is-reversed td { color: var(--color-muted); text-decoration: line-through; }
 .tl-sample-head { display: flex; justify-content: space-between; align-items: start; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border-radius: var(--radius-control); background: var(--color-warning-bg); color: var(--color-ink); }
 .tl-who { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-xs); }
 .tl-mem { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-sm); }
-.tl-member { display: grid; gap: var(--space-sm); padding: var(--space-md); border-radius: var(--radius-card); background: var(--color-card); color: var(--color-paper); }
-.tl-mname { font-weight: 500; font-size: var(--text-lg); }
+.tl-member { display: grid; gap: var(--space-2xs); padding: var(--space-xs) var(--space-md); border-radius: var(--radius-card); background: var(--color-card); color: var(--color-paper); }
+.tl-member .tl-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); min-width: 0; }
+.tl-mname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; font-size: var(--text-lg); }
+.tl-mnote { margin: 0; padding: var(--space-xs) var(--space-sm); font-size: var(--text-sm); }
+.tl-member .tl-dots { min-width: 0; gap: var(--space-3xs); }
+.tl-member .tl-dots i { flex: none; width: clamp(9px, 1.1vw, 14px); height: clamp(9px, 1.1vw, 14px); }
+.tl-right .tl-mini { min-height: 40px; }
 .tl-mlink { min-height: 32px; padding: 0; border: 0; background: none; color: inherit; font-size: var(--text-sm); white-space: nowrap; cursor: pointer; }
 button.tl-mlink { min-height: var(--tl-tap); text-decoration: underline; text-underline-offset: 0.2em; }
 .tl-dots { display: flex; gap: var(--space-2xs); }
 .tl-dots i { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid color-mix(in oklab, var(--color-paper) 55%, transparent); }
 .tl-dots i.is-on { background: var(--color-paper); border-color: var(--color-paper); }
-.tl-nomem { display: flex; justify-content: space-between; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border: var(--rule-hair) dashed var(--color-line); border-radius: var(--radius-card); }
-.tl-nomem > span { display: contents; }
-.tl-nomem { display: grid; grid-template-columns: 1fr auto; column-gap: var(--space-sm); row-gap: var(--space-3xs); }
-.tl-nomem > span > b { grid-column: 1; grid-row: 1; align-self: center; white-space: nowrap; }
-.tl-nomem > span > .muted { grid-column: 1 / -1; grid-row: 2; }
-.tl-nomem .tl-use { grid-column: 2; grid-row: 1; padding-inline: var(--space-sm); }
+.tl-nomem { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); padding: var(--space-2xs) var(--space-2xs) var(--space-2xs) var(--space-md); border: var(--rule-hair) dashed var(--color-line); border-radius: var(--radius-card); }
+.tl-nomem-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-nomem-t b { font-weight: 500; }
+.tl-nomem .tl-use { flex: none; padding-inline: var(--space-sm); }
 .tl-promos { display: grid; gap: var(--space-xs); }
+/* One-line promo rows in the order panel; the full text is in the "Promo lainnya" sheet. */
+.tl-prm { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); padding: var(--space-2xs) var(--space-2xs) var(--space-2xs) var(--space-md); border-radius: var(--radius-card); background: var(--color-paper-3); }
+.tl-prm.is-on { background: var(--color-success-bg); }
+.tl-prm-t { display: grid; min-width: 0; line-height: 1.25; }
+.tl-prm-t b { font-weight: 500; color: var(--color-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-prm-t small { font-size: var(--text-xs); color: var(--color-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-prm .tl-use { flex: none; min-height: 40px; padding-inline: var(--space-sm); }
+.tl-sheet-x { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-lg); }
+.tl-lowt td.is-out { color: var(--color-accent); font-weight: 500; }
 .tl-vch { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border-radius: var(--radius-card); background: var(--color-warning-bg); font-size: var(--text-sm); }
 .tl-vch b { display: block; font-weight: 500; font-size: var(--text-md); color: var(--color-ink-2); }
 .tl-vch.is-on { background: var(--color-success-bg); }
@@ -436,9 +452,10 @@ button.tl-mlink { min-height: var(--tl-tap); text-decoration: underline; text-un
 .tl-line.is-pick { outline: 1.5px dashed var(--color-warning); outline-offset: -1px; border-radius: var(--radius-card); padding-inline: var(--space-sm); }
 .tl-line.is-chosen { background: var(--color-success-bg); border-radius: var(--radius-card); padding-inline: var(--space-sm); }
 .tl-line-pick { position: absolute; inset: 0; z-index: var(--z-raised); border: 0; background: transparent; color: transparent; cursor: pointer; }
-.tl-empty { padding: var(--space-lg) 0; }
+.tl-empty { padding: var(--space-sm) 0; }
 .tl-foot { display: grid; gap: var(--space-sm); }
-.tl-tot { display: flex; justify-content: space-between; align-items: flex-end; padding-top: var(--space-sm); }
+.tl-tot { display: flex; justify-content: space-between; align-items: flex-end; padding-top: var(--space-xs); border-top: var(--rule-hair) solid var(--color-rule); }
+.tl-right .btn.tl-btn { min-height: clamp(52px, 8vh, var(--tl-big)); }
 .tl-big { font-weight: 500; font-size: var(--text-3xl); line-height: 1; letter-spacing: -0.02em; }
 .tl-big.is-stale { color: var(--color-muted); }
 .tl-earn { font-size: var(--text-sm); font-weight: 500; color: var(--color-success); }
@@ -531,7 +548,22 @@ button.tl-mlink { min-height: var(--tl-tap); text-decoration: underline; text-un
  * Figures on the left, the tools as buttons on the right. Nothing moves by itself. */
 .hm { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 30vw, 360px); height: 100%; min-height: 0; }
 .hm-dash { display: grid; gap: var(--space-md); align-content: start; min-height: 0; padding: var(--space-lg); overflow-y: auto; }
-.hm-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: var(--space-sm); }
+.hm-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr)); gap: var(--space-sm); }
+button.hm-kpi { font: inherit; color: inherit; text-align: left; cursor: pointer; border-bottom-width: 3px; }
+button.hm-kpi.is-due { border-color: var(--color-accent); }
+button.hm-kpi.is-due .hm-v { color: var(--color-accent); }
+button.hm-kpi:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+/* Stok menipis (Glenn, 13 Nov 2026: "too hectic"): one quiet line; the list opens in a sheet. */
+.hm-lowbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); min-height: var(--tl-tap); padding: 0 var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: var(--color-paper-2); color: var(--color-ink); font: inherit; text-align: left; cursor: pointer; }
+.hm-lowbar b { font-weight: 500; color: var(--color-accent); }
+.hm-lowgo { flex: none; color: var(--color-accent); font-weight: 500; }
+.hm-lowbar:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+/* Five tiles fit side by side from about 52rem of dashboard width; below that (1024 px tablets) three per row. */
+.hm-dash { container-type: inline-size; }
+@container (max-width: 52rem) { .hm-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.hm-pair .hm-tool { padding-inline: var(--space-sm); }
+.hm-pair .hm-chev { display: none; }
+.hm-pair .hm-tt b { font-size: var(--text-md); }
 .hm-kpi, .hm-panel { display: grid; gap: var(--space-xs); align-content: start; padding: var(--space-sm) var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); }
 .hm-l, .hm-s, .hm-sec { font-size: var(--text-sm); color: var(--color-muted); }
 .hm-v { font-weight: 500; font-size: var(--text-2xl); line-height: 1.1; letter-spacing: -0.01em; }
@@ -564,15 +596,16 @@ button.tl-mlink { min-height: var(--tl-tap); text-decoration: underline; text-un
 .hm-sold { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-xs) var(--space-sm); margin: 0; }
 .hm-sold dd { margin: 0; font-weight: 500; text-align: right; }
 .hm-tools { display: grid; gap: var(--space-sm); align-content: start; padding: var(--space-lg); background: var(--color-paper-2); border-left: var(--rule-hair) solid var(--color-rule); overflow-y: auto; }
-.hm-sell { display: grid; place-content: center; justify-items: center; gap: var(--space-2xs); min-height: 96px; border: 0; border-radius: var(--radius-card); background: var(--color-accent); color: var(--color-accent-ink); font-weight: 500; font-size: var(--text-xl); cursor: pointer; }
+.hm-sell { display: grid; place-content: center; justify-items: center; gap: var(--space-2xs); min-height: clamp(64px, 11vh, 96px); border: 0; border-radius: var(--radius-card); background: var(--color-accent); color: var(--color-accent-ink); font-weight: 500; font-size: var(--text-xl); cursor: pointer; }
 .hm-sell small { font-size: var(--text-sm); font-weight: 400; }
 .hm-sec { margin-top: var(--space-2xs); }
 /* Tools read as buttons (Glenn: "does not look like buttons"): ink outline, a raised bottom edge, an arrow. */
-.hm-tool { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); min-height: 60px; padding: 0 var(--space-md); border: 1.5px solid var(--color-ink); border-bottom-width: 4px; border-radius: 10px; background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; }
+.hm-tool { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); min-height: clamp(50px, 7.6vh, 60px); min-width: 0; padding: var(--space-2xs) var(--space-md); border: 1.5px solid var(--color-ink); border-bottom-width: 4px; border-radius: 10px; background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; }
 .hm-tool:active { border-bottom-width: 1.5px; translate: 0 2px; }
-.hm-tt { display: grid; gap: var(--space-3xs); }
-.hm-tt b { font-weight: 500; font-size: var(--text-lg); }
-.hm-tt small { font-size: var(--text-sm); color: var(--color-muted); }
+.hm-tt { display: grid; gap: var(--space-3xs); min-width: 0; }
+.hm-tt b { font-weight: 500; font-size: var(--text-lg); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-tt small { font-size: var(--text-sm); line-height: 1.2; color: var(--color-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-tools { gap: clamp(var(--space-xs), 1.1vh, var(--space-sm)); padding: clamp(var(--space-sm), 2.2vh, var(--space-lg)) var(--space-lg); }
 .hm-chev { font-size: var(--text-2xl); line-height: 1; }
 :where(.hm-sell, .hm-tool):disabled { opacity: 0.45; cursor: not-allowed; }
 :where(.hm-sell, .hm-tool, .hm-seg button):focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
@@ -861,3 +894,81 @@ main.w-owner.has-side, .w-owner .bar.has-side .bar-inner { max-width: calc(var(-
 .dt-empty .dt-empty-t { color: var(--color-ink); font-weight: 500; }
 .dt-empty .muted { margin-top: var(--space-2xs); }
 .dt-src { min-height: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; font-variant-numeric: tabular-nums; }
+
+/* ---- Ringkasan KPI + grafik (13 Nov) ---- */
+/* Owner Ringkasan: four POS tiles (Penjualan, Jumlah nota, Rata-rata, Produk terjual) and Grafik penjualan. */
+.kp-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-md); }
+@media (max-width: 63.99rem) { .kp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 30rem) { .kp-tiles { grid-template-columns: minmax(0, 1fr); } }
+.kp-tile { display: grid; align-content: start; gap: var(--space-2xs); padding: var(--space-md) var(--space-lg); background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule); border-top: 3px solid var(--color-accent); border-radius: var(--radius-card); min-width: 0; }
+.kp-l { font-size: var(--text-sm); font-weight: 500; color: var(--color-ink); }
+.kp-v { font-size: var(--text-xl); font-weight: 600; line-height: 1.2; color: var(--color-ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kp-v small { font-size: var(--text-sm); font-weight: 500; color: var(--color-muted); }
+.kp-s { font-size: var(--text-sm); color: var(--color-muted); }
+.kp-d { font-size: var(--text-sm); font-weight: 500; color: var(--color-muted); }
+.kp-d.is-up { color: var(--color-success); }
+.kp-d.is-down { color: var(--color-error); }
+.kp-dl { font-weight: 400; color: var(--color-muted); }
+[data-kp-chart] { position: relative; }
+.kp-ch-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: var(--space-md); }
+.kp-ch-ctl { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
+.kp-ch-ctl .hm-seg button { min-height: 40px; }
+.kp-plot { width: 100%; min-width: 0; }
+.kp-plot svg { display: block; max-width: 100%; touch-action: pan-y; }
+.kp-grid { stroke: var(--color-rule); stroke-width: 1; stroke-dasharray: 3 4; }
+.kp-ax { fill: var(--color-muted); font-size: 12px; font-family: var(--font-body); font-variant-numeric: tabular-nums; }
+.kp-area { fill: var(--color-accent-tint); stroke: none; }
+.kp-line { fill: none; stroke: var(--color-accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.kp-dot { fill: var(--color-accent); stroke: var(--color-paper-2); stroke-width: 2; }
+.kp-cross { stroke: var(--color-line); stroke-width: 1; }
+.kp-tip { position: absolute; z-index: 2; display: grid; gap: var(--space-3xs); padding: var(--space-xs) var(--space-sm); background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-line); border-radius: var(--radius-control); font-size: var(--text-sm); color: var(--color-ink); pointer-events: none; white-space: nowrap; }
+.kp-tip[hidden] { display: none; }
+[data-kp-chart][aria-busy="true"] .kp-plot { opacity: 0.5; }
+
+/* ---- Rekap kas detail (13 Nov) ---- */
+/* Laporan lainnya > Rekapitulasi kas > one shift (owner-laporan2.js shiftDetail). */
+.rk-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-sm) var(--space-lg); margin: 0; }
+.rk-info dt { color: var(--color-muted); font-size: var(--text-sm); }
+.rk-info dd { margin: 0; color: var(--color-ink); overflow-wrap: anywhere; }
+.rk-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--space-sm); }
+.rk-figs > div { display: grid; gap: var(--space-3xs); padding: var(--space-sm) var(--space-md); background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); }
+.rk-figs span { color: var(--color-muted); font-size: var(--text-sm); }
+.rk-figs b { color: var(--color-ink); font-size: var(--text-xl); font-weight: 600; }
+.rk-kv { max-width: 32rem; }
+.rk-kv th { font-weight: 400; text-align: left; }
+.rk-kv .rk-sum th, .rk-kv .rk-sum td { font-weight: 600; }
+.rk-moves { list-style: none; margin: 0; padding: 0; max-width: 32rem; }
+.rk-moves li { display: flex; justify-content: space-between; gap: var(--space-sm); padding: var(--space-xs) 0; border-bottom: var(--rule-hair) solid var(--color-rule); }
+[role="tabpanel"][id^="rk-p-"]:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.rk-nowrap { white-space: nowrap; }
+.rk-figs b, .rk-moves b { white-space: nowrap; }
+@media (max-width: 30rem) { .rk-figs b { font-size: var(--text-lg); } }
+
+/* Staff sign-in at /staf (13 Nov 2026): its own page, apart from the member card's.
+   A flat maroon stage with the cream logotype beside the cream form; stacked on phones. */
+body.is-gate .bar { display: none; }
+body.is-gate main#app { max-width: none; padding: 0; }
+.sg { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); min-height: 100dvh; }
+.sg-stage { display: flex; flex-direction: column; gap: var(--space-xl); background: var(--color-card); color: var(--color-paper);
+  padding: max(var(--space-2xl), env(safe-area-inset-top, 0px)) var(--space-xl) var(--space-xl); }
+.sg-logo { width: 11rem; height: auto; }
+.sg-copy { margin-top: auto; display: grid; gap: var(--space-sm); }
+.sg-title { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: clamp(2.4rem, 4.2vw, 3.6rem); line-height: 1.02; letter-spacing: var(--tracking-display); }
+.sg-lead { margin: 0; max-width: 26ch; font-size: var(--text-lg); line-height: 1.45; color: var(--color-paper-3); }
+.sg-list { list-style: none; margin: 0; padding: 0; display: grid; border-top: var(--rule-hair) solid var(--color-accent); }
+.sg-list li { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: var(--space-sm); padding-block: var(--space-sm);
+  border-bottom: var(--rule-hair) solid var(--color-accent); font-size: var(--text-sm); line-height: 1.45; color: var(--color-paper-3); }
+.sg-list b { font-weight: 600; color: var(--color-paper); }
+.sg-form { display: grid; align-content: center; justify-items: center; background: var(--color-paper);
+  padding: var(--space-2xl) var(--gutter); }
+.sg-form > .panel { width: min(100%, 25rem); background: transparent; border: 0; padding: 0; }
+@media (max-width: 48rem) {
+  .sg { grid-template-columns: 1fr; min-height: 0; }
+  .sg-stage { gap: var(--space-md); padding: max(var(--space-lg), env(safe-area-inset-top, 0px)) var(--gutter) var(--space-lg); }
+  .sg-logo { width: 8.5rem; }
+  .sg-copy { margin-top: var(--space-sm); gap: var(--space-2xs); }
+  .sg-title { font-size: var(--text-3xl); }
+  .sg-lead { font-size: var(--text-md); }
+  .sg-list { display: none; }
+  .sg-form { align-content: start; padding-block: var(--space-xl) var(--space-2xl); }
+}

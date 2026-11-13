@@ -117,10 +117,12 @@ async function boot() {
   try {
     const who = await rpc('whoami');
     if (!who) throw new Error('Akun tidak ditemukan. Keluar, lalu masuk lagi.');
-    if (who.role !== 'member') {
-      app.innerHTML = `<div class="wrap page-pad"><section class="stack"><h1>Ini akun staf</h1>
+    // Staff and managers have a member card on their own account (Glenn, 13 Nov 2026);
+    // the owner and the kasir tablet don't.
+    if (who.kasir_tablet || !['member', 'staff', 'manager'].includes(who.role)) {
+      app.innerHTML = `<div class="wrap page-pad"><section class="stack"><h1>${who.kasir_tablet ? 'Ini akun tablet kasir' : 'Ini akun pemilik'}</h1>
         ${location.hash === '#daftar' ? '<p class="notice notice-warn">Perangkat ini sedang masuk sebagai kasir, jadi formulir daftar member tidak bisa dibuka di sini. Minta pembeli scan QR di tab Daftar member dengan HP-nya, atau kirim link lewat WhatsApp dari tab itu.</p>' : ''}
-        <p>Akun staf tidak bisa mengumpulkan stempel. Pakai nomor WhatsApp lain untuk kartu member pribadi.</p>
+        <p>${who.kasir_tablet ? 'Akun tablet kasir tidak punya kartu member. Staf membuka kartunya sendiri dengan akun staf di HP masing-masing.' : 'Akun pemilik tidak mengumpulkan stempel.'}</p>
         <div class="row"><a class="btn" href="kasir.html">Buka halaman kasir</a>${who.role === 'owner' ? '<a class="btn btn-quiet" href="pemilik.html">Buka dasbor pemilik</a>' : ''}
         <button class="btn btn-text" type="button" id="out">Keluar</button></div></section></div>`;
       $('#out').addEventListener('click', logout);
@@ -150,7 +152,7 @@ function firstPassword(who) {
   <form class="stack-lg" id="first-pw" novalidate aria-labelledby="fp-title">
     <div class="stack-sm">
       <h1 id="fp-title">Buat password Anda</h1>
-      <p class="muted">${first ? `Halo Kak ${esc(first)}, k` : 'K'}artu member Anda dibuat di booth Hanashuya. Satu langkah lagi: ganti password awal dari kasir dengan password Anda sendiri.</p>
+      <p class="muted">${who.role !== 'member' ? `${first ? `Halo ${esc(first)}, ini` : 'Ini'} pertama kali Anda masuk dengan akun staf. Ganti password awal dari pemilik dengan password Anda sendiri.` : `${first ? `Halo Kak ${esc(first)}, k` : 'K'}artu member Anda dibuat di booth Hanashuya. Satu langkah lagi: ganti password awal dari kasir dengan password Anda sendiri.`}</p>
     </div>
     <div class="field"><span>Nomor WhatsApp</span><p class="num">${esc(prettyPhone(who.whatsapp))}</p>
       <span class="hint">Masuk berikutnya pakai nomor ini dan password baru Anda.</span></div>

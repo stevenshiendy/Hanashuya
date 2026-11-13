@@ -1,6 +1,7 @@
 # Search engines may index the landing page, not the member app or the API.
 User-agent: *
 Disallow: /member/
+Disallow: /staf/
 Disallow: /api/
 
 # AI crawlers that copy site content for training are not allowed anywhere.

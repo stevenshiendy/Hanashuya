@@ -459,7 +459,15 @@ begin
   when 'kas_rekap' then
     select json_agg(x order by x.at) into r from (
       select sh.id, sh.opened_at as at, public._pos_stamp(sh.opened_at) as mulai, public._pos_stamp(sh.closed_at) as berakhir,
-        coalesce(sh.device, '') as perangkat, coalesce(public._first_name(op.full_name), '') as staf, sh.opening_cash as modal,
+        coalesce(sh.device, '') as perangkat, coalesce(public._first_name(op.full_name), '') as akun,
+        -- Who served in this shift (13 Nov 2026: the tablet's own account opens the shift, the staff serve).
+        coalesce((select string_agg(distinct public._first_name(p.full_name), ', ') from pos_orders o join profiles p on p.id = o.served_by
+                   where o.shift_id = sh.id and o.status = 'dibayar'), '') as dilayani,
+        sh.opening_cash as modal,
+        -- Receipts, pieces and rupiah apart (Glenn, 13 Nov 2026: "split harga and unit sold").
+        (select count(*) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar')::int as struk,
+        coalesce((select sum(i.qty) from pos_order_items i join pos_orders o on o.id = i.order_id
+                   where o.shift_id = sh.id and o.status = 'dibayar' and not i.free_bag), 0)::int as produk,
         coalesce((select sum(o.total) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0)::bigint as penjualan,
         -- Tunai part: pos_order_payments (split orders) when it exists, else Tunai orders.
         coalesce(case when public._rep_has('pos_order_payments') then public._rep_shift_tunai(sh.id)
@@ -642,6 +650,72 @@ begin
     limit 20000) x), '[]'));
 end $$;
 
+-- ---------------------------------------------------------------- Rekapitulasi kas, one shift (13 Nov 2026)
+-- The drill-down from Laporan lainnya > Rekapitulasi kas (Glenn: "when I click on the rekap, it goes to a
+-- more detailed data table", as in VireoPOS). Built on _pos_rekap (pos.sql, the owner's full rekap) plus one
+-- row per transaction of the shift. Owner and manager (read-only).
+create or replace function public.owner_shift_detail(p_shift bigint) returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  me uuid := public._rep_reader();
+  sh pos_shifts; rk jsonb; t_end timestamptz;
+begin
+  select * into sh from pos_shifts where id = p_shift;
+  if sh.id is null then raise exception 'Shift tidak ditemukan.'; end if;
+  rk := public._pos_rekap(sh.id, true)::jsonb;
+  t_end := coalesce(sh.closed_at, now());
+  return json_build_object(
+    'id', sh.id,
+    'info', json_build_object(
+      'mulai', public._pos_stamp(sh.opened_at), 'berakhir', public._pos_stamp(sh.closed_at),
+      'gerai', rk->>'outlet', 'perangkat', coalesce(sh.device, ''),
+      'akun', coalesce((select public._first_name(full_name) from profiles where id = sh.opened_by), ''),
+      'ditutup_oleh', coalesce((select public._first_name(full_name) from profiles where id = sh.closed_by), ''),
+      'dilayani', coalesce((select string_agg(distinct public._first_name(p.full_name), ', ') from pos_orders o join profiles p on p.id = o.served_by
+                             where o.shift_id = sh.id and o.status = 'dibayar'), ''),
+      'status', case when sh.closed_at is null then 'Berjalan' else 'Ditutup' end),
+    -- Every order of the shift (paid, cancelled, refunded), plus orders cancelled before payment in its time.
+    'orders', coalesce((select json_agg(x order by x.at, x.struk) from (
+      select o.sold_at as at, public._pos_stamp(o.sold_at) as waktu, o.receipt_no as struk, coalesce(c.label, o.channel_id) as saluran,
+        coalesce(public._first_name(sp.full_name), '') as dilayani, coalesce(public._first_name(cp.full_name), '') as kasir,
+        case when o.member_id is not null then coalesce(public._first_name(mp.full_name), 'Member') else '' end as pelanggan,
+        public._pos_status_label(o.status) as status, public._pos_pay_label(o.payment_method) as metode,
+        concat_ws(' · ', nullif(o.promo_label, ''), nullif(o.note, '')) as catatan,
+        coalesce((select sum(i.qty) from pos_order_items i where i.order_id = o.id and not i.free_bag), 0)::int as produk,
+        o.subtotal, o.discount as diskon, o.total,
+        case when o.payment_method is null then 0 else coalesce(o.cash_received, o.total) end as dibayar,
+        coalesce(o.change_given, 0) as kembalian
+      from pos_orders o
+      left join pos_channels c on c.id = o.channel_id
+      left join profiles sp on sp.id = o.served_by left join profiles cp on cp.id = o.cashier_id left join profiles mp on mp.id = o.member_id
+      where o.status in ('dibayar', 'batal', 'refund')
+        and (o.shift_id = sh.id or (o.shift_id is null and o.outlet_id = sh.outlet_id and o.created_at >= sh.opened_at and o.created_at < t_end))
+      limit 2000) x), '[]'),
+    -- Goods sold: quantity, unit price and total apart (Glenn: "split harga and unit sold").
+    'items', coalesce((select json_agg(json_build_object('produk', e->>'name', 'rasa', coalesce(e->>'flavour', ''),
+        'qty', (e->>'qty')::int, 'harga', case when e->>'unit' is null then null else (e->>'unit')::int end,
+        'total', (e->>'total')::int, 'promo', coalesce((e->>'promo')::boolean, false), 'paper_bag_gratis', coalesce((e->>'free_bag')::boolean, false)))
+      from jsonb_array_elements(rk->'items') e), '[]'),
+    'subtotal', (rk->>'subtotal')::bigint, 'diskon', (rk->>'discount')::bigint, 'total', (rk->>'total')::bigint,
+    'payments', coalesce((select json_agg(json_build_object('metode', public._pos_pay_label(e->>'method'),
+        'struk', (e->>'count')::int, 'total', (e->>'amount')::bigint))
+      from jsonb_array_elements(rk->'payments') e), '[]'),
+    'split_count', (rk->>'split_count')::int,
+    'promos', rk->'promos',
+    'other', json_build_object(
+      'modal', (rk->>'opening_cash')::bigint,
+      'uang_diterima', (rk->>'cash_received')::bigint, 'kembalian', (rk->>'change_given')::bigint,
+      'kas_masuk', (rk->>'cash_in')::bigint, 'kas_keluar', (rk->>'cash_out')::bigint, 'setor', (rk->>'setor')::bigint,
+      'seharusnya', (rk->>'expected_cash')::bigint,
+      'dihitung', case when sh.counted_cash is null then null else sh.counted_cash::bigint end,
+      'selisih', case when sh.counted_cash is null then null else (sh.counted_cash - coalesce(sh.expected_cash, 0))::bigint end,
+      'catatan', coalesce(sh.note, ''),
+      'batal_count', (rk#>>'{voids,batal_count}')::int, 'batal_amount', (rk#>>'{voids,batal_amount}')::bigint,
+      'refund_count', (rk#>>'{voids,refund_count}')::int, 'refund_amount', (rk#>>'{voids,refund_amount}')::bigint),
+    'moves', rk->'moves');
+end $$;
+
 -- ---------------------------------------------------------------- permissions
 do $$
 declare f record;
@@ -650,7 +724,7 @@ begin
     select p.oid::regprocedure as sig, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.prokind = 'f'
        and p.proname in ('_lap2_range', '_lap2_f', '_lap2_day_name', '_lap2_kind_label', '_lap2_promo_label', '_rep_shift_tunai',
-                         'owner_laporan', 'acc_balance_monthly', 'acc_journal_lines')
+                         'owner_laporan', 'acc_balance_monthly', 'acc_journal_lines', 'owner_shift_detail')
   loop
     execute format('revoke all on function %s from public, anon', f.sig);
     if left(f.proname, 1) = '_' then execute format('revoke all on function %s from authenticated', f.sig);

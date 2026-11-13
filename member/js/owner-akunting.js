@@ -25,7 +25,16 @@ function wireRange(panel, st, reload) {
 // Opening a view only refreshes the last 60 days (fast); the "Perbarui jurnal" button still syncs everything.
 async function syncQuiet(rpc) {
   const from = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date(Date.now() - 60 * 864e5));
-  try { return await rpc('acc_sync', { p_from: from, p_to: null }); } catch { return null; }
+  try { return await rpc('acc_sync', { p_from: from, p_to: null }); } catch (e) { return { error: e?.message || String(e) }; }
+}
+// A failed sync is said on the page (13 Nov 2026: it used to be swallowed, so missing journals went unnoticed).
+function syncWarn(msg, r) {
+  if (!r?.error || !msg) return;
+  const box = document.createElement('div');
+  box.className = 'notice notice-warn'; box.setAttribute('role', 'alert'); box.dataset.syncWarn = '';
+  box.textContent = `Jurnal otomatis gagal diperbarui: ${r.error}`;
+  msg.parentNode.querySelector('[data-sync-warn]')?.remove();
+  msg.before(box);
 }
 
 /* ---------------------------------------------------------------- Akun buku besar */
@@ -162,7 +171,7 @@ function journalView(panel, rpc) {
     busy(btn, false);
   });
   (async () => {
-    await syncQuiet(rpc);
+    syncWarn(msg, await syncQuiet(rpc));
     let rows = []; try { rows = await fetchRows(); } catch (e) { notice(msg, e.message); }
     table = dataTable($('[data-table]', panel), {
       rows, rowKey: 'id', exportName: 'jurnal', pageSize: 20, searchKeys: ['no', 'description'], emptyText: 'Belum ada jurnal di rentang ini.', editLabel: 'Buka',
@@ -287,7 +296,7 @@ function reportView(panel, rpc) {
   });
 
   (async () => {
-    await syncQuiet(rpc);
+    syncWarn(msg, await syncQuiet(rpc));
     try {
       st.accounts = await rpc('acc_accounts');
       const sel = $('[data-account]', panel);

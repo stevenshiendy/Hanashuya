@@ -6,6 +6,11 @@
       "source": "/v/:code",
       "destination": "/member/?v=:code",
       "permanent": false
+    },
+    {
+      "source": "/member/absen(.html)?",
+      "destination": "/staf/",
+      "permanent": false
     }
   ],
   "headers": [
@@ -40,6 +45,15 @@
     },
     {
       "source": "/member/(staf|pemilik|cetak-uji|absen|kasir)(.html)?",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/staf/:path*",
       "headers": [
         {
           "key": "X-Robots-Tag",

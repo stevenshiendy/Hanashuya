@@ -311,12 +311,23 @@ language sql immutable
 as $$ select jsonb_set(c, array[v], to_jsonb(coalesce((c->>v)::int, 0) + 1)) $$;
 
 -- ---------------------------------------------------------------- automatic journals
+-- acc_sync checks who is asking, then runs _acc_sync_core. The till calls _acc_sync_core for the sale day
+-- when an order is paid or a batal/refund is approved (pos.sql _pos_acc_post, 13 Nov 2026), so the books are
+-- up to date without opening Akunting.
 create or replace function public.acc_sync(p_from date default null, p_to date default null) returns json
 language plpgsql volatile security definer set search_path = public
 as $$
 declare
   -- Managers run it too: it only rebuilds the automatic journals from the POS tables (13 Nov 2026).
   me uuid := public._rep_reader();
+begin
+  return public._acc_sync_core(p_from, p_to);
+end $$;
+
+create or replace function public._acc_sync_core(p_from date default null, p_to date default null) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
   f date := coalesce(p_from, date '2000-01-01'); t date := coalesce(p_to, public._local(now())::date);
   r record; res text; lines jsonb; c jsonb := '{}'; acct text; amt bigint;
 begin

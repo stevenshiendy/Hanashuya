@@ -638,7 +638,7 @@ begin
            case when is_owner then p.card_code end as card_code,
            public._total(p.id) as stamps, cv.card_position as position, cv.cycle
       from profiles p cross join lateral public._card_view(p.id) cv
-     where p.role = 'member' and p.deleted_at is null
+     where p.role in ('member', 'staff', 'manager') and p.deleted_at is null
        and ((by_name and lower(coalesce(p.full_name, '')) like '%' || q || '%')
             or (by_code and replace(upper(coalesce(p.card_code, '')), '-', '') = code)
             or (by_wa and p.whatsapp = wa))

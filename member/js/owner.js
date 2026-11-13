@@ -72,7 +72,7 @@ let READ_ONLY = false;
 
 const app = $('#app');
 const DAYS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
-const FLAG = { total_besar: 'Total di atas Rp500.000', kode_diketik: 'Kode kartu diketik', nomor_dicari: 'Kartu dicari lewat nomor WhatsApp', staf_sama_sering: 'Staf yang sama sering memberi stempel ke kartu ini', banyak_stempel_sehari: 'Banyak stempel dalam sehari' };
+const FLAG = { kartu_staf: 'Kartu milik staf', total_besar: 'Total di atas Rp500.000', kode_diketik: 'Kode kartu diketik', nomor_dicari: 'Kartu dicari lewat nomor WhatsApp', staf_sama_sering: 'Staf yang sama sering memberi stempel ke kartu ini', banyak_stempel_sehari: 'Banyak stempel dalam sehari' };
 const PROBLEM = { tidak_ada_struk_cocok: 'Tidak ada struk dengan total dan jam yang sama', nama_beda: 'Nama pelanggan di VireoPOS beda' };
 const LABEL = { perempuan: 'Perempuan', 'laki-laki': 'Laki-laki', tidak_disebut: 'Tidak disebut', kosong: 'Tidak diisi', '<17': 'Di bawah 17' };
 // Ringkasan range: the shared control (js/owner-range.js, 13 Nov 2026), 30 hari at first.
@@ -262,6 +262,7 @@ async function summary() {
       <p class="muted small">${esc(d.rule || 'Penjualan dihitung di tanggal transaksi. Batal dan refund mengurangi di tanggal disetujui.')}${isOwner ? '' : ' Hanya untuk dilihat.'}</p></div>
   </div>
   ${rangeHtml({ preset: sumRange.preset, from: sumRange.from, to: sumRange.to })}
+  <div id="sum-pos" class="stack-lg" aria-busy="true"><div class="kp-tiles">${'<div class="kp-tile"><div class="skeleton"></div></div>'.repeat(4)}</div></div>
   ${d.undo.length ? `<section class="panel stack" aria-labelledby="undo-title">
     <h2 id="undo-title">Permintaan pembatalan (${d.undo.length})</h2>
     <ul class="list">${d.undo.map((u) => `<li><span class="grow"><strong>${esc(u.kind === 'penjualan' ? `${u.receipt_no ? 'Struk ' + u.receipt_no : 'Penjualan ' + rupiah(u.total || 0)}, ${u.stamps} stempel` : u.reward_label)}</strong> untuk ${esc(u.member)}<br>
@@ -306,9 +307,10 @@ async function summary() {
     </section>
   </div>
   <section class="panel stack" aria-labelledby="staff-title">
-    <h2 id="staff-title">Kasir</h2>
-    <div class="table-wrap"><table><thead><tr><th>Nama</th><th class="num">Penjualan</th><th class="num">Stempel</th><th class="num">Hadiah</th><th class="num">Ditandai</th></tr></thead><tbody>
-      ${d.staff.map((s) => `<tr><td>${esc(s.full_name || prettyPhone(s.whatsapp))}</td><td class="num">${s.sales}</td><td class="num">${s.stamps}</td><td class="num">${s.redemptions}</td><td class="num">${s.flagged ? `<span class="tag tag-warn">${s.flagged}</span>` : 0}</td></tr>`).join('')}
+    <h2 id="staff-title">Penjualan per staf</h2>
+    <p class="muted small">Dihitung untuk staf yang melayani, bukan akun tablet kasir.</p>
+    <div class="table-wrap"><table><thead><tr><th>Nama</th><th class="num">Nota</th><th class="num">Penjualan</th><th class="num">Produk terjual</th><th class="num">Stempel</th><th class="num">Hadiah</th><th class="num">Ditandai</th></tr></thead><tbody>
+      ${d.staff.map((s) => `<tr><td>${esc(s.full_name || prettyPhone(s.whatsapp))}</td><td class="num">${s.sales}</td><td class="num">${s.revenue == null ? '–' : rupiah(s.revenue)}</td><td class="num">${s.items == null ? '–' : s.items}</td><td class="num">${s.stamps}</td><td class="num">${s.redemptions}</td><td class="num">${s.flagged ? `<span class="tag tag-warn">${s.flagged}</span>` : 0}</td></tr>`).join('')}
     </tbody></table></div>
   </section>`}
   <section class="panel stack" aria-labelledby="flag-title">
@@ -333,11 +335,155 @@ async function summary() {
     history.replaceState(null, '', u);
   };
   wireRange(p, { onChange: (v) => { Object.assign(sumRange, v); setUrl(); summary(); } });
+  posHighlights($('#sum-pos', p), d.from, d.to);
   $$('[data-undo]', p).forEach((b) => b.addEventListener('click', async () => {
     busy(b, true);
     try { await rpc('owner_decide_undo', { p_id: Number(b.dataset.undo), p_approve: b.dataset.ok === '1' }); toast(b.dataset.ok === '1' ? 'Dibatalkan' : 'Ditolak'); summary(); }
     catch (e) { toast(e.message); busy(b, false); }
   }));
+}
+
+/* ---------------- Ringkasan: KPI tiles and Grafik penjualan (Glenn, 13 Nov 2026) */
+// The POS figures by the one rule (owner_pos_stats, pos-reports.sql): Penjualan, Jumlah nota, Rata-rata
+// and Produk terjual, each against the period of the same length just before it, then a line chart
+// with a Jam / Hari / Minggu / Bulan switch and Omzet / Jumlah nota. Hanashuya charges no PB1/PPN,
+// so the fourth tile is Produk terjual instead of VireoPOS's "Penjualan - Pajak".
+const chartPref = { grain: null, measure: 'sales' };
+const ymdShift = (ymd, n) => { const t = new Date(ymd + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+const spanDays = (f, t) => Math.round((Date.parse(t) - Date.parse(f)) / 864e5) + 1;
+const autoGrain = (f, t) => (f === t ? 'jam' : spanDays(f, t) > 92 ? 'bulan' : 'hari');
+const shortRp = (n) => { const a = Math.abs(n), s = n < 0 ? '−' : ''; return a >= 1e6 ? `${s}${(a / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 })}jt` : a >= 1000 ? `${s}${Math.round(a / 1000)}rb` : `${s}${a}`; };
+function niceTicks(max, whole) {
+  if (max <= 0) max = whole ? 4 : 100000;
+  const raw = max / 4, pow = 10 ** Math.floor(Math.log10(raw));
+  let step = [1, 2, 2.5, 5, 10].map((m) => m * pow).find((v) => v >= raw);
+  if (whole) step = Math.max(1, Math.ceil(step));
+  const out = [];
+  for (let v = 0; v < max + step / 2; v += step) out.push(v);
+  if (out[out.length - 1] < max) out.push(out[out.length - 1] + step);
+  return out;
+}
+function deltaHtml(now, before, prevLabel) {
+  if (before == null) return '';
+  if (!before) return now ? `<span class="kp-d">Baru ada ${prevLabel === 'kemarin' ? 'hari ini' : 'di periode ini'}</span>` : `<span class="kp-d">Sama dengan ${prevLabel}</span>`;
+  const p = Math.round(((now - before) / Math.abs(before)) * 100);
+  if (p === 0) return `<span class="kp-d">Sama dengan ${prevLabel}</span>`;
+  return `<span class="kp-d ${p > 0 ? 'is-up' : 'is-down'}"><span aria-hidden="true">${p > 0 ? '▲' : '▼'}</span> ${p > 0 ? 'Naik' : 'Turun'} ${Math.abs(p)}% <span class="kp-dl">dari ${prevLabel}</span></span>`;
+}
+async function posHighlights(host, from, to) {
+  if (!host) return;
+  const n = spanDays(from, to), pf = ymdShift(from, -n), pt = ymdShift(from, -1);
+  const prevLabel = n === 1 ? (to === new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date()) ? 'kemarin' : 'hari sebelumnya') : `${n} hari sebelumnya`;
+  const grain = chartPref.grain && chartPref.range === `${from}|${to}` ? chartPref.grain : autoGrain(from, to);
+  let s, prev;
+  try {
+    [s, prev] = await Promise.all([
+      rpc('owner_pos_stats', { p_from: from, p_to: to, p_grain: grain }),
+      rpc('owner_pos_stats', { p_from: pf, p_to: pt }).catch(() => null),
+    ]);
+  } catch (e) {
+    host.removeAttribute('aria-busy');
+    host.innerHTML = `<p class="notice notice-warn">Angka penjualan kasir belum bisa dimuat: ${esc(e.message)}</p>`;
+    return;
+  }
+  if (!host.isConnected) return;
+  const avg = s.average ?? (s.receipts ? Math.round(s.sales / s.receipts) : 0);
+  const before = s.sales_before_refunds;
+  const tile = (label, value, sub, delta) => `<div class="kp-tile"><span class="kp-l">${label}</span><b class="kp-v num">${value}</b>${sub ? `<span class="kp-s num">${sub}</span>` : ''}${delta}</div>`;
+  host.removeAttribute('aria-busy');
+  host.innerHTML = `
+  <section aria-labelledby="kp-title"><h2 id="kp-title" class="visually-hidden">Penjualan kasir</h2>
+    <div class="kp-tiles">
+      ${tile('Penjualan', rupiah(s.sales), before != null && before !== s.sales ? `sebelum batal/refund ${rupiah(before)}` : 'setelah batal dan refund', deltaHtml(s.sales, prev?.sales, prevLabel))}
+      ${tile('Jumlah nota transaksi', (s.receipts || 0).toLocaleString('id-ID'), '', deltaHtml(s.receipts || 0, prev?.receipts, prevLabel))}
+      ${tile('Rata-rata per nota', rupiah(avg), 'penjualan ÷ jumlah nota', deltaHtml(avg, prev ? (prev.average ?? (prev.receipts ? Math.round(prev.sales / prev.receipts) : 0)) : null, prevLabel))}
+      ${tile('Produk terjual', `${(s.items || 0).toLocaleString('id-ID')} <small>pcs</small>`, '', deltaHtml(s.items || 0, prev?.items, prevLabel))}
+    </div>
+  </section>
+  <section class="panel stack" aria-labelledby="kp-chart-t" data-kp-chart></section>`;
+  drawSalesChart($('[data-kp-chart]', host), s, { from, to, grain: s.grain || grain });
+}
+const GRAINS = [['jam', 'Jam'], ['hari', 'Hari'], ['minggu', 'Minggu'], ['bulan', 'Bulan']];
+const GRAIN_TITLE = { jam: 'per jam', hari: 'per hari', minggu: 'per minggu', bulan: 'per bulan' };
+function drawSalesChart(box, s, { from, to, grain }) {
+  const m = chartPref.measure === 'receipts' ? 'receipts' : 'sales';
+  const series = s.series || [];
+  const fmt = (v) => (m === 'sales' ? rupiah(v) : `${v} nota`);
+  const seg = (attr, v, l, on) => `<button type="button" data-${attr}="${v}" aria-pressed="${on}" class="${on ? 'is-on' : ''}">${l}</button>`;
+  const period = `${dayLong(from)}${from !== to ? ` sampai ${dayLong(to)}` : ''}`;
+  const total = series.reduce((a, x) => a + (Number(x[m]) || 0), 0);
+  const peak = series.reduce((a, x) => ((Number(x[m]) || 0) > (Number(a?.[m]) || 0) ? x : a), null);
+  box.innerHTML = `
+    <div class="kp-ch-head">
+      <div><h2 id="kp-chart-t">Grafik penjualan</h2><p class="muted small">Periode ${esc(period)} · ${GRAIN_TITLE[grain] || ''}</p></div>
+      <div class="kp-ch-ctl">
+        <span class="hm-seg" role="group" aria-label="Satuan waktu">${GRAINS.map(([v, l]) => seg('grain', v, l, v === grain)).join('')}</span>
+        <span class="hm-seg" role="group" aria-label="Isi grafik">${seg('measure', 'sales', 'Omzet', m === 'sales')}${seg('measure', 'receipts', 'Jumlah nota', m === 'receipts')}</span>
+      </div>
+    </div>
+    ${series.length ? `<div class="kp-plot" role="img" aria-label="${esc(`${m === 'sales' ? 'Omzet' : 'Jumlah nota'} ${GRAIN_TITLE[grain] || ''}, total ${fmt(total)}${peak && peak[m] ? `, tertinggi ${peak.label}: ${fmt(peak[m])}` : ''}`)}" data-plot></div>
+    <div class="kp-tip" data-tip hidden></div>
+    <table class="visually-hidden"><caption>Grafik penjualan ${esc(GRAIN_TITLE[grain] || '')}</caption><thead><tr><th scope="col">Waktu</th><th scope="col">Omzet</th><th scope="col">Jumlah nota</th></tr></thead>
+      <tbody>${series.map((x) => `<tr><th scope="row">${esc(x.label)}</th><td>${rupiah(x.sales || 0)}</td><td>${x.receipts || 0}</td></tr>`).join('')}</tbody></table>`
+      : '<p class="muted">Belum ada penjualan di periode ini.</p>'}`;
+  box.querySelectorAll('[data-grain]').forEach((b) => b.addEventListener('click', async () => {
+    chartPref.grain = b.dataset.grain; chartPref.range = `${from}|${to}`;
+    box.setAttribute('aria-busy', 'true');
+    try { const d = await rpc('owner_pos_stats', { p_from: from, p_to: to, p_grain: b.dataset.grain }); drawSalesChart(box, d, { from, to, grain: d.grain || b.dataset.grain }); }
+    catch (e) { toast(e.message); }
+    finally { box.removeAttribute('aria-busy'); }
+    box.querySelector(`[data-grain="${chartPref.grain}"]`)?.focus();
+  }));
+  box.querySelectorAll('[data-measure]').forEach((b) => b.addEventListener('click', () => {
+    chartPref.measure = b.dataset.measure; drawSalesChart(box, s, { from, to, grain });
+    box.querySelector(`[data-measure="${chartPref.measure}"]`)?.focus();
+  }));
+  const plot = box.querySelector('[data-plot]');
+  if (!plot) return;
+  const render = () => {
+    const W = Math.max(280, plot.clientWidth), H = W < 520 ? 200 : 260;
+    const padL = 52, padR = 12, padT = 12, padB = 28, iw = W - padL - padR, ih = H - padT - padB;
+    const vals = series.map((x) => Number(x[m]) || 0);
+    const tk = niceTicks(Math.max(0, ...vals), m === 'receipts'), top = tk[tk.length - 1] || 1;
+    const X = (i) => padL + (series.length === 1 ? iw / 2 : (i * iw) / (series.length - 1));
+    const Y = (v) => padT + ih - (v / top) * ih;
+    const pts = vals.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`);
+    const every = Math.max(1, Math.ceil(series.length / Math.floor(iw / 56)));
+    const last = series.length - 1;
+    // Every nth label, and the last one only when it does not crowd the one before it.
+    const showX = (i) => i % every === 0 || (i === last && last % every >= every / 2);
+    const ylab = (v) => (m === 'sales' ? shortRp(v) : String(v));
+    plot.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true" focusable="false">
+      ${tk.map((v) => `<line class="kp-grid" x1="${padL}" x2="${W - padR}" y1="${Y(v)}" y2="${Y(v)}"></line><text class="kp-ax" x="${padL - 8}" y="${Y(v) + 4}" text-anchor="end">${ylab(v)}</text>`).join('')}
+      ${series.map((x, i) => showX(i) ? `<text class="kp-ax" x="${X(i)}" y="${H - 8}" text-anchor="${series.length > 1 && i === 0 ? 'start' : i === series.length - 1 && series.length > 1 ? 'end' : 'middle'}">${esc(x.label)}</text>` : '').join('')}
+      ${series.length > 1 ? `<polygon class="kp-area" points="${X(0)},${Y(0)} ${pts.join(' ')} ${X(series.length - 1)},${Y(0)}"></polygon>
+      <polyline class="kp-line" points="${pts.join(' ')}"></polyline>` : `<circle class="kp-dot" cx="${X(0)}" cy="${Y(vals[0])}" r="5"></circle>`}
+      <line class="kp-cross" data-cross x1="0" x2="0" y1="${padT}" y2="${padT + ih}" visibility="hidden"></line>
+      <circle class="kp-dot" data-hdot r="5" cx="0" cy="0" visibility="hidden"></circle>
+    </svg>`;
+    const svg = plot.querySelector('svg'), cross = plot.querySelector('[data-cross]'), hdot = plot.querySelector('[data-hdot]'), tip = box.querySelector('[data-tip]');
+    const hide = () => { cross.setAttribute('visibility', 'hidden'); hdot.setAttribute('visibility', 'hidden'); tip.hidden = true; };
+    svg.addEventListener('pointermove', (e) => {
+      const r = svg.getBoundingClientRect(), x = e.clientX - r.left;
+      const i = series.length === 1 ? 0 : Math.max(0, Math.min(series.length - 1, Math.round(((x - padL) / iw) * (series.length - 1))));
+      const cx = X(i), cy = Y(vals[i]);
+      cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+      hdot.setAttribute('cx', cx); hdot.setAttribute('cy', cy); hdot.setAttribute('visibility', 'visible');
+      const it = series[i];
+      tip.innerHTML = `<b>${esc(it.label)}</b><span class="num">${rupiah(it.sales || 0)}</span><span class="num">${it.receipts || 0} nota</span>`;
+      tip.hidden = false;
+      const pr = plot.getBoundingClientRect(), br = box.getBoundingClientRect();
+      const left = Math.min(pr.left - br.left + cx + 12, br.width - tip.offsetWidth - 8);
+      tip.style.left = `${cx > iw * 0.7 + padL ? pr.left - br.left + cx - tip.offsetWidth - 12 : left}px`;
+      tip.style.top = `${pr.top - br.top + Math.max(0, cy - tip.offsetHeight - 8)}px`;
+    });
+    svg.addEventListener('pointerleave', hide);
+  };
+  render();
+  if (plot._ro) plot._ro.disconnect();
+  let w0 = plot.clientWidth;
+  plot._ro = new ResizeObserver(() => { if (Math.abs(plot.clientWidth - w0) > 4) { w0 = plot.clientWidth; render(); } });
+  plot._ro.observe(plot);
 }
 
 function heatmap(cells) {
@@ -409,9 +555,10 @@ async function staff() {
   p.innerHTML = `
   <div class="panel stack">
     <div class="row-between"><h1>Staf</h1><span class="muted small">${people.length} akun aktif</span></div>
-    <p class="muted small">Akun pribadi staf: untuk absen dari HP masing-masing dan untuk dipilih sebagai yang melayani di kasir. Staf masuk dengan username atau nomor dan password dari Anda.</p>
+    <p class="muted small">Akun pribadi staf: untuk absen di ${esc(location.host)}/staf dari HP masing-masing, dipilih sebagai yang melayani di kasir, dan sekaligus kartu member staf itu.</p>
     <ul class="list">${people.map((x) => `<li>
-      <span class="grow"><strong>${esc(x.full_name || 'Tanpa nama')}</strong>${x.is_me ? ' <span class="muted small">(Anda)</span>' : ''}<br><span class="muted small num">${x.username ? '@' + esc(x.username) + ', ' : ''}${esc(prettyPhone(x.whatsapp))}</span></span>
+      <span class="grow"><strong>${esc(x.full_name || 'Tanpa nama')}</strong>${x.is_me ? ' <span class="muted small">(Anda)</span>' : ''}<br><span class="muted small num">${x.username ? esc(x.username) + ', ' : ''}${esc(prettyPhone(x.whatsapp))}${x.employer ? ', ' + esc(x.employer) : ''}</span></span>
+      ${x.start_password && x.role !== 'owner' ? '<span class="tag tag-warn">Belum ganti password awal</span>' : ''}
       <span class="tag">${x.role === 'owner' ? 'Pemilik' : x.role === 'manager' ? 'Manajer' : 'Staf'}</span>
       <span class="row">
         <button class="btn btn-text" type="button" data-reset="${esc(x.whatsapp)}" data-name="${esc(x.full_name || prettyPhone(x.whatsapp))}">Ganti password</button>
@@ -467,28 +614,37 @@ async function staff() {
   <form class="panel stack" id="add" novalidate aria-labelledby="add-title">
     <h2 id="add-title">Tambah staf</h2>
     <div class="form-grid">
-      <label class="field"><span>Nama</span><input type="text" id="add-name" autocomplete="off" required></label>
-      <label class="field"><span>Username</span><input type="text" id="add-username" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="20" required></label>
+      <label class="field"><span>Nama lengkap</span><input type="text" id="add-name" autocomplete="off" required></label>
+      <label class="field"><span>Username <span class="hint">nama depan + nama belakang</span></span><input type="text" id="add-username" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="20" placeholder="KevinHadiyan" required></label>
       <label class="field"><span>Nomor WhatsApp</span><input type="tel" id="add-phone" inputmode="tel" placeholder="0812 3456 7890" required></label>
-      <label class="field"><span>Password awal, minimal 8 karakter</span><input type="text" id="add-pin" autocomplete="off" spellcheck="false" required></label>
+      <label class="field"><span>Bekerja untuk</span><select id="add-employer"><option>Hanashuya</option><option>Kaaramel Juice</option></select></label>
       <label class="field"><span>Peran</span><select id="add-role"><option value="staff">Staf</option><option value="manager">Manajer</option><option value="owner">Pemilik</option></select></label>
+      <label class="field" id="add-pin-f" hidden><span>Password pemilik, minimal 8 karakter</span><input type="text" id="add-pin" autocomplete="off" spellcheck="false"></label>
     </div>
-    <p class="muted small">Pakai nomor kerja staf. Nomor yang sudah dipakai untuk kartu member tidak bisa jadi akun staf. Peran Pemilik bisa melihat dasbor ini. Berikan username dan password langsung ke staf.</p>
+    <p class="muted small" id="add-note">Password awal staf dan manajer: 123456. Saat pertama masuk di ${esc(location.host)}/staf, mereka wajib membuat password sendiri. Akun ini juga jadi kartu member mereka; kalau nomornya sudah punya kartu member, kartu itu dipakai dan stempelnya tetap.</p>
     <div class="notice" id="add-msg" hidden></div>
     <button class="btn" type="submit" style="justify-self:start">Tambah staf</button>
   </form>`;
 
+  // Username FrontLastname from the full name (Glenn, 13 Nov 2026), filled in until the owner types one.
+  const autoUser = (name) => { const w = name.replace(/[^A-Za-z ]/g, '').trim().split(/\s+/).filter(Boolean);
+    return w.length > 1 ? (w[0] + w[w.length - 1]).slice(0, 20) : (w[0] || ''); };
+  let userTyped = false;
+  $('#add-username').addEventListener('input', () => { userTyped = !!$('#add-username').value; });
+  $('#add-name').addEventListener('input', () => { if (!userTyped) $('#add-username').value = autoUser($('#add-name').value); });
+  $('#add-role').addEventListener('change', () => { $('#add-pin-f').hidden = $('#add-role').value !== 'owner'; });
   $('#add').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const btn = $('button[type="submit"]', e.currentTarget), msg = $('#add-msg');
-    const pin = $('#add-pin').value, username = $('#add-username').value.trim().toLowerCase();
-    if (!$('#add-name').value.trim()) { notice(msg, 'Isi nama staf.'); $('#add-name').focus(); return; }
-    if (!/^[a-z0-9._]{3,20}$/.test(username)) { notice(msg, 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'); $('#add-username').focus(); return; }
-    if (pin.length < 8) { notice(msg, 'Password minimal 8 karakter.'); $('#add-pin').focus(); return; }
+    const btn = $('button[type="submit"]', e.currentTarget), msg = $('#add-msg'), role = $('#add-role').value;
+    const pin = $('#add-pin').value, username = $('#add-username').value.trim();
+    if (!$('#add-name').value.trim()) { notice(msg, 'Isi nama lengkap staf.'); $('#add-name').focus(); return; }
+    if (!/^[A-Za-z0-9._]{3,20}$/.test(username)) { notice(msg, 'Username 3 sampai 20 karakter: huruf, angka, titik, atau garis bawah.'); $('#add-username').focus(); return; }
+    if (role === 'owner' && pin.length < 8) { notice(msg, 'Password minimal 8 karakter.'); $('#add-pin').focus(); return; }
     busy(btn, true, 'Menyimpan…');
     try {
-      await rpc('owner_add_staff', { p_name: $('#add-name').value, p_username: username, p_phone: $('#add-phone').value, p_password: pin, p_role: $('#add-role').value });
-      toast(`${$('#add-name').value.trim()} bisa masuk dengan akunnya`);
+      const r = await rpc('owner_add_staff', { p_name: $('#add-name').value, p_username: username, p_phone: $('#add-phone').value,
+        p_password: role === 'owner' ? pin : null, p_role: role, p_employer: $('#add-employer').value });
+      toast(r.start_password ? `Dibuat. Username ${username}, password awal 123456` : `${$('#add-name').value.trim()} bisa masuk dengan akunnya`);
       staff();
     } catch (err) { notice(msg, err.message); busy(btn, false); }
   });

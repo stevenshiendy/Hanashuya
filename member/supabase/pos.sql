@@ -1002,9 +1002,14 @@ begin
   if tk.id is not null then
     select * into m from profiles where id = tk.member_id and deleted_at is null;
     if m.id is null then raise exception 'Kartu tidak ditemukan.'; end if;
-    if m.id in (staff, srv.id) or public._staff_conflict(m.id) then
+    if m.id in (staff, srv.id) then
+      raise exception 'Tidak bisa memakai kartu sendiri. Minta staf lain yang melayani.';
+    end if;
+    if public._staff_conflict(m.id) then
       raise exception 'Kartu ini terhubung dengan akun staf, jadi tidak bisa diberi stempel atau hadiah.';
     end if;
+    -- A staff member's own card, used by a colleague: allowed, shown to the owner.
+    if m.role in ('staff', 'manager') then f := array_append(f, 'kartu_staf'); end if;
     if tk.via = 'kode' then f := array_append(f, 'kode_diketik'); end if;
     if tk.via = 'nomor' then f := array_append(f, 'nomor_dicari'); end if;
     if m.gender is not null then g := m.gender; end if;
@@ -1034,7 +1039,7 @@ begin
   -- even by two tablets at once. A cancelled order gives it back.
   if q->'promo' is not null and jsonb_typeof(q->'promo') = 'object' and q#>>'{promo,kind}' not in ('bogo', 'promo', 'malam50', 'instruksi50') then
     insert into redemptions (member_id, staff_id, cycle, slot, reward_label, kind, order_id)
-    values (m.id, staff, (q#>>'{promo,cycle}')::int, (q#>>'{promo,slot}')::int, q#>>'{promo,label}', q#>>'{promo,kind}', oid)
+    values (m.id, srv.id, (q#>>'{promo,cycle}')::int, (q#>>'{promo,slot}')::int, q#>>'{promo,label}', q#>>'{promo,kind}', oid)
     returning id into rid;
     update pos_orders set redemption_id = rid where id = oid;
   end if;
@@ -1052,6 +1057,21 @@ begin
 end $$;
 
 -- Step 2. Takes the payment for a 'menunggu' order and writes stamps, the sales row and stock.
+-- Automatic journals (13 Nov 2026, like VireoPOS: a sale posts to the books when it closes). When
+-- akunting.sql has run, rebuild that day's automatic journals right away. Accounting never blocks a sale:
+-- any error is written to audit_log ('akunting_gagal') and the owner's Akunting page syncs again on open.
+create or replace function public._pos_acc_post(p_day date, p_order uuid) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+begin
+  if p_day is null or to_regprocedure('public._acc_sync_core(date,date)') is null then return; end if;
+  begin
+    execute 'select public._acc_sync_core($1, $1)' using p_day;
+  exception when others then
+    perform public._log('akunting_gagal', jsonb_build_object('error', sqlerrm, 'order', p_order, 'day', p_day));
+  end;
+end $$;
+
 create or replace function public._pos_settle(staff uuid, p_id uuid, p_payment jsonb, p_client_at text) returns void
 language plpgsql volatile security definer set search_path = public
 as $$
@@ -1139,7 +1159,8 @@ begin
            filter (where coalesce(i.product_code, '') <> 'bag'), '[]')
       into items from pos_order_items i left join pos_flavours fl on fl.id = i.flavour_id where i.order_id = o.id;
     insert into sales (receipt_no, sale_day, total, member_id, staff_id, stamps, items, gender, age_range, via, flags, created_at)
-    values (null, v_day, o.total, o.member_id, staff, v_stamps, items, o.gender, o.age_range, o.via, o.flags || f, sold)
+    -- Who served, not the signed-in account (the tablet's kasir account), so Ringkasan credits the staff (13 Nov 2026).
+    values (null, v_day, o.total, o.member_id, coalesce(o.served_by, staff), v_stamps, items, o.gender, o.age_range, o.via, o.flags || f, sold)
     returning id into sid;
   end if;
 
@@ -1161,6 +1182,7 @@ begin
   if o.member_id is not null then perform public._sync_cycles(o.member_id); end if;
   perform public._log('pos_penjualan', jsonb_build_object('order', o.id, 'receipt', o.receipt_no, 'total', o.total,
     'member', o.member_id, 'served_by', o.served_by, 'method', method, 'flags', o.flags || f));
+  perform public._pos_acc_post(v_day, o.id);
 end $$;
 
 -- Konfirmasi pesanan: the order gets its invoice number and waits for payment.
@@ -1972,6 +1994,7 @@ begin
   perform public._log(case when p_approve then 'pos_setujui_' else 'pos_tolak_' end || v.kind,
     jsonb_build_object('request', v.id, 'order', o.id, 'receipt', o.receipt_no, 'amount', amt, 'refund_method', met,
       'lines', v.lines, 'partial', coalesce(part, false)));
+  if p_approve then perform public._pos_acc_post(public._local(now())::date, o.id); end if;
   return json_build_object('receipt_no', o.receipt_no,
     'status', case when not p_approve then o.status when v.kind = 'refund' and part then 'dibayar' else v.kind end,
     'amount', amt, 'refund_method', met, 'partial', coalesce(part, false));
@@ -2072,3 +2095,10 @@ begin
     end if;
   end loop;
 end $$;
+
+-- Backfill (13 Nov 2026, safe to re-run): sales and rewards from the till belong to who served, not to the
+-- signed-in account. Before this, a sale made on the tablet's kasir account showed 0 for the staff in Ringkasan.
+update sales x set staff_id = o.served_by from pos_orders o
+ where o.sale_id = x.id and o.served_by is not null and x.staff_id is distinct from o.served_by;
+update redemptions x set staff_id = o.served_by from pos_orders o
+ where o.redemption_id = x.id and o.served_by is not null and x.staff_id is distinct from o.served_by;
