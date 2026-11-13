@@ -118,7 +118,8 @@ export function sideRail(nav) {
   let open = null;
   function place(o) {
     const r = o.btn.getBoundingClientRect();
-    o.fly.style.left = `${Math.round(r.right + 12)}px`;
+    // Beside the sidebar's own edge, never over it (13 Nov 2026).
+    o.fly.style.left = `${Math.round(Math.max(r.right, nav.getBoundingClientRect().right) + 8)}px`;
     const h = o.fly.offsetHeight;
     o.fly.style.top = `${Math.round(Math.max(8, Math.min(r.top, innerHeight - h - 8)))}px`;
   }
