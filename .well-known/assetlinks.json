@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "id.hanashuya.kasir",
+    "sha256_cert_fingerprints": ["A6:12:5F:65:EF:91:C4:4A:96:1D:F4:3B:6F:42:EE:25:98:2E:1A:5C:E2:EF:A5:C5:F1:D4:11:F0:16:83:51:A4"]
+  }
+}]
