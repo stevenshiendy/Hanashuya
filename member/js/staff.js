@@ -1,6 +1,11 @@
-import { sb, configured, $, $$, esc, rpc, busy, notice, toast, rupiah, time, day, mountLogin, setupMissing, session, signOut, tabs, prettyPhone, toPhone, signupUrl, qrSvg } from './lib.js';
+import { sb, configured, $, $$, esc, rpc, busy, notice, toast, rupiah, time, day, mountLogin, setupMissing, session, signOut, tabs, prettyPhone, toPhone, signupUrl, qrSvg, maxBirth17, RETIRE_STAF_PAGE, staffHome } from './lib.js';
+
+import { mountApprovals, loadApprovals } from './approvals.js';
+import { staffStock } from './stock.js';
+import { mountKasirAbsen, stopKasirAbsen } from './attendance.js';
 
 const app = $('#app');
+let myRole = '';
 let menu = [];
 let member = null;      // { ticket, first_name, ... } or { walkin: true }
 let qty = {};
@@ -14,6 +19,8 @@ const AGES = [['<17', 'Di bawah 17'], ['17-24', '17–24'], ['25-34', '25–34']
 
 async function start() {
   if (!configured) return setupMissing(app);
+  // Old cashier page retired (switch in lib.js): signed out goes to the till's own sign-in.
+  if (RETIRE_STAF_PAGE && !(await session().catch(() => null))) return location.replace('kasir.html');
   if (!(await session())) {
     return mountLogin(app, { staff: true, title: 'Masuk sebagai kasir', lead: 'Pakai username atau nomor WhatsApp dan password dari pemilik.', onDone: boot });
   }
@@ -24,7 +31,8 @@ async function boot() {
   $('#logout').hidden = false;
   let who;
   try { who = await rpc('whoami'); } catch (e) { app.innerHTML = `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`; return; }
-  if (!who || (who.role !== 'staff' && who.role !== 'owner')) {
+  if (RETIRE_STAF_PAGE && who && ['staff', 'manager', 'owner'].includes(who.role)) return location.replace(staffHome(who));
+  if (!who || !['staff', 'manager', 'owner'].includes(who.role)) {
     app.innerHTML = `<section class="panel stack"><h1>Belum terdaftar sebagai kasir</h1>
       <p>Nomor <strong class="num">${esc(prettyPhone(who?.whatsapp) || 'ini')}</strong> bukan akun kasir. Akun kasir dibuat pemilik di dasbor pemilik, bagian Staf.</p>
       <button class="btn btn-quiet" type="button" id="reload">Keluar</button></section>`;
@@ -33,6 +41,7 @@ async function boot() {
   }
   // The owner switches between this page and the dashboard from the header.
   if (who.role === 'owner') $('#to-owner').hidden = false;
+  myRole = who.role;
   const [{ data }, { data: rw }] = await Promise.all([
     sb.from('menu_items').select('id, name, price').order('sort'),
     sb.from('rewards').select('slot, label').order('slot'),
@@ -49,15 +58,25 @@ function render() {
       <button role="tab" id="t-sale" aria-controls="p-sale" data-tab="penjualan">Kasir</button>
       <button role="tab" id="t-today" aria-controls="p-today" data-tab="hari-ini">Hari ini</button>
       <button role="tab" id="t-join" aria-controls="p-join" data-tab="daftar-member">Daftar member</button>
+      <button role="tab" id="t-stock" aria-controls="p-stock" data-tab="stok">Stok</button>
+      <button role="tab" id="t-absen" aria-controls="p-absen" data-tab="absen">Absen</button>
+      ${myRole === 'manager' || myRole === 'owner' ? '<button role="tab" id="t-appr" aria-controls="p-appr" data-tab="persetujuan">Persetujuan</button>' : ''}
     </div>
     <section id="p-sale" role="tabpanel" aria-labelledby="t-sale" class="stack-lg"></section>
     <section id="p-today" role="tabpanel" aria-labelledby="t-today" class="stack" hidden></section>
     <section id="p-join" role="tabpanel" aria-labelledby="t-join" class="stack" hidden></section>
+    <section id="p-stock" role="tabpanel" aria-labelledby="t-stock" class="stack-lg" hidden></section>
+    <section id="p-absen" role="tabpanel" aria-labelledby="t-absen" class="stack-lg" hidden></section>
+    ${myRole === 'manager' || myRole === 'owner' ? '<section id="p-appr" role="tabpanel" aria-labelledby="t-appr" class="stack" hidden></section>' : ''}
   </div>`;
   saleForm();
   joinTab();
+  if ($('#p-appr')) mountApprovals($('#p-appr'));
   tabs(app, (t) => {
+    if (t === 'persetujuan') loadApprovals();
     if (t === 'hari-ini') loadToday();
+    if (t === 'stok') staffStock($('#p-stock'), myRole);
+    if (t === 'absen') mountKasirAbsen($('#p-absen')); else stopKasirAbsen();
     if (t !== 'penjualan') stopCamera();
   });
 }
@@ -399,7 +418,7 @@ function joinTab() {
       <span class="phone"><span class="cc" aria-hidden="true">+62</span>
       <input type="tel" id="jf-phone" inputmode="tel" autocomplete="off" placeholder="812 3456 7890" required></span>
       <span class="hint">Dipakai member untuk masuk ke kartunya.</span></label>
-    <fieldset class="field"><legend>Jenis kelamin <span class="hint">tidak wajib</span></legend>
+    <fieldset class="field"><legend>Jenis kelamin</legend>
       <div class="choices">${GENDER_CHOICES.map(([v, l]) => `<label class="choice"><input type="radio" name="jf-gender" value="${v}"><span>${l}</span></label>`).join('')}</div></fieldset>
     <label class="check"><input type="checkbox" id="jf-marketing">
       <span>Pembeli mau dapat info promo Hanashuya lewat WhatsApp. Tanya dulu, centang hanya kalau pembeli setuju.</span></label>
@@ -430,10 +449,7 @@ function joinTab() {
   });
 }
 
-function maxBirth() {
-  const t = new Date();
-  return new Date(t.getFullYear() - 17, t.getMonth(), t.getDate()).toISOString().slice(0, 10);
-}
+const maxBirth = () => maxBirth17();
 
 async function createMember(e) {
   e.preventDefault();
@@ -545,6 +561,12 @@ async function loadToday() {
   const undoBtn = (x, kind) => (x.reversed || x.undo_pending) ? '' : `<button class="btn btn-text" type="button" data-kind="${kind}" data-id="${x.id}">Minta batal</button>`;
   p.innerHTML = `
   <div class="panel stack">
+    <h2>Ringkasan hari ini</h2>
+    <p class="muted small">Salin laporan penjualan hari ini untuk dikirim ke grup WhatsApp Daily Sales Report.</p>
+    <div class="row"><button class="btn btn-quiet" type="button" id="copy-dsr">Salin ringkasan hari ini</button></div>
+    <div class="notice" id="dsr-msg" hidden></div>
+  </div>
+  <div class="panel stack">
     <h2>Penjualan saya hari ini</h2>
     ${d.sales.length ? `<ul class="list">${d.sales.map((x) => `
       <li><span class="grow"><strong class="num">${esc(time(x.created_at))}</strong>${x.receipt_no ? ' struk ' + esc(x.receipt_no) : ''}<br>
@@ -564,6 +586,16 @@ async function loadToday() {
     <div class="notice" id="undo-msg" hidden></div>
     <div class="row"><button class="btn" type="submit">Kirim ke pemilik</button><button class="btn btn-quiet" type="button" id="undo-no">Batal</button></div>
   </form>`;
+  $('#copy-dsr', p).addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    busy(btn, true, 'Menyiapkan…');
+    try {
+      const txt = await rpc('staff_daily_summary');
+      await navigator.clipboard.writeText(txt);
+      notice($('#dsr-msg', p), 'Tersalin. Tempel di grup WhatsApp.', 'ok');
+    } catch (err) { notice($('#dsr-msg', p), err.message || 'Gagal menyalin. Coba lagi.'); }
+    busy(btn, false);
+  });
   let target = null;
   $$('[data-kind]', p).forEach((b) => b.addEventListener('click', () => {
     target = { kind: b.dataset.kind, id: Number(b.dataset.id) };

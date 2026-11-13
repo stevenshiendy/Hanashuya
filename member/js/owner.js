@@ -1,11 +1,93 @@
 import { sb, configured, $, $$, esc, rpc, busy, notice, toast, rupiah, when, day, mountLogin, setupMissing, session, signOut, tabs, prettyPhone, signupUrl, qrSvg } from './lib.js';
+import { mountProducts } from './owner-products.js';
+import { mountOwnerReports } from './owner-reports.js';
+import { ownerStock } from './stock.js';
+import { mountOwnerAbsensi } from './attendance.js';
+import { mountOrders, mountMembers, mountPromos } from './owner-backoffice.js';
+import { mountCashRekap } from './owner-cash.js';
+import { mountStampBoosts, mountCommission } from './owner-loyalty.js';
+import { mountWaTemplates } from './owner-wa.js';
+import { mountLaporan } from './owner-laporan.js';
+import { mountTransaksi } from './owner-transaksi.js';
+import { mountAkunting } from './owner-akunting.js';
+import { mountProduksi } from './owner-produksi.js';
+import { mountReservasi } from './owner-reservasi.js';
+import { mountReportHub } from './owner-laporan2.js';
+import * as rail from './side-rail.js';
+import { rangeHtml, wireRange, presetRange, KEYS } from './owner-range.js';
+import { ownerSearch } from './owner-search.js';
+
+const sideRail = rail.sideRail;
+// The owner menu: [group key, rail icon, heading, [tab id, #hash, label]...].
+const MENU = [
+  ['beranda', 'home', '', [['t-sum', 'ringkasan', 'Ringkasan']]],
+  ['penjualan', 'doc', 'Penjualan', [['t-ord', 'pesanan', 'Pesanan'],
+    ['t-sales', 'penjualan', 'Penjualan member'], ['t-kas', 'rekap-kas', 'Rekap kas']]],
+  // Laporan group (Glenn, 12 Nov 2026, like VireoPOS): every report in one place.
+  ['laporan', 'chart', 'Laporan', [['t-stock-rep', 'stok-laporan', 'Laporan stok'], ['t-lbuy', 'laporan-pembelian', 'Laporan pembelian'],
+    ['t-rep', 'laporan-pos', 'Laporan penjualan'], ['t-profit', 'laba-kotor', 'Laporan laba'], ['t-lother', 'laporan-lainnya', 'Laporan lainnya']]],
+  ['promo', 'tag', 'Promo', [['t-promo', 'promo', 'Promo POS'], ['t-camp', 'promo-member', 'Promo member'], ['t-codes', 'voucher-kertas', 'Voucher kertas']]],
+  ['produk', 'box', 'Produk', [['t-prod', 'produk', 'Daftar produk'], ['t-cat', 'kategori', 'Kategori'], ['t-flav', 'rasa', 'Rasa'],
+    ['t-target', 'target-harian', 'Target harian'], ['t-chan', 'saluran', 'Saluran pesan-antar']]],
+  // Stok masuk and Stok opname are the same records as in Transaksi (13 Nov 2026: one name, one view):
+  // a 4th field makes the item a shortcut that opens that Transaksi tab. Resep produk (what a sale
+  // takes from stock) is not Resep produksi (what making a stock item uses), so both stay.
+  ['stok', 'stack', 'Stok', [['t-stock', 'stok', 'Stok sekarang'], ['t-stock-in', 'stok-masuk', 'Stok masuk', 't-in'],
+    ['t-stock-op', 'opname-transaksi', 'Stok opname', 't-op2'], ['t-stock-req', 'permintaan', 'Permintaan barang'],
+    ['t-recipe', 'resep', 'Resep produk'], ['t-items', 'barang', 'Barang dan harga pokok'], ['t-supp', 'pemasok', 'Pemasok']]],
+  ['member', 'person', 'Member', [['t-mem', 'member', 'Daftar member'], ['t-help', 'bantuan', 'Bantuan akun'], ['t-rules', 'aturan-kartu', 'Aturan kartu'],
+    ['t-boost', 'bonus-stempel', 'Bonus stempel'], ['t-wa', 'template-wa', 'Template WhatsApp'], ['t-join', 'qr-daftar', 'QR pendaftaran']]],
+  // Per staf holds izin, rekap and profil for one person (Glenn, 12 Nov 2026); only these keep their own item.
+  ['tim', 'team', 'Tim', [['t-staff', 'staf', 'Staf'], ['t-att', 'absensi', 'Absen harian'], ['t-att-one', 'absen-staf', 'Per staf'],
+    ['t-att-ot', 'lembur', 'Lembur'], ['t-att-plan', 'jadwal', 'Jadwal'], ['t-komisi', 'komisi', 'Komisi']]],
+  // Transaksi (Glenn, 12 Nov 2026, like VireoPOS): purchase orders, stock in and out, adjustments, commission payouts, voids.
+  ['transaksi', 'swap', 'Transaksi', [['t-po', 'purchase-order', 'Purchase Order'], ['t-recv', 'penerimaan-barang', 'Penerimaan barang'],
+    ['t-in', 'stok-masuk', 'Stok masuk'], ['t-out', 'stok-keluar', 'Stok keluar'], ['t-op2', 'opname-transaksi', 'Stok opname'],
+    ['t-loc', 'lokasi-stok', 'Lokasi stok'], ['t-st', 'stok-transfer', 'Stok transfer'], ['t-to', 'transfer-order', 'Transfer order'], ['t-sj', 'surat-jalan', 'Surat jalan'],
+    ['t-pt', 'penerimaan-transfer', 'Penerimaan transfer'], ['t-transit', 'dalam-perjalanan', 'Dalam perjalanan'], ['t-mk', 'produksi', 'Produksi'],
+    ['t-unkit', 'bongkar-produksi', 'Bongkar produksi'], ['t-precipe', 'resep-produksi', 'Resep produksi'], ['t-card', 'kartu-stok', 'Kartu stok'],
+    ['t-adj', 'penyesuaian-stok', 'Penyesuaian stok'], ['t-kp', 'proses-komisi', 'Proses komisi'], ['t-void', 'pembatalan', 'Pembatalan penjualan'],
+    ['t-rsv', 'pesanan-di-muka', 'Pesanan di muka'], ['t-dmut', 'mutasi-deposito', 'Mutasi deposito'], ['t-dres', 'deposit-reservasi', 'Deposit reservasi'],
+    ['t-stamp', 'koreksi-stempel', 'Koreksi stempel']]],
+  // Akunting (Glenn, 12 Nov 2026, like VireoPOS): chart of accounts, journals (automatic from sales, purchases, cash and stock; manual), reports.
+  ['akunting', 'book', 'Akunting', [['t-acc', 'akun-buku-besar', 'Akun buku besar'], ['t-jurnal', 'buat-jurnal', 'Buat jurnal'], ['t-lacc', 'laporan-akunting', 'Laporan akunting']]],
+  ['pengaturan', 'gear', 'Pengaturan', [['t-set', 'cadangan', 'Cadangan data']]],
+];
+// Hashes that no longer name a view. Every other old hash (produk, stok, staf, absensi,
+// member, promo, laporan-pos, ...) is still the first view of its feature.
+const ALIAS = { pengaturan: 'cadangan', persetujuan: 'absen-staf', rekap: 'absen-staf', 'profil-staf': 'absen-staf',
+  'barang-masuk': 'stok-masuk', 'stok-opname': 'opname-transaksi' };
+const isLink = (item) => !!item[3];
+// A manager signs in here too (Glenn, 13 Nov 2026) and sees the reports read-only: Ringkasan, the Laporan
+// group, the Transaksi lists and Laporan akunting. Settings, staff accounts, products and prices, backups,
+// promo setup, vouchers and member data stay with the owner (the SQL refuses them for a manager as well).
+const MANAGER_VIEWS = new Set(['ringkasan', 'stok-laporan', 'laporan-pembelian', 'laporan-pos', 'laba-kotor', 'laporan-lainnya',
+  'purchase-order', 'penerimaan-barang', 'stok-masuk', 'stok-keluar', 'opname-transaksi', 'penyesuaian-stok', 'kartu-stok',
+  'dalam-perjalanan', 'proses-komisi', 'pembatalan', 'laporan-akunting']);
+const menuFor = (role) => (role === 'owner' ? MENU : MENU.map(([key, icon, title, items]) =>
+  [key, icon, title, items.filter((i) => !isLink(i) && MANAGER_VIEWS.has(i[1]))]).filter(([, , , items]) => items.length));
+const viewsOf = (menu) => menu.flatMap(([, , group, items]) => items.filter((i) => !isLink(i)).map(([id, hash, label]) => ({ id, hash, label, group: group || 'Beranda' })));
+let VIEWS = viewsOf(MENU);
+let READ_ONLY = false;
 
 const app = $('#app');
 const DAYS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
-const FLAG = { kode_diketik: 'Kode kartu diketik', nomor_dicari: 'Kartu dicari lewat nomor WhatsApp', staf_sama_sering: 'Staf yang sama sering memberi stempel ke kartu ini', banyak_stempel_sehari: 'Banyak stempel dalam sehari' };
+const FLAG = { total_besar: 'Total di atas Rp500.000', kode_diketik: 'Kode kartu diketik', nomor_dicari: 'Kartu dicari lewat nomor WhatsApp', staf_sama_sering: 'Staf yang sama sering memberi stempel ke kartu ini', banyak_stempel_sehari: 'Banyak stempel dalam sehari' };
 const PROBLEM = { tidak_ada_struk_cocok: 'Tidak ada struk dengan total dan jam yang sama', nama_beda: 'Nama pelanggan di VireoPOS beda' };
 const LABEL = { perempuan: 'Perempuan', 'laki-laki': 'Laki-laki', tidak_disebut: 'Tidak disebut', kosong: 'Tidak diisi', '<17': 'Di bawah 17' };
-let range = Number(new URLSearchParams(location.search).get('hari')) || 30;
+// Ringkasan range: the shared control (js/owner-range.js, 13 Nov 2026), 30 hari at first.
+// ?rentang=hari|kemarin|7|30|bulan|bulan-lalu, or ?dari=&sampai=; the old ?hari=7|30 still works.
+const qs0 = new URLSearchParams(location.search);
+const sumRange = (() => {
+  if (qs0.get('dari') && qs0.get('sampai')) return { preset: 'custom', from: qs0.get('dari'), to: qs0.get('sampai') };
+  const k = qs0.get('rentang') || qs0.get('hari');
+  const preset = KEYS.includes(k) && k !== 'custom' ? k : '30';
+  const [from, to] = presetRange(preset, null);
+  return { preset, from, to };
+})();
+const isoFmt = (opts) => (iso) => (iso ? new Intl.DateTimeFormat('id-ID', { timeZone: 'UTC', ...opts }).format(new Date(iso + 'T00:00:00Z')) : '');
+const dayLong = isoFmt({ day: 'numeric', month: 'long', year: 'numeric' });
+const dayShort = isoFmt({ weekday: 'short', day: 'numeric', month: 'short' });
 
 async function start() {
   if (!configured) return setupMissing(app);
@@ -16,30 +98,140 @@ async function start() {
 async function boot() {
   $('#logout').hidden = false;
   const who = await rpc('whoami').catch(() => null);
-  if (!who || who.role !== 'owner') {
-    app.innerHTML = `<section class="panel stack"><h1>Khusus pemilik</h1><p>Nomor ${esc(prettyPhone(who?.whatsapp) || 'ini')} bukan akun pemilik. Akun pemilik pertama diatur sekali lewat SQL, lihat README.</p></section>`;
+  if (!who || (who.role !== 'owner' && who.role !== 'manager')) {
+    app.innerHTML = `<section class="panel stack"><h1>Khusus pemilik dan manajer</h1><p>Nomor ${esc(prettyPhone(who?.whatsapp) || 'ini')} bukan akun pemilik atau manajer. Akun pemilik pertama diatur sekali lewat SQL, lihat README.</p></section>`;
     return;
   }
+  READ_ONLY = who.role === 'manager';
+  const MENU_NOW = menuFor(who.role);
+  VIEWS = viewsOf(MENU_NOW);
+  // The search lists each view once, under the group that owns it (a Stok shortcut is found as its Transaksi view).
+  const SEARCH_ITEMS = VIEWS.map(({ hash, label, group }) => ({ hash, label, group }));
+  if (READ_ONLY) {
+    const roleTag = $('header.bar .role');
+    if (roleTag) roleTag.textContent = 'Manajer';
+    document.title = 'Laporan Hanashuya';
+  }
   $('#to-staff').hidden = false;
+  // Sidebar grouped like the VireoPOS back office (Glenn, 11 Nov 2026), one feature per
+  // item (Glenn, 12 Nov: "one feature per view"). Each row: [tab id, #hash, label]; the
+  // panel id is the tab id with p- in front. Markup contract for js/side-rail.js: one
+  // .side-g[data-group][data-icon] per group, labels inside .side-t.
+  const shell = MENU_NOW.map(([key, icon, title, items]) => `<div class="side-g" data-group="${key}" data-icon="${icon}">
+      ${title ? `<p class="side-h" id="sh-${key}">${title}</p>` : ''}
+      <div role="tablist" aria-orientation="vertical" ${title ? `aria-labelledby="sh-${key}"` : 'aria-label="Beranda"'}>${items.filter((i) => !isLink(i)).map(([id, hash, label]) =>
+        `<button role="tab" id="${id}" aria-controls="p${id.slice(1)}" data-tab="${hash}"><span class="side-t">${label}</span></button>`).join('')}</div>
+      ${items.some(isLink) ? `<div class="side-links">${items.filter(isLink).map(([id, , label, target]) =>
+        `<button type="button" class="side-link" id="${id}" data-link="${target}"><span class="side-t">${label}</span></button>`).join('')}</div>` : ''}</div>`).join('\n      ');
+  const panels = VIEWS.map(({ id }, i) => `<section id="p${id.slice(1)}" role="tabpanel" aria-labelledby="${id}" class="stack-lg"${i ? ' hidden' : ''}></section>`).join('\n    ');
+  app.classList.add('has-side');
+  $('header.bar').classList.add('has-side');
   app.innerHTML = `
-  <div class="stack-lg">
-    <div class="tabs" role="tablist" aria-label="Dasbor">
-      <button role="tab" id="t-sum" aria-controls="p-sum" data-tab="ringkasan">Ringkasan</button>
-      <button role="tab" id="t-sales" aria-controls="p-sales" data-tab="penjualan">Penjualan</button>
-      <button role="tab" id="t-match" aria-controls="p-match" data-tab="cocokkan">Cocokkan struk</button>
-      <button role="tab" id="t-staff" aria-controls="p-staff" data-tab="staf">Staf</button>
-      <button role="tab" id="t-help" aria-controls="p-help" data-tab="bantuan">Bantuan akun</button>
-      <button role="tab" id="t-set" aria-controls="p-set" data-tab="pengaturan">Pengaturan</button>
+  <div class="owner-shell">
+    <nav class="side" aria-label="${READ_ONLY ? 'Menu laporan' : 'Menu pemilik'}">
+      ${shell}
+    </nav>
+    <div class="owner-main">
+    ${panels}
     </div>
-    <section id="p-sum" role="tabpanel" aria-labelledby="t-sum" class="stack-lg"></section>
-    <section id="p-sales" role="tabpanel" aria-labelledby="t-sales" class="stack" hidden></section>
-    <section id="p-match" role="tabpanel" aria-labelledby="t-match" class="stack-lg" hidden></section>
-    <section id="p-staff" role="tabpanel" aria-labelledby="t-staff" class="stack-lg" hidden></section>
-    <section id="p-help" role="tabpanel" aria-labelledby="t-help" class="stack-lg" hidden></section>
-    <section id="p-set" role="tabpanel" aria-labelledby="t-set" class="stack-lg" hidden></section>
   </div>`;
-  const loaders = { ringkasan: summary, penjualan: sales, cocokkan: match, staf: staff, bantuan: help, pengaturan: settings };
-  tabs(app, (t) => loaders[t]());
+  const P = (id) => $('#' + id);
+  const loaders = {
+    ringkasan: summary, 'laporan-pos': () => mountOwnerReports(P('p-rep'), { rpc }), 'laba-kotor': () => mountOwnerReports(P('p-profit'), { rpc, part: 'laba' }),
+    'laporan-pembelian': () => mountLaporan(P('p-lbuy'), { rpc, part: 'pembelian' }), 'laporan-lainnya': () => mountLaporan(P('p-lother'), { rpc, part: 'lainnya' }),
+    'purchase-order': () => mountTransaksi(P('p-po'), { rpc, part: 'po', readOnly: READ_ONLY }), 'penerimaan-barang': () => mountTransaksi(P('p-recv'), { rpc, part: 'penerimaan', readOnly: READ_ONLY }),
+    'stok-masuk': () => mountTransaksi(P('p-in'), { rpc, part: 'stok-masuk', readOnly: READ_ONLY }), 'stok-keluar': () => mountTransaksi(P('p-out'), { rpc, part: 'stok-keluar', readOnly: READ_ONLY }),
+    'opname-transaksi': () => mountTransaksi(P('p-op2'), { rpc, part: 'opname', readOnly: READ_ONLY }), 'penyesuaian-stok': () => mountTransaksi(P('p-adj'), { rpc, part: 'adjustment', readOnly: READ_ONLY }),
+    ...Object.fromEntries([['lokasi-stok', 'p-loc', 'lokasi'], ['stok-transfer', 'p-st', 'stok-transfer'], ['transfer-order', 'p-to', 'transfer-order'],
+      ['surat-jalan', 'p-sj', 'surat-jalan'], ['penerimaan-transfer', 'p-pt', 'penerimaan'], ['dalam-perjalanan', 'p-transit', 'perjalanan'], ['produksi', 'p-mk', 'produksi'],
+      ['bongkar-produksi', 'p-unkit', 'bongkar'], ['resep-produksi', 'p-precipe', 'resep'], ['kartu-stok', 'p-card', 'kartu']]
+      .map(([h, id, part]) => [h, () => mountProduksi(P(id), { rpc, part, readOnly: READ_ONLY })])),
+    'proses-komisi': () => mountTransaksi(P('p-kp'), { rpc, part: 'komisi-proses', readOnly: READ_ONLY }), pembatalan: () => mountTransaksi(P('p-void'), { rpc, part: 'pembatalan', readOnly: READ_ONLY }),
+    'pesanan-di-muka': () => mountReservasi(P('p-rsv'), { rpc, part: 'pesanan' }), 'mutasi-deposito': () => dpHistory(P('p-dmut'), 'mutasi'),
+    'deposit-reservasi': () => dpHistory(P('p-dres'), 'deposit'), 'koreksi-stempel': () => mountReservasi(P('p-stamp'), { rpc, part: 'stempel' }),
+    'akun-buku-besar': () => mountAkunting(P('p-acc'), { rpc, part: 'akun' }), 'buat-jurnal': () => mountAkunting(P('p-jurnal'), { rpc, part: 'jurnal' }),
+    'laporan-akunting': () => mountAkunting(P('p-lacc'), { rpc, part: 'laporan' }),
+    pesanan: () => mountOrders(P('p-ord'), { rpc }), penjualan: sales, 'rekap-kas': () => mountCashRekap(P('p-kas'), { rpc }),
+    promo: () => mountPromos(P('p-promo'), { rpc }), 'promo-member': campaigns, 'voucher-kertas': () => { P('p-codes').innerHTML = ''; codePanel(P('p-codes')); },
+    produk: () => mountProducts(P('p-prod'), { rpc }), kategori: () => mountProducts(P('p-cat'), { rpc, part: 'kategori' }),
+    rasa: () => mountProducts(P('p-flav'), { rpc, part: 'rasa' }), 'target-harian': () => mountProducts(P('p-target'), { rpc, part: 'target' }),
+    saluran: () => mountProducts(P('p-chan'), { rpc, part: 'saluran' }),
+    stok: () => ownerStock(P('p-stock'), { part: 'now' }), 'stok-laporan': () => ownerStock(P('p-stock-rep'), { part: 'report' }),
+    permintaan: () => ownerStock(P('p-stock-req'), { part: 'requests' }),
+    resep: () => ownerStock(P('p-recipe'), { part: 'recipe' }),
+    barang: () => ownerStock(P('p-items'), { part: 'items' }),
+    pemasok: () => ownerStock(P('p-supp'), { part: 'pemasok' }),
+    member: () => mountMembers(P('p-mem'), { rpc }), bantuan: help, 'aturan-kartu': cardRules, 'qr-daftar': joinQr,
+    staf: staff, absensi: () => mountOwnerAbsensi(P('p-att'), { part: 'hari' }),
+    lembur: () => mountOwnerAbsensi(P('p-att-ot'), { part: 'lembur' }), 'absen-staf': () => mountOwnerAbsensi(P('p-att-one'), { part: 'staf' }),
+    jadwal: () => mountOwnerAbsensi(P('p-att-plan'), { part: 'jadwal' }),
+    'bonus-stempel': () => mountStampBoosts(P('p-boost'), { rpc }), 'template-wa': () => mountWaTemplates(P('p-wa'), { rpc }),
+    komisi: () => mountCommission(P('p-komisi'), { rpc }),
+    cadangan: backupView,
+  };
+  // Laporan hubs (13 Nov 2026): each Laporan item lists its sub-reports; the old views are its last item.
+  for (const [h, hub, id] of [['stok-laporan', 'stok', 'p-stock-rep'], ['laporan-pembelian', 'pembelian', 'p-lbuy'], ['laporan-pos', 'penjualan', 'p-rep'],
+    ['laba-kotor', 'laba', 'p-profit'], ['laporan-lainnya', 'lainnya', 'p-lother']]) loaders[h] = () => mountReportHub(P(id), { rpc, hub });
+  // Old links (before the 12 Nov split) land on the first view of their feature.
+  const alias = ALIAS[location.hash.slice(1)];
+  if (alias) history.replaceState(null, '', '#' + alias);
+  // Shortcut items (Stok masuk and Stok opname under Stok) show as open while their Transaksi view is.
+  const links = $$('.side-link');
+  const syncLinks = () => links.forEach((l) => {
+    if ($('#' + l.dataset.link)?.getAttribute('aria-selected') === 'true') l.setAttribute('aria-current', 'page'); else l.removeAttribute('aria-current');
+  });
+  const go = tabs(app, (t) => {
+    const done = loaders[t]();
+    syncLinks();
+    // On a phone the menu is one scrolling row: keep the open item in view. On wide screens the side
+    // menu is left alone, so its collapse button never scrolls away (12 Nov 2026).
+    if (matchMedia('(max-width: 56rem)').matches) $('.side [aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    return done;
+  });
+  links.forEach((l) => l.addEventListener('click', () => $('#' + l.dataset.link).click()));
+  if (typeof sideRail === 'function') sideRail($('.side'));
+
+  // Global search (13 Nov 2026): any view by name, or an order by its HS- or L- number.
+  const host = document.createElement('div');
+  host.className = 'os-host';
+  $('header.bar .bar-inner').insertBefore(host, $('header.bar .bar-inner > .row'));
+  const openReceipt = async (q) => {
+    const key = q.trim().toUpperCase().replace(/\s+/g, '-');
+    const today = presetRange('hari', null)[0];
+    const d = await rpc('owner_pos_orders', { p_from: '2026-01-01', p_to: today, p_q: q.trim(), p_status: 'semua' });
+    const rows = d.rows || [];
+    if (!rows.length) return `Struk ${key} tidak ditemukan. Periksa nomornya, atau cari nama member di Pesanan.`;
+    const exact = rows.find((o) => [o.receipt_no, o.local_no].some((x) => x && x.toUpperCase() === key)) || (rows.length === 1 ? rows[0] : null);
+    P('p-ord')._ord = { preset: 'custom', from: '2026-01-01', to: today, status: 'semua', q: q.trim(), openId: exact ? exact.id : null };
+    go('pesanan');
+    return null;
+  };
+  // A manager has no Pesanan view, so the search finds views only.
+  ownerSearch(host, { items: SEARCH_ITEMS, go: (h) => go(h), openReceipt: READ_ONLY ? null : openReceipt });
+
+  // Other views send people to a record (Kartu stok document numbers): { view, q } fills that
+  // list's search; { receipt } opens the order.
+  document.addEventListener('hs-owner-go', async (e) => {
+    const { view, q, receipt } = e.detail || {};
+    if (receipt) { if (READ_ONLY) return; const m = await openReceipt(receipt).catch((err) => err.message); if (m) toast(m); return; }
+    const v = VIEWS.find((x) => x.hash === view);
+    if (!v) return;
+    go(view);
+    if (!q) return;
+    const panel = P('p' + v.id.slice(1));
+    for (let i = 0; i < 50; i++) {
+      const box = panel.querySelector('[data-q]');
+      if (box && !panel.querySelector('[aria-busy="true"]')) { box.value = q; box.dispatchEvent(new Event('input', { bubbles: true })); return; }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  });
+}
+
+// No DP any more (Glenn, 13 Nov 2026): these two views keep only the old DP history, and say so.
+async function dpHistory(panel, part) {
+  await mountReservasi(panel, { rpc, part });
+  if (panel.querySelector('[data-dp-note]')) return;
+  panel.insertAdjacentHTML('afterbegin', '<p class="notice" data-dp-note>Pesanan di muka tidak memakai DP lagi. Halaman ini hanya menampilkan riwayat DP lama.</p>');
 }
 
 const loading = (p) => { p.innerHTML = '<div class="panel stack" aria-busy="true"><div class="skeleton" style="height:96px"></div><div class="skeleton"></div><div class="skeleton"></div></div>'; };
@@ -54,25 +246,29 @@ async function summary() {
   const p = $('#p-sum');
   loading(p);
   let d;
-  try { d = await rpc('owner_dashboard', { p_days: range }); } catch (e) { return failed(p, e, summary); }
+  if (sumRange.preset !== 'custom') [sumRange.from, sumRange.to] = presetRange(sumRange.preset, null);
+  const byDays = { 7: 7, 30: 30 }[sumRange.preset];
+  // report_dashboard (pos-reports.sql, 13 Nov 2026): the same figures for the owner and a manager, with
+  // undone sales and rewards taken off on the day they were approved; personal data only for the owner.
+  try { d = await rpc('report_dashboard', byDays ? { p_days: byDays } : { p_days: null, p_from: sumRange.from, p_to: sumRange.to }); } catch (e) { return failed(p, e, summary); }
+  const isOwner = d.role !== 'manager';
   const t = d.totals;
   const backupDays = d.last_backup ? Math.floor((Date.now() - Date.parse(d.last_backup)) / 864e5) : null;
   p.innerHTML = `
-  ${backupDays === null || backupDays >= 7 ? `<p class="notice notice-warn">${backupDays === null ? 'Data member belum pernah dicadangkan.' : `Cadangan data terakhir ${backupDays} hari lalu.`}
-    <a href="#pengaturan" data-goto="t-set">Unduh cadangan di Pengaturan</a>.</p>` : ''}
+  ${isOwner && (backupDays === null || backupDays >= 7) ? `<p class="notice notice-warn">${backupDays === null ? 'Data member belum pernah dicadangkan.' : `Cadangan data terakhir ${backupDays} hari lalu.`}
+    <a href="#cadangan" data-goto="t-set">Unduh cadangan di Pengaturan, Cadangan data</a>.</p>` : ''}
   <div class="row-between">
-    <h1>Ringkasan</h1>
-    <fieldset><legend class="visually-hidden">Rentang waktu</legend><div class="choices" id="range">
-      ${[7, 30, 90].map((n) => `<label class="choice"><input type="radio" name="range" value="${n}" ${n === range ? 'checked' : ''}><span>${n} hari</span></label>`).join('')}
-    </div></fieldset>
+    <div class="stack-sm"><h1>Ringkasan</h1><p class="muted small">${esc(dayLong(d.from))}${d.from !== d.to ? ` sampai ${esc(dayLong(d.to))}` : ''} · ${d.days} hari</p>
+      <p class="muted small">${esc(d.rule || 'Penjualan dihitung di tanggal transaksi. Batal dan refund mengurangi di tanggal disetujui.')}${isOwner ? '' : ' Hanya untuk dilihat.'}</p></div>
   </div>
+  ${rangeHtml({ preset: sumRange.preset, from: sumRange.from, to: sumRange.to })}
   ${d.undo.length ? `<section class="panel stack" aria-labelledby="undo-title">
     <h2 id="undo-title">Permintaan pembatalan (${d.undo.length})</h2>
     <ul class="list">${d.undo.map((u) => `<li><span class="grow"><strong>${esc(u.kind === 'penjualan' ? `${u.receipt_no ? 'Struk ' + u.receipt_no : 'Penjualan ' + rupiah(u.total || 0)}, ${u.stamps} stempel` : u.reward_label)}</strong> untuk ${esc(u.member)}<br>
       <span class="muted small">${esc(u.requested_by || 'Staf')}, ${esc(when(u.created_at))}: ${esc(u.reason)}</span></span>
       <span class="row"><button class="btn" type="button" data-undo="${u.id}" data-ok="1">Setujui</button><button class="btn btn-quiet" type="button" data-undo="${u.id}" data-ok="0">Tolak</button></span></li>`).join('')}</ul>
   </section>` : ''}
-  ${t.sales === 0 ? `<div class="panel stack"><h2>Belum ada penjualan dalam ${d.days} hari terakhir</h2><p class="muted">Angka di sini terisi begitu kasir mencatat penjualan di halaman kasir.</p><a class="btn" href="staf.html">Buka halaman kasir</a></div>` : `
+  ${t.sales === 0 ? `<div class="panel stack"><h2>Belum ada penjualan ${d.days === 1 ? 'di tanggal ini' : 'di rentang ini'}</h2><p class="muted">Angka di sini terisi begitu kasir mencatat penjualan di halaman kasir.</p><a class="btn" href="staf.html">Buka halaman kasir</a></div>` : `
   <div class="stats">
     <div class="stat"><b>${t.sales}</b><span>Penjualan</span></div>
     <div class="stat"><b>${pct(t.member_sales, t.sales)}%</b><span>Penjualan oleh member (${t.member_sales})</span></div>
@@ -84,6 +280,12 @@ async function summary() {
     <div class="stat"><b>${t.new_members}</b><span>Member baru dari ${t.members}</span></div>
     <div class="stat"><b>${t.avg_days_between_visits ?? '–'}</b><span>Rata-rata hari antar kunjungan</span></div>
   </div>
+  ${d.daily ? `<section class="panel stack" aria-labelledby="daily-title">
+    <h2 id="daily-title">Per hari</h2>
+    <div class="table-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Penjualan</th><th class="num">Oleh member</th><th class="num">Total belanja</th><th class="num">Stempel</th><th class="num">Hadiah</th><th class="num">Member baru</th></tr></thead><tbody>
+      ${d.daily.map((r) => `<tr${r.sales ? '' : ' class="muted"'}><td>${esc(dayShort(r.date))}</td><td class="num">${r.sales}</td><td class="num">${r.member_sales}</td><td class="num">${rupiah(r.revenue)}</td><td class="num">${r.stamps}</td><td class="num">${r.redemptions}</td><td class="num">${r.new_members}</td></tr>`).join('')}
+    </tbody><tfoot><tr><th scope="row">Jumlah</th><td class="num">${t.sales}</td><td class="num">${t.member_sales}</td><td class="num">${rupiah(t.revenue)}</td><td class="num">${t.stamps}</td><td class="num">${t.redemptions}</td><td class="num">${t.new_members}</td></tr></tfoot></table></div>
+  </section>` : ''}
   <section class="panel stack" aria-labelledby="heat-title">
     <div class="row-between"><h2 id="heat-title">Kapan pembeli datang</h2><span class="heat-legend">sepi <i></i> ramai</span></div>
     ${heatmap(d.heatmap)}
@@ -114,23 +316,23 @@ async function summary() {
     ${d.flags.length ? `<div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Struk</th><th>Member</th><th>Kasir</th><th class="num">Stempel</th><th>Catatan</th></tr></thead><tbody>
       ${d.flags.map((f) => `<tr><td class="tnum">${esc(when(f.created_at))}</td><td>${esc(f.receipt_no || '–')}</td><td>${esc(f.member)}</td><td>${esc(f.staff || '')}</td><td class="num">${f.stamps}</td><td>${f.flags.map((x) => esc(FLAG[x] || x)).join('<br>')}</td></tr>`).join('')}
     </tbody></table></div>` : '<p class="muted">Tidak ada stempel yang ditandai. Kode kartu yang diketik manual dan pola stempel yang aneh muncul di sini.</p>'}
-    ${d.matched_days ? `<p>${d.mismatches.length ? `<strong>${d.mismatches.length} stempel</strong> tidak cocok dengan struk VireoPOS. Lihat tab Cocokkan struk.` : 'Semua stempel cocok dengan struk VireoPOS yang sudah diimpor.'}</p>`
-      : '<p class="muted small">Impor struk VireoPOS di tab Cocokkan struk untuk mengecek setiap stempel dengan struk aslinya.</p>'}
   </section>
-  <section class="panel stack" aria-labelledby="lapse-title">
+  ${isOwner ? `<section class="panel stack" aria-labelledby="lapse-title">
     <h2 id="lapse-title">Member yang lama tidak datang</h2>
     ${d.lapsed.length ? `<ul class="list">${d.lapsed.map((l) => `<li><span class="grow"><strong>${esc(l.full_name || 'Member')}</strong><br>
       <span class="muted small">Terakhir ${esc(day(l.last_at))}, ${l.visits} kunjungan</span></span>
       ${l.whatsapp ? `<a class="btn btn-quiet" href="https://wa.me/${esc(l.whatsapp)}" target="_blank" rel="noopener">WhatsApp</a>` : '<span class="muted small">Tidak mau info promo</span>'}</li>`).join('')}</ul>`
       : '<p class="muted">Tidak ada member yang absen 30 sampai 120 hari.</p>'}
     ${d.lapsed.length ? '<p class="muted small">Tombol WhatsApp hanya muncul untuk member yang mau menerima info promo.</p>' : ''}
-  </section>`;
+  </section>` : ''}`;
   $$('[data-goto]', p).forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); $('#' + a.dataset.goto).click(); }));
-  $$('#range input').forEach((r) => r.addEventListener('change', () => {
-    range = Number(r.value);
-    const u = new URL(location.href); u.searchParams.set('hari', range); history.replaceState(null, '', u);
-    summary();
-  }));
+  const setUrl = () => {
+    const u = new URL(location.href);
+    ['hari', 'rentang', 'dari', 'sampai'].forEach((k) => u.searchParams.delete(k));
+    if (sumRange.preset === 'custom') { u.searchParams.set('dari', sumRange.from); u.searchParams.set('sampai', sumRange.to); } else u.searchParams.set('rentang', sumRange.preset);
+    history.replaceState(null, '', u);
+  };
+  wireRange(p, { onChange: (v) => { Object.assign(sumRange, v); setUrl(); summary(); } });
   $$('[data-undo]', p).forEach((b) => b.addEventListener('click', async () => {
     busy(b, true);
     try { await rpc('owner_decide_undo', { p_id: Number(b.dataset.undo), p_approve: b.dataset.ok === '1' }); toast(b.dataset.ok === '1' ? 'Dibatalkan' : 'Ditolak'); summary(); }
@@ -173,7 +375,7 @@ async function sales() {
   loading(p);
   let rows;
   try { rows = await rpc('owner_sales', { p_limit: 300 }); } catch (e) { return failed(p, e, sales); }
-  p.innerHTML = `<div class="panel stack"><h2>300 penjualan terakhir</h2>
+  p.innerHTML = `<div class="panel stack"><div class="stack-sm"><h1>Penjualan member</h1><p class="muted small">300 penjualan terakhir</p></div>
   ${rows.length ? `<div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Struk</th><th>Member</th><th>Kasir</th><th class="num">Total</th><th class="num">Stempel</th><th>Produk</th><th>Catatan</th></tr></thead><tbody>
   ${rows.map((r) => `<tr class="${r.reversed_at ? 'is-reversed' : ''}"><td class="tnum">${esc(when(r.created_at))}</td><td>${esc(r.receipt_no || '–')}</td><td>${esc(r.member || '–')}</td><td>${esc(r.staff || '')}</td>
     <td class="num">${rupiah(r.total)}</td><td class="num">${r.stamps}</td><td>${esc((r.items || []).map((i) => i.qty + '× ' + i.name).join(', '))}</td>
@@ -181,25 +383,7 @@ async function sales() {
     : '<p class="muted">Belum ada penjualan.</p>'}</div>`;
 }
 
-/* ---------------- receipt matching */
-function parseCSV(text) {
-  const first = text.split(/\r?\n/)[0] || '';
-  const delim = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : ',';
-  const rows = []; let row = [], cell = '', q = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (q) { if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') q = false; else cell += ch; }
-    else if (ch === '"') q = true;
-    else if (ch === delim) { row.push(cell); cell = ''; }
-    else if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
-    else if (ch !== '\r') cell += ch;
-  }
-  if (cell || row.length) { row.push(cell); rows.push(row); }
-  return rows.filter((r) => r.some((c) => c.trim()));
-}
-
-// VireoPOS gives .xls files (Laporan Penjualan Rinci). SheetJS reads them in the browser;
-// the sheet "Rangkuman" has one row per receipt, under a few title rows.
+// SheetJS (jsDelivr, allowed by the CSP), for Cadangan data.
 function loadSheetJS() {
   if (window.XLSX) return Promise.resolve();
   return new Promise((res, rej) => {
@@ -209,148 +393,26 @@ function loadSheetJS() {
     document.head.append(s);
   });
 }
-async function readRows(file) {
-  if (/\.csv$/i.test(file.name)) return parseCSV(await file.text());
-  await loadSheetJS();
-  const book = window.XLSX.read(await file.arrayBuffer(), { type: 'array' });
-  const sheet = book.Sheets['Rangkuman'] || book.Sheets[book.SheetNames[0]];
-  const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' })
-    .map((r) => r.map((c) => String(c ?? '')));
-  const head = rows.findIndex((r) => r.some((c) => /nomor struk|no\.?\s*struk|receipt/i.test(c)));
-  return (head > 0 ? rows.slice(head) : rows).filter((r) => r.some((c) => c.trim()));
-}
 
-function parseWhen(dateStr, timeStr) {
-  let s = String(dateStr ?? '').trim();
-  if (timeStr) s += ' ' + String(timeStr).trim();
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}T${m[4].padStart(2, '0')}:${m[5]}:${m[6] || '00'}+07:00`;
-  m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})[ T,]+(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?/);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}T${m[4].padStart(2, '0')}:${m[5]}:${m[6] || '00'}+07:00`;
-  return null;
-}
 
-function parseMoney(s) {
-  let v = String(s || '').replace(/[^\d.,]/g, '');
-  v = v.replace(/[.,]\d{1,2}$/, '').replace(/[.,]/g, '');
-  return v ? Number(v) : null;
-}
 
-async function match() {
-  const p = $('#p-match');
-  p.innerHTML = `
-  <div class="panel stack">
-    <h1>Cocokkan struk</h1>
-    <p>Di VireoPOS, unduh <strong>Laporan Penjualan Rinci</strong> lalu unggah filenya di sini (.xls atau .csv). Setiap stempel dipasangkan dengan satu struk VireoPOS yang totalnya sama dan jamnya paling dekat, selisih paling lama 15 menit. Satu struk hanya bisa dipakai satu stempel, dan nama pelanggan di struk ikut dicek.</p>
-    <label class="field"><span>File laporan dari VireoPOS</span><input type="file" id="csv" accept=".xls,.xlsx,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
-    <div class="notice" id="csv-msg" hidden></div>
-    <div id="map" class="stack" hidden></div>
-  </div>
-  <div class="panel stack" id="mm"><div class="skeleton"></div></div>`;
-  $('#csv').addEventListener('change', async (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    let rows;
-    try { rows = await readRows(f); } catch (err) { notice($('#csv-msg'), err.message || 'File tidak bisa dibaca.'); return; }
-    if (rows.length < 2) { notice($('#csv-msg'), 'File kosong atau bukan laporan penjualan.'); return; }
-    notice($('#csv-msg'), '');
-    mapColumns(rows);
-  });
-  loadMismatches();
-}
 
-function mapColumns(rows) {
-  const head = rows[0].map((h) => h.trim());
-  const guess = (re) => head.findIndex((h) => re.test(h));
-  const g = {
-    // "Nomor Struk" first: VireoPOS also has a "No" column that only counts the rows.
-    no: [/nomor struk|no\.?\s*struk/i, /receipt|invoice|nota|no\.?\s*trans/i, /struk|nomor/i].map(guess).find((i) => i >= 0) ?? -1,
-    date: guess(/^tanggal$|tanggal|date|waktu|time/i),
-    time: guess(/^jam$|^time$|^waktu$/i),
-    total: head.findIndex((h) => /^total$/i.test(h)) >= 0 ? head.findIndex((h) => /^total$/i.test(h)) : guess(/grand|total|jumlah|amount|nominal/i),
-    customer: guess(/pelanggan|customer|nama/i),
-    status: guess(/^status$/i),
-  };
-  if (g.time === g.date) g.time = -1;
-  const opts = (sel, none) => `${none ? '<option value="-1">Tidak ada</option>' : ''}${head.map((h, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${esc(h || 'Kolom ' + (i + 1))}</option>`).join('')}`;
-  const m = $('#map');
-  m.hidden = false;
-  m.innerHTML = `
-    <h2>Pilih kolom</h2>
-    <div class="form-grid">
-      <label class="field"><span>Nomor struk</span><select id="c-no">${opts(g.no)}</select></label>
-      <label class="field"><span>Tanggal dan jam</span><select id="c-date">${opts(g.date)}</select></label>
-      <label class="field"><span>Jam, jika kolomnya terpisah</span><select id="c-time">${opts(g.time, true)}</select></label>
-      <label class="field"><span>Total</span><select id="c-total">${opts(g.total)}</select></label>
-      <label class="field"><span>Nama pelanggan</span><select id="c-cust">${opts(g.customer, true)}</select></label>
-    </div>
-    <div id="prev"></div>
-    <button class="btn" type="button" id="imp">Impor struk</button>`;
-  const read = () => {
-    const ix = { no: +$('#c-no').value, date: +$('#c-date').value, time: +$('#c-time').value, total: +$('#c-total').value, cust: +$('#c-cust').value };
-    const out = [], bad = [];
-    let cancelled = 0, free = 0;
-    rows.slice(1).forEach((r, i) => {
-      // Cancelled receipts never count as a sale; Rp0 receipts (free products) earn no
-      // stamp; a row without a number is the TOTAL line at the bottom of the report.
-      if (g.status >= 0 && /cancel|batal|void/i.test(r[g.status] || '')) { cancelled++; return; }
-      const sold = parseWhen(r[ix.date], ix.time >= 0 ? r[ix.time] : '');
-      const no = (r[ix.no] || '').trim(), total = parseMoney(r[ix.total]);
-      if (!no) return;
-      if (total === 0) { free++; return; }
-      if (!sold || !total) { bad.push(i + 2); return; }
-      out.push({ receipt_no: no, sold_at: sold, total, customer: ix.cust >= 0 ? (r[ix.cust] || '').trim() : '' });
-    });
-    return { out, bad, cancelled, free };
-  };
-  const show = () => {
-    const { out, bad, cancelled, free } = read();
-    $('#prev').innerHTML = `<p>${out.length} struk siap diimpor.${cancelled || free ? ` Dilewati: ${[cancelled ? cancelled + ' struk batal' : '', free ? free + ' struk Rp0' : ''].filter(Boolean).join(', ')}.` : ''}${bad.length ? ` <span class="tag tag-warn">${bad.length} baris dilewati</span> (baris ${bad.slice(0, 8).join(', ')}${bad.length > 8 ? ', …' : ''}), tanggal, nomor, atau totalnya tidak terbaca.` : ''}</p>
-      ${out.length ? `<div class="table-wrap"><table><thead><tr><th>Struk</th><th>Waktu</th><th>Pelanggan</th><th class="num">Total</th></tr></thead><tbody>
-      ${out.slice(0, 5).map((o) => `<tr><td>${esc(o.receipt_no)}</td><td class="tnum">${esc(when(o.sold_at))}</td><td>${esc(o.customer || '–')}</td><td class="num">${rupiah(o.total)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
-    $('#imp').disabled = !out.length;
-  };
-  $$('select', m).forEach((s) => s.addEventListener('change', show));
-  show();
-  $('#imp').addEventListener('click', async (e) => {
-    const { out } = read();
-    busy(e.currentTarget, true, 'Mengimpor…');
-    try {
-      const r = await rpc('owner_import_receipts', { p_rows: out });
-      m.hidden = true;
-      notice($('#csv-msg'), `${r.imported} struk diimpor.`, 'ok');
-      loadMismatches();
-    } catch (err) { notice($('#csv-msg'), err.message); busy(e.currentTarget, false); }
-  });
-}
 
-async function loadMismatches() {
-  const box = $('#mm');
-  try {
-    const d = await rpc('owner_dashboard', { p_days: 90 });
-    box.innerHTML = `<h2>Hasil pengecekan, 90 hari</h2>
-    ${!d.matched_days ? '<p class="muted">Belum ada struk yang diimpor.</p>'
-      : d.mismatches.length ? `<p>${d.mismatches.length} stempel perlu dicek, dari ${d.matched_days} hari yang struknya sudah diimpor.</p>
-      <div class="table-wrap"><table><thead><tr><th>Waktu stempel</th><th>Member</th><th class="num">Total</th><th class="num">Stempel</th><th>Struk VireoPOS</th><th>Pelanggan di VireoPOS</th><th>Masalah</th></tr></thead><tbody>
-      ${d.mismatches.map((x) => `<tr><td class="tnum">${esc(when(x.created_at))}</td><td>${esc(x.member || '–')}</td><td class="num">${rupiah(x.total)}</td><td class="num">${x.stamps}</td>
-        <td>${x.pos_no ? `${esc(x.pos_no)}<br><span class="muted tnum">${esc(when(x.sold_at))}</span>` : '–'}</td><td>${esc(x.pos_customer || '–')}</td>
-        <td><span class="tag ${x.problem === 'nama_beda' ? 'tag-warn' : 'tag-bad'}">${esc(PROBLEM[x.problem] || x.problem)}</span></td></tr>`).join('')}</tbody></table></div>`
-      : `<p><span class="tag tag-ok">Cocok</span> Semua stempel cocok dengan struk VireoPOS dari ${d.matched_days} hari yang sudah diimpor.</p>`}`;
-  } catch (e) { box.innerHTML = `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`; }
-}
 
 /* ---------------- staff access */
 async function staff() {
   const p = $('#p-staff');
   loading(p);
-  let people;
-  try { people = await rpc('owner_people'); } catch (e) { return failed(p, e, staff); }
+  let people, tablets;
+  try { [people, tablets] = await Promise.all([rpc('owner_people'), rpc('owner_kasir_accounts')]); } catch (e) { return failed(p, e, staff); }
+  const tablet = tablets[0];
   p.innerHTML = `
   <div class="panel stack">
     <div class="row-between"><h1>Staf</h1><span class="muted small">${people.length} akun aktif</span></div>
-    <p class="muted small">Hanya akun di sini yang bisa memberi stempel dan melihat penukaran hadiah. Staf masuk di halaman kasir dengan username atau nomor dan password dari Anda.</p>
+    <p class="muted small">Akun pribadi staf: untuk absen dari HP masing-masing dan untuk dipilih sebagai yang melayani di kasir. Staf masuk dengan username atau nomor dan password dari Anda.</p>
     <ul class="list">${people.map((x) => `<li>
       <span class="grow"><strong>${esc(x.full_name || 'Tanpa nama')}</strong>${x.is_me ? ' <span class="muted small">(Anda)</span>' : ''}<br><span class="muted small num">${x.username ? '@' + esc(x.username) + ', ' : ''}${esc(prettyPhone(x.whatsapp))}</span></span>
-      <span class="tag">${x.role === 'owner' ? 'Pemilik' : 'Kasir'}</span>
+      <span class="tag">${x.role === 'owner' ? 'Pemilik' : x.role === 'manager' ? 'Manajer' : 'Staf'}</span>
       <span class="row">
         <button class="btn btn-text" type="button" data-reset="${esc(x.whatsapp)}" data-name="${esc(x.full_name || prettyPhone(x.whatsapp))}">Ganti password</button>
         ${x.is_me ? '' : `<button class="btn btn-text" type="button" data-remove="${esc(x.whatsapp)}" data-name="${esc(x.full_name || prettyPhone(x.whatsapp))}">Hapus</button>`}
@@ -371,6 +433,37 @@ async function staff() {
       <div class="notice" id="reset-msg" hidden></div>
     </form>
   </div>
+  <section class="panel stack" id="kt" aria-labelledby="kt-title">
+    <h2 id="kt-title">Akun kasir tablet</h2>
+    <p class="muted small">Akun khusus tablet kasir di booth. Dipakai untuk mencatat penjualan, mendaftarkan member, dan menampilkan QR absen. Akun ini tidak bisa absen, tidak masuk daftar staf, dan tidak bisa menyetujui apa pun. Setiap pesanan tetap mencatat staf yang melayani.</p>
+    ${tablet ? `<ul class="list"><li>
+      <span class="grow"><strong>${esc(tablet.full_name || 'Kasir tablet')}</strong><br><span class="muted small num">@${esc(tablet.username)}</span></span>
+      <span class="tag">Kasir tablet</span>
+      <span class="row"><button class="btn btn-text" type="button" id="kt-reset">Ganti password</button><button class="btn btn-text" type="button" id="kt-remove">Hapus</button></span></li></ul>
+    <div class="panel-sunk stack-sm" id="kt-del" hidden>
+      <p>Hapus akun kasir tablet @${esc(tablet.username)}? Tablet yang masih masuk dengan akun ini tidak bisa dipakai lagi sampai masuk dengan akun baru. Penjualan yang sudah tercatat tetap tersimpan.</p>
+      <div class="row"><button class="btn btn-danger" type="button" id="kt-del-yes">Ya, hapus akun</button><button class="btn btn-quiet" type="button" id="kt-del-no">Batal</button></div>
+      <div class="notice" id="kt-del-msg" hidden></div>
+    </div>
+    <form class="panel-sunk stack-sm" id="kt-pw" hidden novalidate>
+      <div class="form-grid">
+        <label class="field"><span>Password baru, minimal 8 karakter</span><input type="text" id="kt-pw-new" autocomplete="off" spellcheck="false"></label>
+        <button class="btn" type="submit">Simpan password</button>
+        <button class="btn btn-quiet" type="button" id="kt-pw-no">Batal</button>
+      </div>
+      <p class="muted small">Setelah diganti, masuk lagi di tablet dengan password baru.</p>
+      <div class="notice" id="kt-pw-msg" hidden></div>
+    </form>`
+    : `<form class="stack-sm" id="kt-add" novalidate aria-label="Tambah akun kasir tablet">
+      <div class="form-grid">
+        <label class="field"><span>Username</span><input type="text" id="kt-username" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="20" placeholder="kasir.booth" required></label>
+        <label class="field"><span>Password, minimal 8 karakter</span><input type="text" id="kt-pin" autocomplete="off" spellcheck="false" required></label>
+      </div>
+      <p class="muted small">Tanpa nomor WhatsApp. Masukkan username dan password ini sekali di tablet kasir, lalu tablet tetap masuk.</p>
+      <div class="notice" id="kt-msg" hidden></div>
+      <button class="btn" type="submit" style="justify-self:start">Tambah akun kasir tablet</button>
+    </form>`}
+  </section>
   <form class="panel stack" id="add" novalidate aria-labelledby="add-title">
     <h2 id="add-title">Tambah staf</h2>
     <div class="form-grid">
@@ -378,7 +471,7 @@ async function staff() {
       <label class="field"><span>Username</span><input type="text" id="add-username" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="20" required></label>
       <label class="field"><span>Nomor WhatsApp</span><input type="tel" id="add-phone" inputmode="tel" placeholder="0812 3456 7890" required></label>
       <label class="field"><span>Password awal, minimal 8 karakter</span><input type="text" id="add-pin" autocomplete="off" spellcheck="false" required></label>
-      <label class="field"><span>Peran</span><select id="add-role"><option value="staff">Kasir</option><option value="owner">Pemilik</option></select></label>
+      <label class="field"><span>Peran</span><select id="add-role"><option value="staff">Staf</option><option value="manager">Manajer</option><option value="owner">Pemilik</option></select></label>
     </div>
     <p class="muted small">Pakai nomor kerja staf. Nomor yang sudah dipakai untuk kartu member tidak bisa jadi akun staf. Peran Pemilik bisa melihat dasbor ini. Berikan username dan password langsung ke staf.</p>
     <div class="notice" id="add-msg" hidden></div>
@@ -395,9 +488,40 @@ async function staff() {
     busy(btn, true, 'Menyimpan…');
     try {
       await rpc('owner_add_staff', { p_name: $('#add-name').value, p_username: username, p_phone: $('#add-phone').value, p_password: pin, p_role: $('#add-role').value });
-      toast(`${$('#add-name').value.trim()} bisa masuk di halaman kasir`);
+      toast(`${$('#add-name').value.trim()} bisa masuk dengan akunnya`);
       staff();
     } catch (err) { notice(msg, err.message); busy(btn, false); }
+  });
+
+  // Kasir tablet account (13 Nov 2026): one at a time, username and password only.
+  $('#kt-add')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('button[type="submit"]', e.currentTarget), msg = $('#kt-msg');
+    const username = $('#kt-username').value.trim().toLowerCase(), pin = $('#kt-pin').value;
+    if (!/^[a-z0-9._]{3,20}$/.test(username)) { notice(msg, 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'); $('#kt-username').focus(); return; }
+    if (pin.length < 8) { notice(msg, 'Password minimal 8 karakter.'); $('#kt-pin').focus(); return; }
+    busy(btn, true, 'Menyimpan…');
+    try { await rpc('owner_add_kasir', { p_username: username, p_password: pin }); toast('Akun kasir tablet dibuat'); staff(); }
+    catch (err) { notice(msg, err.message); busy(btn, false); }
+  });
+  $('#kt-reset')?.addEventListener('click', () => { $('#kt-del').hidden = true; $('#kt-pw').hidden = false; $('#kt-pw-new').value = ''; notice($('#kt-pw-msg'), ''); $('#kt-pw-new').focus(); });
+  $('#kt-pw-no')?.addEventListener('click', () => { $('#kt-pw').hidden = true; });
+  $('#kt-pw')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('button[type="submit"]', e.currentTarget), pin = $('#kt-pw-new').value;
+    if (pin.length < 8) { notice($('#kt-pw-msg'), 'Password minimal 8 karakter.'); return; }
+    busy(btn, true, 'Menyimpan…');
+    try { await rpc('owner_kasir_password', { p_id: tablet.id, p_password: pin }); $('#kt-pw').hidden = true; toast('Password baru tersimpan'); }
+    catch (err) { notice($('#kt-pw-msg'), err.message); }
+    busy(btn, false);
+  });
+  $('#kt-remove')?.addEventListener('click', () => { $('#kt-pw').hidden = true; $('#kt-del').hidden = false; notice($('#kt-del-msg'), ''); $('#kt-del-no').focus(); });
+  $('#kt-del-no')?.addEventListener('click', () => { $('#kt-del').hidden = true; });
+  $('#kt-del-yes')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget; // currentTarget is null after the first await
+    busy(btn, true, 'Menghapus…');
+    try { await rpc('owner_remove_kasir', { p_id: tablet.id }); toast('Akun kasir tablet dihapus'); staff(); }
+    catch (err) { notice($('#kt-del-msg'), err.message); busy(btn, false); }
   });
 
   let resetFor = '', removeFor = '';
@@ -426,9 +550,10 @@ async function staff() {
   }));
   $('#remove-no').addEventListener('click', () => { $('#remove').hidden = true; });
   $('#remove-yes').addEventListener('click', async (e) => {
-    busy(e.currentTarget, true, 'Menghapus…');
+    const btn = e.currentTarget; // currentTarget is null after the first await
+    busy(btn, true, 'Menghapus…');
     try { await rpc('owner_remove_staff', { p_phone: removeFor }); toast('Akses dihapus'); staff(); }
-    catch (err) { notice($('#remove-msg'), err.message); busy(e.currentTarget, false); }
+    catch (err) { notice($('#remove-msg'), err.message); busy(btn, false); }
   });
 }
 
@@ -439,7 +564,7 @@ async function staff() {
 async function codePanel(p) {
   p.insertAdjacentHTML('beforeend', `
   <section class="panel stack" aria-labelledby="codes-title">
-    <h2 id="codes-title">Voucher kertas</h2>
+    <h1 id="codes-title">Voucher kertas</h1>
     <div id="codes-report"><div class="skeleton"></div></div>
     <p class="muted small">Cek tiap minggu: jumlah "Dipakai" harus sama dengan jumlah pemakaian kode kasirnya di VireoPOS. Selisih berarti kode kasir dipakai tanpa voucher.</p>
     <form class="stack-sm" id="move-code" novalidate>
@@ -464,12 +589,12 @@ async function codePanel(p) {
   report();
   $('#move-code').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const btn = $('button[type="submit"]', e.currentTarget), msg = $('#mv-msg');
+    const form = e.currentTarget, btn = $('button[type="submit"]', form), msg = $('#mv-msg');
     busy(btn, true, 'Memindahkan…');
     try {
       const r = await rpc('owner_move_code', { p_code: $('#mv-code').value, p_login: $('#mv-to').value.trim() || null });
       notice(msg, r.member ? `Voucher ${r.code} sekarang di kartu ${r.member}.` : `Kode ${r.code} dilepas. Bisa disimpan lagi oleh siapa saja.`, 'ok');
-      e.currentTarget.reset();
+      form.reset();
       report();
     } catch (err) { notice(msg, err.message); }
     busy(btn, false);
@@ -489,7 +614,6 @@ function help() {
     </form>
     <div id="found"></div>
   </div>`;
-  codePanel(p);
   $('#find').addEventListener('submit', async (e) => {
     e.preventDefault();
     const box = $('#found'), q = $('#find-q').value.trim();
@@ -498,7 +622,7 @@ function help() {
     let rows;
     try { rows = await rpc('owner_find_account', { p_query: q }); } catch (err) { box.innerHTML = `<div class="notice notice-error">${esc(err.message)}</div>`; return; }
     box.innerHTML = rows.length ? `<ul class="list">${rows.map((r) => `<li>
-      <span class="grow"><strong>${esc(r.full_name || 'Tanpa nama')}</strong> <span class="tag">${r.role === 'member' ? 'Member' : r.role === 'owner' ? 'Pemilik' : 'Kasir'}</span><br>
+      <span class="grow"><strong>${esc(r.full_name || 'Tanpa nama')}</strong> <span class="tag">${r.role === 'member' ? 'Member' : r.role === 'owner' ? 'Pemilik' : r.role === 'manager' ? 'Manajer' : 'Kasir'}</span><br>
         <span class="muted small num">${r.username ? '@' + esc(r.username) + ', ' : ''}${esc(prettyPhone(r.whatsapp))}</span></span>
       <span class="row">${r.role === 'member' ? `<button class="btn btn-quiet" type="button" data-bd="${esc(r.username || r.whatsapp)}" data-bd-now="${esc(r.birth_date || '')}">Tanggal lahir</button>` : ''}
       <button class="btn btn-quiet" type="button" data-code="${esc(r.username || r.whatsapp)}" data-wa="${esc(r.whatsapp)}" data-name="${esc(r.full_name || '')}">Buat kode</button></span>
@@ -570,15 +694,18 @@ async function downloadBackup(e) {
   busy(btn, false);
 }
 
-/* ---------------- settings */
-async function settings() {
-  const p = $('#p-set');
+/* ---------------- settings, one view each (Glenn, 12 Nov: one feature per view).
+   Promo member, Aturan kartu, Produk kasir lama and Cadangan data read owner_settings. */
+async function withSettings(p, again) {
   loading(p);
-  let s;
-  try { s = await rpc('owner_settings'); } catch (e) { return failed(p, e, settings); }
-  p.innerHTML = `
+  try { return await rpc('owner_settings'); } catch (e) { failed(p, e, again); return null; }
+}
+const ymdJakarta = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date(ms));
+
+function joinQr() {
+  $('#p-join').innerHTML = `
   <section class="panel stack" aria-labelledby="join-title">
-    <h2 id="join-title">QR pendaftaran member</h2>
+    <h1 id="join-title">QR pendaftaran member</h1>
     <div class="join-row">
       <div class="join-qr" role="img" aria-label="QR pendaftaran member">${qrSvg(signupUrl())}</div>
       <div class="stack-sm">
@@ -587,22 +714,30 @@ async function settings() {
         <div class="row"><a class="btn" href="qr-daftar.html">Buka poster untuk dicetak</a></div>
       </div>
     </div>
-  </section>
+  </section>`;
+}
 
-  <section class="panel stack" aria-labelledby="print-title">
-    <h2 id="print-title">Uji cetak struk</h2>
-    <p>Cetak contoh struk ke printer Bluetooth, lewat Chrome, atau simpan sebagai gambar. Tidak ada penjualan yang tercatat.</p>
-    <div class="row"><a class="btn btn-quiet" href="cetak-uji.html">Buka uji cetak</a></div>
-  </section>
 
+async function backupView() {
+  const p = $('#p-set');
+  const s = await withSettings(p, backupView);
+  if (!s) return;
+  p.innerHTML = `
   <section class="panel stack" aria-labelledby="backup-title">
-    <h2 id="backup-title">Cadangan data</h2>
+    <h1 id="backup-title">Cadangan data</h1>
     <p>${s.last_backup ? `Terakhir diunduh ${esc(when(s.last_backup))}.` : 'Belum pernah diunduh.'}</p>
     <p class="muted small">Supabase versi gratis tidak menyimpan cadangan otomatis. Unduh seminggu sekali dan simpan di Google Drive atau iCloud pribadi. File ini berisi data pribadi member, jadi jangan dibagikan.</p>
     <div class="notice" id="backup-msg" hidden></div>
-    <button class="btn" type="button" id="backup">Unduh cadangan</button>
-  </section>
+    <button class="btn" type="button" id="backup" style="justify-self:start">Unduh cadangan</button>
+  </section>`;
+  $('#backup').addEventListener('click', downloadBackup);
+}
 
+async function cardRules() {
+  const p = $('#p-rules');
+  const s = await withSettings(p, cardRules);
+  if (!s) return;
+  p.innerHTML = `
   <form class="panel stack" id="rules" novalidate>
     <h1>Aturan kartu</h1>
     <div class="form-grid">
@@ -614,45 +749,8 @@ async function settings() {
     </div>
     <p class="muted small">Stempel ditolak di luar jam buka. Tidak ada batas stempel per hari: setiap belanja tetap dapat stempel, tapi kartu yang melewati angka di atas muncul di Ringkasan, bagian Perlu dicek. Hadiah tetap di stempel ke-3, ke-7, dan ke-10 seperti kartu cetak.</p>
     <div class="notice" id="rules-msg" hidden></div>
-    <button class="btn" type="submit">Simpan aturan</button>
-  </form>
-
-  <section class="panel stack" aria-labelledby="menu-title">
-    <h2 id="menu-title">Produk di halaman kasir</h2>
-    <div class="table-wrap"><table><thead><tr><th>Nama</th><th>Harga (Rp)</th><th>Tampil</th><th></th></tr></thead><tbody>
-    ${s.menu.map((m) => `<tr data-menu="${m.id}"><td><input type="text" value="${esc(m.name)}" aria-label="Nama produk"></td>
-      <td><input type="number" value="${m.price}" min="0" step="500" aria-label="Harga"></td>
-      <td><label class="check"><input type="checkbox" ${m.active ? 'checked' : ''}><span>Tampil</span></label></td>
-      <td><button class="btn btn-quiet" type="button">Simpan</button></td></tr>`).join('')}
-    <tr data-menu=""><td><input type="text" placeholder="Produk baru" aria-label="Nama produk baru"></td><td><input type="number" min="0" step="500" aria-label="Harga produk baru"></td>
-      <td><label class="check"><input type="checkbox" checked><span>Tampil</span></label></td><td><button class="btn" type="button">Tambah</button></td></tr>
-    </tbody></table></div>
-  </section>
-
-  <section class="panel stack" aria-labelledby="camp-title">
-    <h2 id="camp-title">Promo untuk member</h2>
-    ${s.campaigns.length ? `<ul class="list">${s.campaigns.map((c) => `<li><span class="grow"><strong>${esc(c.title)}</strong><br>
-      <span class="muted small">${esc(day(c.starts_on))} sampai ${esc(day(c.ends_on))}</span></span>
-      <span class="tag ${c.active ? 'tag-ok' : ''}">${c.active ? 'Aktif' : 'Nonaktif'}</span>
-      <button class="btn btn-text" type="button" data-camp='${esc(JSON.stringify(c))}'>Ubah</button></li>`).join('')}</ul>` : '<p class="muted">Belum ada promo.</p>'}
-    <form class="stack" id="camp" novalidate>
-      <input type="hidden" id="camp-id">
-      <label class="field"><span>Judul</span><input type="text" id="camp-title-in" maxlength="80" placeholder="Contoh: Mini choux isi 8 lebih hemat tiap Selasa"></label>
-      <label class="field"><span>Isi</span><textarea id="camp-body" maxlength="300"></textarea></label>
-      <div class="form-grid">
-        <label class="field"><span>Mulai</span><input type="date" id="camp-start"></label>
-        <label class="field"><span>Selesai</span><input type="date" id="camp-end"></label>
-        <label class="check"><input type="checkbox" id="camp-active" checked><span>Tampilkan ke member</span></label>
-      </div>
-      <div class="notice" id="camp-msg" hidden></div>
-      <button class="btn" type="submit">Simpan promo</button>
-    </form>
-  </section>`;
-  const ymd = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date(ms));
-  $('#camp-start').value = ymd(Date.now());
-  $('#camp-end').value = ymd(Date.now() + 14 * 864e5);
-
-  $('#backup').addEventListener('click', downloadBackup);
+    <button class="btn" type="submit" style="justify-self:start">Simpan aturan</button>
+  </form>`;
   $('#rules').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('button[type="submit"]', e.currentTarget);
@@ -662,17 +760,51 @@ async function settings() {
       toast('Aturan tersimpan'); busy(btn, false); notice($('#rules-msg'), '');
     } catch (err) { notice($('#rules-msg'), err.message); busy(btn, false); }
   });
-  $$('[data-menu]', p).forEach((tr) => $('button', tr).addEventListener('click', async (e) => {
-    const [name, price] = $$('input[type="text"], input[type="number"]', tr).map((i) => i.value);
-    const active = $('input[type="checkbox"]', tr).checked;
-    busy(e.currentTarget, true);
-    try { await rpc('owner_save_menu_item', { p_id: tr.dataset.menu ? Number(tr.dataset.menu) : null, p_name: name, p_price: Number(price || 0), p_active: active }); toast('Produk tersimpan'); settings(); }
-    catch (err) { toast(err.message); busy(e.currentTarget, false); }
-  }));
+}
+
+
+// Promo untuk member: news shown on the member card (POS discounts live in Promo POS).
+async function campaigns() {
+  const p = $('#p-camp');
+  const s = await withSettings(p, campaigns);
+  if (!s) return;
+  p.innerHTML = `
+  <section class="panel stack" aria-labelledby="camp-title">
+    <h1 id="camp-title">Promo member</h1>
+    <p class="muted small">Kabar promo yang tampil di kartu member. Potongan harga di kasir diatur di Promo, Promo POS.</p>
+    ${s.campaigns.length ? `<ul class="list">${s.campaigns.map((c) => `<li><span class="grow"><strong>${esc(c.title)}</strong><br>
+      <span class="muted small">${esc(day(c.starts_on))} sampai ${esc(day(c.ends_on))}</span></span>
+      <span class="tag ${c.active ? 'tag-ok' : ''}">${c.active ? 'Aktif' : 'Nonaktif'}</span>
+      <button class="btn btn-text" type="button" data-camp='${esc(JSON.stringify(c))}'>Ubah</button></li>`).join('')}</ul>` : '<p class="muted">Belum ada promo.</p>'}
+    <form class="stack" id="camp" novalidate aria-labelledby="camp-form-t">
+      <h2 id="camp-form-t">Promo baru</h2>
+      <input type="hidden" id="camp-id">
+      <label class="field"><span>Judul</span><input type="text" id="camp-title-in" maxlength="80" placeholder="Contoh: Mini choux isi 8 lebih hemat tiap Selasa"></label>
+      <label class="field"><span>Isi</span><textarea id="camp-body" maxlength="300"></textarea></label>
+      <div class="form-grid">
+        <label class="field"><span>Mulai</span><input type="date" id="camp-start"></label>
+        <label class="field"><span>Selesai</span><input type="date" id="camp-end"></label>
+        <label class="check"><input type="checkbox" id="camp-active" checked><span>Tampilkan ke member</span></label>
+      </div>
+      <div class="notice" id="camp-msg" hidden></div>
+      <div class="row"><button class="btn" type="submit" id="camp-save">Simpan promo</button>
+        <button class="btn btn-quiet" type="button" id="camp-cancel" hidden>Batal ubah</button></div>
+    </form>
+  </section>`;
+  // Ubah fills the form; Batal ubah (Glenn, 12 Nov 2026) empties it back to a new promo.
+  const fresh = () => {
+    $('#camp-id').value = ''; $('#camp-title-in').value = ''; $('#camp-body').value = ''; $('#camp-active').checked = true;
+    $('#camp-start').value = ymdJakarta(Date.now()); $('#camp-end').value = ymdJakarta(Date.now() + 14 * 864e5);
+    $('#camp-form-t').textContent = 'Promo baru'; $('#camp-save').textContent = 'Simpan promo'; $('#camp-cancel').hidden = true;
+    notice($('#camp-msg'), '');
+  };
+  fresh();
+  $('#camp-cancel').addEventListener('click', () => { fresh(); $('#camp-title-in').focus(); });
   $$('[data-camp]', p).forEach((b) => b.addEventListener('click', () => {
     const c = JSON.parse(b.dataset.camp);
     $('#camp-id').value = c.id; $('#camp-title-in').value = c.title; $('#camp-body').value = c.body;
     $('#camp-start').value = c.starts_on; $('#camp-end').value = c.ends_on; $('#camp-active').checked = c.active;
+    $('#camp-form-t').textContent = 'Ubah promo: ' + c.title; $('#camp-save').textContent = 'Simpan perubahan'; $('#camp-cancel').hidden = false;
     $('#camp-title-in').focus();
   }));
   $('#camp').addEventListener('submit', async (e) => {
@@ -682,7 +814,7 @@ async function settings() {
     try {
       await rpc('owner_save_campaign', { p_id: $('#camp-id').value ? Number($('#camp-id').value) : null, p_title: $('#camp-title-in').value, p_body: $('#camp-body').value,
         p_starts: $('#camp-start').value, p_ends: $('#camp-end').value, p_active: $('#camp-active').checked });
-      toast('Promo tersimpan'); settings();
+      toast('Promo tersimpan'); campaigns();
     } catch (err) { notice($('#camp-msg'), err.message); busy(btn, false); }
   });
 }

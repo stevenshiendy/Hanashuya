@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kasir Hanashuya</title>
+<meta name="robots" content="noindex">
+<meta name="description" content="Kasir Hanashuya di tablet booth: pesanan, member, pembayaran Tunai atau QRIS, struk dan shift.">
+<meta name="theme-color" content="#fffaee">
+<link rel="icon" href="/img/favicon.png?v=2" type="image/png">
+<link rel="apple-touch-icon" href="/img/apple-touch-icon.png?v=2">
+<link rel="manifest" href="kasir.webmanifest">
+<link rel="stylesheet" href="css/app.css">
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" defer></script>
+<script type="module" src="js/till.js"></script>
+</head>
+<body class="w-till">
+<a class="skip" href="#app">Langsung ke isi</a>
+<header class="tl-bar">
+  <a class="tl-brand" href="kasir.html">Hanashuya</a>
+  <span class="tl-meta" id="tl-shift"></span>
+  <span class="tl-sp"></span>
+  <span class="tl-meta num" id="tl-clock" hidden></span>
+  <button class="tl-ghost tl-queue" type="button" id="tl-queue" hidden></button>
+  <button class="tl-ghost" type="button" id="tl-home" hidden>Dashboard</button>
+  <button class="tl-ghost" type="button" id="tl-cash" hidden>Kas masuk/keluar</button>
+  <button class="tl-ghost" type="button" id="tl-today" hidden>Hari ini</button>
+  <button class="tl-ghost" type="button" id="tl-close" hidden>Tutup shift</button>
+  <button class="tl-ghost" type="button" id="tl-printer" hidden>Printer</button>
+  <button class="tl-ghost" type="button" id="logout" hidden>Keluar</button>
+</header>
+<main id="app" class="tl-main" tabindex="-1">
+  <div class="panel stack tl-solo" aria-busy="true"><div class="skeleton"></div><div class="skeleton"></div></div>
+</main>
+<noscript><p class="panel">Halaman kasir butuh JavaScript.</p></noscript>
+</body>
+</html>

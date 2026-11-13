@@ -1,0 +1,18 @@
+{
+  "id": "/member/kasir.html",
+  "name": "Kasir Hanashuya",
+  "short_name": "Kasir",
+  "description": "Kasir Hanashuya untuk tablet booth.",
+  "lang": "id",
+  "start_url": "/member/kasir.html",
+  "scope": "/member/kasir",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#FFFAEE",
+  "theme_color": "#FFFAEE",
+  "icons": [
+    { "src": "/img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

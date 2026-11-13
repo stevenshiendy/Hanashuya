@@ -78,6 +78,19 @@ create table if not exists public.profiles (
 -- Empty until WhatsApp verification is switched on later.
 alter table public.profiles add column if not exists whatsapp_verified_at timestamptz;
 create unique index if not exists profiles_whatsapp_once on public.profiles (whatsapp) where deleted_at is null;
+-- Manager (11 Nov 2026): between staff and owner. Works the till like staff, and may
+-- approve voids, refunds and undo requests, change goods-in entries, approve leave and
+-- overtime, correct attendance and see staff bank accounts. Only the owner adds or removes
+-- accounts, changes settings and prices, and downloads the backup.
+alter table public.profiles drop constraint if exists profiles_role_check;
+-- Kasir tablet (Glenn, 13 Nov 2026): the till device's own login. It is not a person: it
+-- sells (passes every staff check in _require, and each order still names the staff who
+-- served), shows the attendance QR (att_qr_token accepts only this role) and signs up
+-- members, but has no WhatsApp number, schedule or HR profile, can't clock in, decide
+-- approvals or open the owner page, and is left out of every staff list (those name the
+-- roles 'staff' and 'manager'). whoami() reports it as role 'staff' with kasir_tablet = true,
+-- so the pages' staff gates need no change. Made from the owner's Staf view (owner_add_kasir).
+alter table public.profiles add constraint profiles_role_check check (role in ('member', 'staff', 'manager', 'owner', 'kasir'));
 alter table public.profiles add column if not exists username text;
 alter table public.profiles add column if not exists birth_date date;
 create unique index if not exists profiles_username_once on public.profiles (username) where deleted_at is null;
@@ -86,6 +99,19 @@ create unique index if not exists profiles_username_once on public.profiles (use
 alter table public.profiles add column if not exists must_set_password boolean not null default false;
 -- WhatsApp promos only go to members who ticked the separate promo box.
 alter table public.profiles add column if not exists marketing_opt_in boolean not null default false;
+
+-- One welcome voucher per WhatsApp number (security review, 13 Nov 2026). Numbers are not
+-- verified, so deleting the account and signing up again would give a new 50% voucher.
+-- When a member deletes their account, only a keyed hash of the number is kept here
+-- (HMAC-SHA256 with settings.wa_pepper, never the number itself, UU PDP); a new account
+-- with that number starts with welcome_voucher = false, so _vouchers lists no welcome.
+alter table public.settings add column if not exists wa_pepper text not null default encode(extensions.gen_random_bytes(32), 'hex');
+alter table public.profiles add column if not exists welcome_voucher boolean not null default true;
+create table if not exists public.welcome_given (
+  wa_hash text primary key,
+  created_at timestamptz not null default now()
+);
+alter table public.welcome_given enable row level security;
 
 -- Which version of the terms and privacy policy each member accepted, and every
 -- promo opt-in or opt-out, with time and where it happened. Rows are only ever
@@ -156,7 +182,7 @@ create table if not exists public.redemptions (
 -- dashboard and backups treat them like any other used reward.
 alter table public.redemptions add column if not exists kind text not null default 'stempel';
 alter table public.redemptions drop constraint if exists redemptions_kind_check;
-alter table public.redemptions add constraint redemptions_kind_check check (kind in ('stempel', 'welcome', 'ulang_tahun', 'kode'));
+alter table public.redemptions add constraint redemptions_kind_check check (kind in ('stempel', 'welcome', 'ulang_tahun', 'kode', 'tebus_murah'));
 
 -- ---------------------------------------------------------------- printed voucher codes (10 Nov 2026)
 -- Each printed voucher (first: the Papaya cashier voucher) carries its own random code,
@@ -297,7 +323,16 @@ alter table public.audit_log enable row level security;
 drop policy if exists "read rewards" on public.rewards;
 create policy "read rewards" on public.rewards for select to authenticated using (true);
 drop policy if exists "read menu" on public.menu_items;
-create policy "read menu" on public.menu_items for select to authenticated using (active);
+-- Once pos.sql has added pos_only, keep the till-only products (Paper bag) hidden here too,
+-- so running schema.sql alone again does not show them on the old cashier page (12 Nov 2026).
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'menu_items' and column_name = 'pos_only') then
+    create policy "read menu" on public.menu_items for select to authenticated using (active and not pos_only);
+  else
+    create policy "read menu" on public.menu_items for select to authenticated using (active);
+  end if;
+end $$;
 drop policy if exists "read own profile" on public.profiles;
 create policy "read own profile" on public.profiles for select to authenticated using (id = auth.uid());
 drop policy if exists "read own sales" on public.sales;
@@ -325,6 +360,9 @@ as $$
 declare r text;
 begin
   select role into r from profiles where id = auth.uid() and deleted_at is null;
+  -- A manager may do everything staff may do; so may the kasir tablet account (personal
+  -- staff functions refuse it on their own, see _att_me in attendance.sql).
+  if r in ('manager', 'kasir') and 'staff' = any (roles) then return auth.uid(); end if;
   if r is null or not (r = any (roles)) then
     raise exception '%', msg using errcode = '42501';
   end if;
@@ -466,14 +504,14 @@ returns table (kind text, period int, title text, label text, starts_on date, en
 language sql stable security definer set search_path = public
 as $$
   with me as (
-    select pr.id, public._local(pr.created_at)::date as joined, pr.birth_date
+    select pr.id, public._local(pr.created_at)::date as joined, pr.birth_date, pr.welcome_voucher
     from profiles pr where pr.id = p and pr.role = 'member' and pr.deleted_at is null),
   t as (select public._local(now())::date as today),
   welcome as (
     select 'welcome'::text as kind, 0 as period, 'Hadiah member baru'::text as title,
            'Diskon 50% untuk 1 produk'::text as label, me.joined as starts_on, me.joined + 30 as ends_on,
            'NEWMEMBER50'::text as pos_code
-    from me),
+    from me where me.welcome_voucher),
   bday as (
     select 'ulang_tahun'::text as kind, y as period, 'Hadiah ulang tahun'::text as title,
            '1 box Mini Choux isi 8 gratis'::text as label,
@@ -507,10 +545,10 @@ $$;
 create or replace function public._staff_conflict(p uuid) returns boolean
 language sql stable security definer set search_path = public
 as $$
-  select exists (select 1 from profiles where id = p and role in ('staff', 'owner'))
+  select exists (select 1 from profiles where id = p and role in ('staff', 'manager', 'owner', 'kasir'))
       or exists (
         select 1 from profiles m join profiles s
-          on s.role in ('staff', 'owner') and s.id <> m.id and s.deleted_at is null
+          on s.role in ('staff', 'manager', 'owner') and s.id <> m.id and s.deleted_at is null
          and ((m.whatsapp is not null and m.whatsapp = s.whatsapp)
            or (m.email is not null and lower(m.email) = lower(s.email)))
         where m.id = p)
@@ -552,6 +590,12 @@ begin
   end if;
 end $$;
 
+-- Keyed hash of a WhatsApp number for welcome_given. The pepper lives in settings,
+-- which no browser can read, so the hashes can't be reversed by guessing numbers.
+create or replace function public._wa_hash(wa text) returns text
+language sql stable security definer set search_path = public, extensions
+as $$ select encode(extensions.hmac('welcome.' || wa, (select wa_pepper from settings where id = 1), 'sha256'), 'hex') $$;
+
 create or replace function public._handle_new_user() returns trigger
 language plpgsql security definer set search_path = public
 as $$
@@ -563,7 +607,12 @@ declare
   nm text := nullif(trim(coalesce(meta->>'full_name', '')), '');
 begin
   if wa is null and split_part(new.email, '@', 1) ~ '^[0-9]+$' then wa := public._wa(split_part(new.email, '@', 1)); end if;
-  if wa is null or wa !~ '^628[0-9]{8,12}$' then raise exception 'Nomor WhatsApp tidak valid.'; end if;
+  -- owner_add_kasir sets hanashuya.kasir_account for its own transaction: the kasir tablet
+  -- login has no WhatsApp number. Browsers can't set it (sign-up metadata can't skip this).
+  if wa is null and current_setting('hanashuya.kasir_account', true) = 'on' then
+    null;
+  elsif wa is null or wa !~ '^628[0-9]{8,12}$' then raise exception 'Nomor WhatsApp tidak valid.';
+  end if;
   if exists (select 1 from profiles where whatsapp = wa and deleted_at is null) then raise exception 'Nomor WhatsApp sudah terdaftar.'; end if;
   if un is not null then
     if un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username tidak valid.'; end if;
@@ -571,10 +620,13 @@ begin
   end if;
   begin bd := nullif(meta->>'birth_date', '')::date; exception when others then raise exception 'Tanggal lahir tidak valid.'; end;
   if bd is not null and age(current_date, bd) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
-  insert into profiles (id, email, whatsapp, username, full_name, birth_date, age_range, gender, adult_confirmed, marketing_opt_in, card_code)
+  insert into profiles (id, email, whatsapp, username, full_name, birth_date, age_range, gender, adult_confirmed, marketing_opt_in, card_code,
+                        welcome_voucher)
   values (new.id, lower(new.email), wa, un, nm, bd, public._age_range(bd),
           nullif(meta->>'gender', ''), bd is not null,
-          coalesce((meta->>'marketing')::boolean, false), public._new_card_code())
+          coalesce((meta->>'marketing')::boolean, false), public._new_card_code(),
+          -- A number whose earlier account was deleted already had its welcome voucher.
+          not exists (select 1 from welcome_given where wa_hash = public._wa_hash(wa)))
   on conflict (id) do nothing;
   -- No terms checkbox while the legal pages are offline (Glenn, 7 Nov 2026); only the
   -- promo choice is recorded.
@@ -726,7 +778,9 @@ end $$;
 create or replace function public.whoami() returns json
 language sql stable security definer set search_path = public
 as $$
-  select json_build_object('id', id, 'role', role, 'full_name', full_name, 'username', username, 'whatsapp', whatsapp,
+  -- The kasir tablet account shows as 'staff' to the pages (kasir_tablet tells them apart).
+  select json_build_object('id', id, 'role', case when role = 'kasir' then 'staff' else role end,
+    'kasir_tablet', role = 'kasir', 'full_name', full_name, 'username', username, 'whatsapp', whatsapp,
     'whatsapp_verified', whatsapp_verified_at is not null,
     -- The username is optional (cards made by the cashier have none); members can always
     -- sign in with their WhatsApp number.
@@ -873,6 +927,14 @@ begin
   if (select role from profiles where id = me) <> 'member' then
     raise exception 'Akun staf dihapus oleh pemilik.';
   end if;
+  -- Keep only a keyed hash of the number, so signing up again gives no new welcome voucher.
+  insert into welcome_given (wa_hash)
+  select public._wa_hash(whatsapp) from profiles where id = me and whatsapp is not null
+  on conflict (wa_hash) do nothing;
+  -- Number searches and cashier sign-ups logged the number; take it out of those rows.
+  update audit_log set detail = (detail - 'whatsapp') || jsonb_build_object('whatsapp', 'dihapus')
+   where action in ('cari_nomor', 'daftar_lewat_kasir')
+     and detail->>'whatsapp' = (select whatsapp from profiles where id = me);
   update sales set member_id = null where member_id = me;
   update redemptions set member_id = null where member_id = me;
   perform public._log('hapus_akun', jsonb_build_object('member', me));
@@ -1022,7 +1084,9 @@ begin
   if c.claimed_by = p then
     return json_build_object('status', 'sudah', 'message', 'Voucher ini sudah tersimpan di kartu Anda.', 'title', b.title, 'label', b.label, 'ends_on', b.ends_on);
   end if;
-  if c.claimed_by is not null then
+  if c.claimed_by is not null or c.claimed_at is not null then
+    -- claimed_at stays set when the member who saved it deleted their account (13 Nov 2026),
+    -- so a deleted and re-made account can't save the same voucher again. The owner frees it.
     return json_build_object('status', 'dipakai_lain', 'message', 'Kode ini sudah dipakai akun lain. Kalau ini voucher Anda, hubungi Hanashuya lewat WhatsApp.');
   end if;
   if public._local(now())::date > b.ends_on then
@@ -1178,7 +1242,12 @@ begin
   else raise exception 'Nomor struk tidak sesuai format VireoPOS.';
   end if;
   if p_total is null or p_total <= 0 then raise exception 'Isi total belanja sesuai struk.'; end if;
-  if p_total > 20000000 then raise exception 'Total belanja terlalu besar. Periksa lagi angkanya.'; end if;
+  -- Booth cap (security review, 13 Nov 2026): the biggest real order is a few boxes.
+  if p_total > 2000000 then
+    raise exception 'Total belanja lebih dari Rp2.000.000. Periksa lagi angkanya; pesanan sebesar ini dicatat oleh pemilik.';
+  end if;
+  -- Anything over Rp500.000 in one sale is flagged for the owner.
+  if p_total > 500000 then f := array_append(f, 'total_besar'); end if;
   if jsonb_typeof(coalesce(p_items, '[]')) <> 'array' then raise exception 'Daftar produk tidak valid.'; end if;
   if key is not null then
     select * into prev from sales where receipt_key = key and sale_day = v_day;
@@ -1234,6 +1303,9 @@ begin
   returning id into sid;
   perform public._log('penjualan', jsonb_build_object('sale', sid, 'receipt', key, 'total', p_total,
     'member', m.id, 'stamps', n, 'flags', f));
+  if p_total > 500000 then
+    perform public._log('penjualan_besar', jsonb_build_object('sale', sid, 'total', p_total, 'member', m.id));
+  end if;
 
   if m.id is null then
     return json_build_object('sale_id', sid, 'member', false);
@@ -1407,20 +1479,36 @@ begin
   end loop;
 end $$;
 
-create or replace function public.owner_dashboard(p_days int default 30) returns json
+-- Ringkasan (Glenn, 12 Nov 2026): the last p_days days, or a custom range p_from..p_to (whole
+-- days in the booth's time zone, at most 366), plus a per-day review ('daily').
+drop function if exists public.owner_dashboard(int);
+create or replace function public.owner_dashboard(p_days int default 30, p_from date default null, p_to date default null) returns json
 language plpgsql stable security definer set search_path = public
 as $$
 declare
   me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
   s settings := public._cfg();
-  since timestamptz := now() - make_interval(days => greatest(1, least(coalesce(p_days, 30), 366)));
+  since timestamptz;
+  until timestamptz := now();
+  d_from date; d_to date;
 begin
+  if p_from is not null or p_to is not null then
+    if p_from is null or p_to is null or p_to < p_from then raise exception 'Pilih tanggal mulai dan sampai yang benar.'; end if;
+    if p_to - p_from > 365 then raise exception 'Rentang paling lama 1 tahun.'; end if;
+    d_from := p_from; d_to := p_to;
+    since := p_from::timestamp at time zone s.tz;
+    until := (p_to + 1)::timestamp at time zone s.tz;
+  else
+    d_to := public._local(now())::date;
+    d_from := d_to - (greatest(1, least(coalesce(p_days, 30), 366)) - 1);
+    since := now() - make_interval(days => greatest(1, least(coalesce(p_days, 30), 366)));
+  end if;
   return (
   with sl as (
     select x.*, public._local(x.created_at) as lt from sales x
-    where x.created_at >= since and x.reversed_at is null
+    where x.created_at >= since and x.created_at < until and x.reversed_at is null
   ),
-  rd as (select * from redemptions where created_at >= since and reversed_at is null),
+  rd as (select r.*, public._local(r.created_at)::date as ld from redemptions r where r.created_at >= since and r.created_at < until and r.reversed_at is null),
   item_rows as (
     select sl.member_id, e->>'name' as name, greatest(coalesce((e->>'qty')::int, 1), 1) as qty
     from sl cross join lateral jsonb_array_elements(sl.items) e
@@ -1441,9 +1529,23 @@ begin
     join sl on sl.id = mt.sale_id
     left join pos_receipts p on p.receipt_key = mt.pos_key
     left join profiles pm on pm.id = sl.member_id
-  )
+  ),
+  -- Per-day figures grouped once (12 Nov 2026: per-day subqueries took seconds over a year).
+  sd as (select sl.lt::date as d, count(*) as sales, count(*) filter (where sl.member_id is not null) as member_sales,
+           coalesce(sum(sl.total), 0) as revenue, coalesce(sum(sl.stamps), 0) as stamps from sl group by 1),
+  rdd as (select rd.ld as d, count(*) as n from rd group by 1),
+  nmd as (select public._local(pr.created_at)::date as d, count(*) as n from profiles pr
+           where pr.role = 'member' and pr.deleted_at is null and pr.created_at >= since - interval '1 day' and pr.created_at < until + interval '1 day'
+           group by 1)
   select json_build_object(
-    'days', extract(day from now() - since)::int,
+    'days', (d_to - d_from) + 1, 'from', d_from, 'to', d_to, 'custom', p_from is not null,
+    'daily', (select json_agg(json_build_object('date', g.d::date,
+        'sales', coalesce(sd.sales, 0), 'member_sales', coalesce(sd.member_sales, 0),
+        'revenue', coalesce(sd.revenue, 0), 'stamps', coalesce(sd.stamps, 0),
+        'redemptions', coalesce(rdd.n, 0), 'new_members', coalesce(nmd.n, 0))
+        order by g.d desc)
+      from generate_series(d_from, d_to, interval '1 day') g(d)
+      left join sd on sd.d = g.d::date left join rdd on rdd.d = g.d::date left join nmd on nmd.d = g.d::date),
     'settings', json_build_object('rupiah_per_stamp', s.rupiah_per_stamp, 'late_minutes', s.late_minutes),
     'totals', json_build_object(
       'sales', (select count(*) from sl),
@@ -1453,7 +1555,7 @@ begin
       'redemptions', (select count(*) from rd),
       'welcome_used', (select count(*) from rd where kind = 'welcome'),
       'birthday_used', (select count(*) from rd where kind = 'ulang_tahun'),
-      'new_members', (select count(*) from profiles where role = 'member' and deleted_at is null and created_at >= since),
+      'new_members', (select count(*) from profiles where role = 'member' and deleted_at is null and created_at >= since and created_at < until),
       'members', (select count(*) from profiles where role = 'member' and deleted_at is null),
       'active_members', (select count(distinct member_id) from sl where member_id is not null),
       'avg_days_between_visits', (select round((extract(epoch from avg(gap)) / 86400)::numeric, 1) from visits where gap is not null and created_at >= since)
@@ -1476,7 +1578,7 @@ begin
         (select coalesce(sum(stamps), 0) from sl where sl.staff_id = p.id) as stamps,
         (select count(*) from rd where rd.staff_id = p.id) as redemptions,
         (select count(*) from sl where sl.staff_id = p.id and cardinality(sl.flags) > 0) as flagged
-      from profiles p where p.role in ('staff', 'owner') and p.deleted_at is null) st), '[]'),
+      from profiles p where p.role in ('staff', 'manager', 'owner') and p.deleted_at is null) st), '[]'),
     'lapsed', coalesce((select json_agg(l order by l.last_at) from (
       select p.full_name, case when p.marketing_opt_in then p.whatsapp end as whatsapp, lv.last_at, lv.n as visits
       from last_visit lv join profiles p on p.id = lv.member_id
@@ -1490,7 +1592,7 @@ begin
       where cardinality(sl.flags) > 0 order by sl.created_at desc limit 50) fl), '[]'),
     'mismatches', coalesce((select json_agg(mm order by mm.created_at desc) from (
       select * from matched where problem is not null limit 100) mm), '[]'),
-    'matched_days', (select count(distinct public._local(sold_at)::date) from pos_receipts where sold_at >= since),
+    'matched_days', (select count(distinct public._local(sold_at)::date) from pos_receipts where sold_at >= since and sold_at < until),
     'last_backup', (select max(created_at) from audit_log where action = 'unduh_cadangan'),
     'undo', coalesce((select json_agg(u order by u.created_at) from (
       select u.id, u.reason, u.created_at, rq.full_name as requested_by,
@@ -1538,10 +1640,22 @@ end $$;
 create or replace function public.owner_decide_undo(p_id bigint, p_approve boolean) returns void
 language plpgsql volatile security definer set search_path = public
 as $$
-declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); u undo_requests;
+declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer yang bisa memutuskan pembatalan.'); u undo_requests;
 begin
   select * into u from undo_requests where id = p_id and status = 'menunggu' for update;
   if u.id is null then raise exception 'Permintaan ini sudah diputuskan.'; end if;
+  -- 13 Nov 2026: a manager can't decide their own request (the owner decides it), and a
+  -- sale or reward that belongs to a till order is undone through Batal/Refund pesanan,
+  -- so the order, cash and stock are undone with it.
+  if u.requested_by = me and (select role from profiles where id = me) <> 'owner' then
+    raise exception 'Permintaan Anda sendiri diputuskan oleh pemilik.';
+  end if;
+  if p_approve and to_regclass('public.pos_orders') is not null then
+    if exists (select 1 from pos_orders where u.sale_id is not null and sale_id = u.sale_id)
+       or exists (select 1 from pos_orders o join redemptions r on r.order_id = o.id where r.id = u.redemption_id) then
+      raise exception 'Ini bagian dari pesanan kasir. Batalkan lewat Batal/Refund pesanan di kasir.';
+    end if;
+  end if;
   if p_approve then
     if u.sale_id is not null then
       update sales set reversed_at = now(), reversed_by = me where id = u.sale_id and reversed_at is null;
@@ -1563,7 +1677,7 @@ declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemi
 begin
   return coalesce((select json_agg(x order by x.role desc, x.full_name) from (
     select id, role, full_name, username, email, whatsapp, created_at, id = me as is_me
-    from profiles where role in ('staff', 'owner') and deleted_at is null) x), '[]');
+    from profiles where role in ('staff', 'manager', 'owner') and deleted_at is null) x), '[]');
 end $$;
 
 drop function if exists public.owner_set_role(text, text);
@@ -1572,7 +1686,7 @@ language plpgsql volatile security definer set search_path = public
 as $$
 declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); p profiles;
 begin
-  if p_role not in ('member', 'staff', 'owner') then raise exception 'Peran tidak dikenal.'; end if;
+  if p_role not in ('member', 'staff', 'manager', 'owner') then raise exception 'Peran tidak dikenal.'; end if;
   select * into p from profiles where whatsapp = public._wa(p_phone) and deleted_at is null;
   if p.id is null then
     raise exception 'Nomor % belum pernah masuk. Minta orangnya masuk sekali di halaman kasir, lalu coba lagi.', trim(p_phone);
@@ -1599,7 +1713,7 @@ begin
   if un is null or un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'; end if;
   if wa is null or wa !~ '^628[0-9]{8,12}$' then raise exception 'Nomor WhatsApp tidak valid. Contoh: 0812 3456 7890.'; end if;
   if length(coalesce(p_password, '')) < 8 then raise exception 'Password minimal 8 karakter.'; end if;
-  if p_role not in ('staff', 'owner') then raise exception 'Peran tidak dikenal.'; end if;
+  if p_role not in ('staff', 'manager', 'owner') then raise exception 'Peran tidak dikenal.'; end if;
   select * into p from profiles where whatsapp = wa order by deleted_at nulls first limit 1;
   if p.id is not null and p.deleted_at is null then
     if p.role = 'member' then raise exception 'Nomor ini sudah dipakai kartu member. Pakai nomor lain untuk akun staf.'; end if;
@@ -1619,6 +1733,72 @@ begin
   return json_build_object('id', uid, 'whatsapp', wa, 'username', un);
 end $$;
 
+-- ---------------------------------------------------------------- kasir tablet account
+-- The owner makes the till's own login (Glenn, 13 Nov 2026): a username and a password the
+-- owner types, no WhatsApp number. One active kasir tablet account at a time; removing it
+-- (owner_remove_kasir) frees the slot. A removed username is switched back on.
+create or replace function public.owner_add_kasir(p_username text, p_password text, p_name text default null) returns json
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare
+  me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+  un text := public._clean_username(p_username); nm text := coalesce(nullif(trim(coalesce(p_name, '')), ''), 'Kasir tablet');
+  p profiles; uid uuid;
+begin
+  if un is null or un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'; end if;
+  if length(coalesce(p_password, '')) < 8 then raise exception 'Password minimal 8 karakter.'; end if;
+  if exists (select 1 from profiles where role = 'kasir' and deleted_at is null) then
+    raise exception 'Sudah ada akun kasir tablet. Hapus yang lama dulu kalau mau membuat yang baru.';
+  end if;
+  if exists (select 1 from profiles where username = un and deleted_at is null) then raise exception 'Username sudah dipakai.'; end if;
+  select * into p from profiles where username = un and role = 'kasir' and deleted_at is not null order by deleted_at desc limit 1;
+  if p.id is not null then
+    update profiles set deleted_at = null, full_name = nm where id = p.id;
+    update auth.users set banned_until = null where id = p.id;
+    perform public._set_password(p.id, p_password);
+    uid := p.id;
+  else
+    perform set_config('hanashuya.kasir_account', 'on', true);
+    uid := public._create_login(null, p_password, un, nm);
+    perform set_config('hanashuya.kasir_account', '', true);
+    update profiles set role = 'kasir', adult_confirmed = true where id = uid;
+  end if;
+  perform public._log('tambah_kasir_tablet', jsonb_build_object('username', un));
+  return json_build_object('id', uid, 'username', un, 'full_name', nm);
+end $$;
+
+create or replace function public.owner_kasir_accounts() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+begin
+  return coalesce((select json_agg(json_build_object('id', id, 'username', username, 'full_name', full_name, 'created_at', created_at)
+    order by created_at) from profiles where role = 'kasir' and deleted_at is null), '[]');
+end $$;
+
+create or replace function public.owner_remove_kasir(p_id uuid) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); p profiles;
+begin
+  select * into p from profiles where id = p_id and role = 'kasir' and deleted_at is null;
+  if p.id is null then raise exception 'Akun kasir tablet tidak ditemukan.'; end if;
+  update profiles set deleted_at = now() where id = p.id;
+  update auth.users set banned_until = now() + interval '100 years' where id = p.id;
+  perform public._log('hapus_kasir_tablet', jsonb_build_object('username', p.username));
+end $$;
+
+create or replace function public.owner_kasir_password(p_id uuid, p_password text) returns void
+language plpgsql volatile security definer set search_path = public, extensions
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); p profiles;
+begin
+  select * into p from profiles where id = p_id and role = 'kasir' and deleted_at is null;
+  if p.id is null then raise exception 'Akun kasir tablet tidak ditemukan.'; end if;
+  perform public._set_password(p.id, p_password);
+  perform public._log('ganti_password_kasir_tablet', jsonb_build_object('username', p.username));
+end $$;
+
 -- Removes a staff account's access. The account is switched off, not deleted, so
 -- past sales still show who recorded them.
 create or replace function public.owner_remove_staff(p_phone text) returns void
@@ -1626,7 +1806,7 @@ language plpgsql volatile security definer set search_path = public
 as $$
 declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); p profiles;
 begin
-  select * into p from profiles where whatsapp = public._wa(p_phone) and deleted_at is null and role in ('staff', 'owner');
+  select * into p from profiles where whatsapp = public._wa(p_phone) and deleted_at is null and role in ('staff', 'manager', 'owner');
   if p.id is null then raise exception 'Akun staf dengan nomor itu tidak ditemukan.'; end if;
   if p.id = me then raise exception 'Anda tidak bisa menghapus akun sendiri.'; end if;
   update profiles set deleted_at = now() where id = p.id;
@@ -1641,7 +1821,7 @@ language plpgsql volatile security definer set search_path = public, extensions
 as $$
 declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); p profiles;
 begin
-  select * into p from profiles where whatsapp = public._wa(p_phone) and deleted_at is null and role in ('staff', 'owner');
+  select * into p from profiles where whatsapp = public._wa(p_phone) and deleted_at is null and role in ('staff', 'manager', 'owner');
   if p.id is null then raise exception 'Akun staf dengan nomor itu tidak ditemukan.'; end if;
   perform public._set_password(p.id, p_password);
   perform public._log('ganti_password_staf', jsonb_build_object('whatsapp', p.whatsapp));
@@ -1803,7 +1983,7 @@ grant execute on function public.login_handle(text), public.signup_check(text, t
 grant execute on function public._issue_reset_code(text, uuid) to service_role;
 
 revoke all on public.settings, public.redeem_codes, public.scan_tickets, public.undo_requests,
-  public.pos_receipts, public.audit_log, public.password_resets, public.consent_log from anon, authenticated;
+  public.pos_receipts, public.audit_log, public.password_resets, public.consent_log, public.welcome_given from anon, authenticated;
 revoke all on public.card_cycles, public.voucher_batches, public.voucher_codes from anon, authenticated;
 
 -- Fill card_cycles for every member who already has stamps (safe to repeat).

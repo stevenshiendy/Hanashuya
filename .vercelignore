@@ -4,3 +4,4 @@ CLAUDE.md
 .mcp.json
 node_modules
 dist
+.github

@@ -1,0 +1,117 @@
+# Daily database backup (Glenn, 13 Nov 2026: once a day). Supabase Free keeps no backups.
+#
+# Every day at 23.00 WIB (16.00 UTC, after the booth closes) this job:
+#   1. dumps the Supabase database (our tables in public + the login accounts in auth),
+#   2. compresses and encrypts it with Glenn's backup passphrase (members' data, UU PDP),
+#   3. uploads it to Cloudflare R2 (S3-compatible, 10 GB free) and keeps 30 days + 12 monthly copies.
+# On Sundays it also restores the newest backup into a throwaway Postgres and checks that
+# yesterday's sales are in it. Any failure makes GitHub email the repo owner.
+# The daily dump also keeps the free project from pausing (Supabase pauses after 7 idle days).
+#
+# Secrets (GitHub repo > Settings > Secrets and variables > Actions), set by Glenn:
+#   SUPABASE_DB_URL     Supabase > Connect > Session pooler URI (port 5432), with the DB password
+#   BACKUP_PASSPHRASE   a long passphrase, also kept in Glenn's password manager (without it a backup can't be opened)
+#   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
+# Setup steps: ~/Documents/Hanashuya Drafts/pos-research/backup-setup.md
+name: Backup database
+
+on:
+  schedule:
+    - cron: '0 16 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: postgres:17
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+    steps:
+      - name: Tools
+        run: apt-get update -qq && apt-get install -y -qq awscli gnupg > /dev/null
+      - name: Dump, compress, encrypt
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          day=$(TZ=Asia/Jakarta date +%Y-%m-%d)
+          pg_dump "$DB_URL" --schema=public --schema=auth --no-owner --no-privileges --format=custom --file=db.dump
+          test "$(stat -c %s db.dump)" -gt 10000
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$PASS" --symmetric --cipher-algo AES256 -o "hanashuya-$day.dump.gpg" db.dump
+          rm db.dump
+          echo "FILE=hanashuya-$day.dump.gpg" >> "$GITHUB_ENV"
+          echo "DAY=$day" >> "$GITHUB_ENV"
+      - name: Upload
+        run: |
+          set -euo pipefail
+          aws s3 cp "$FILE" "s3://$R2_BUCKET/daily/$FILE" --endpoint-url "$R2_ENDPOINT"
+          # The first backup of each month is also kept as a monthly copy.
+          case "$DAY" in *-01) aws s3 cp "$FILE" "s3://$R2_BUCKET/monthly/$FILE" --endpoint-url "$R2_ENDPOINT" ;; esac
+      - name: Remove old copies (30 daily, 12 monthly)
+        run: |
+          set -euo pipefail
+          prune() { aws s3 ls "s3://$R2_BUCKET/$1/" --endpoint-url "$R2_ENDPOINT" | awk '{print $4}' | sort | head -n -"$2" | while read -r f; do
+            [ -n "$f" ] && aws s3 rm "s3://$R2_BUCKET/$1/$f" --endpoint-url "$R2_ENDPOINT"; done; }
+          prune daily 30
+          prune monthly 12
+
+  restore-test:
+    needs: backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: postgres:17
+    services:
+      scratch:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: scratch
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      PGPASSWORD: scratch
+    steps:
+      - name: Only on Sundays (or when started by hand)
+        id: when
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(TZ=Asia/Jakarta date +%u)" = "7" ]; then echo "run=1" >> "$GITHUB_OUTPUT"; fi
+      - name: Tools
+        if: steps.when.outputs.run == '1'
+        run: apt-get update -qq && apt-get install -y -qq awscli gnupg > /dev/null
+      - name: Restore the newest backup and check it
+        if: steps.when.outputs.run == '1'
+        env:
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          f=$(aws s3 ls "s3://$R2_BUCKET/daily/" --endpoint-url "$R2_ENDPOINT" | awk '{print $4}' | sort | tail -1)
+          aws s3 cp "s3://$R2_BUCKET/daily/$f" b.gpg --endpoint-url "$R2_ENDPOINT"
+          gpg --batch --pinentry-mode loopback --passphrase "$PASS" -d -o db.dump b.gpg
+          # Supabase roles and extensions the dump refers to; errors from Supabase-only objects are expected.
+          psql -h scratch -U postgres -v ON_ERROR_STOP=0 -q -c "create role anon; create role authenticated; create role service_role; create role supabase_auth_admin; create schema if not exists extensions; create extension if not exists pgcrypto schema extensions;" || true
+          pg_restore -h scratch -U postgres -d postgres --no-owner --no-privileges db.dump || true
+          q() { psql -h scratch -U postgres -d postgres -tA -c "$1"; }
+          echo "profiles: $(q 'select count(*) from public.profiles')"
+          echo "sales: $(q 'select count(*) from public.sales')"
+          test "$(q 'select count(*) from public.profiles where role = '\''owner'\''')" -ge 1
+          if [ "$(q "select to_regclass('public.pos_orders') is not null")" = "t" ]; then
+            echo "pos_orders: $(q 'select count(*) from public.pos_orders')"
+            echo "newest order: $(q 'select max(created_at) from public.pos_orders')"
+            # The booth sells every day: the newest order must be under 3 days old.
+            test "$(q "select coalesce(max(created_at) > now() - interval '3 days', true) from public.pos_orders")" = "t"
+          fi

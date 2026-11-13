@@ -22,7 +22,7 @@
         },
         {
           "key": "Permissions-Policy",
-          "value": "camera=(self), microphone=(), geolocation=()"
+          "value": "camera=(self), microphone=(), geolocation=(self)"
         },
         {
           "key": "X-Frame-Options",
@@ -39,7 +39,7 @@
       ]
     },
     {
-      "source": "/member/(staf|pemilik|cetak-uji)(.html)?",
+      "source": "/member/(staf|pemilik|cetak-uji|absen|kasir)(.html)?",
       "headers": [
         {
           "key": "X-Robots-Tag",

@@ -175,6 +175,24 @@ class Sheet {
 
 function lineLabel(l) { return `${l.qty} ${l.name}`; }
 
+// The payment block as [label, amount] rows, shared with the fast receipt (receipt-fast.js).
+// Tunai: received and change. QRIS: the total and the GoPay reference. Bayar 2 cara (13 Nov 2026):
+// the QRIS part, the Tunai part, then what was handed over for the Tunai part and the change.
+// A refund approved later (whole or part) is listed under it with where the money went.
+const REFUND_TO = { tunai: 'tunai', transfer: 'transfer', qris: 'QRIS' };
+export function paymentRows(r) {
+  const out = [], part = (m) => ((r.payments || []).find((p) => p.method === m) || {}).amount || 0;
+  if (r.payment_method === 'tunai') { out.push(['Tunai', rupiah(r.cash_received)], ['Kembali', rupiah(r.change)]); }
+  else if (r.payment_method === 'qris') { out.push(['QRIS', rupiah(r.total)]); if (r.payment_ref) out.push(['Ref', r.payment_ref]); }
+  else if (r.payment_method === 'campur') {
+    out.push(['QRIS', rupiah(part('qris'))]);
+    if (r.payment_ref) out.push(['Ref', r.payment_ref]);
+    out.push(['Tunai', rupiah(part('tunai'))], ['Uang tunai', rupiah(r.cash_received)], ['Kembali', rupiah(r.change)]);
+  } else if (r.payment_method === 'platform') out.push([r.channel_label, rupiah(r.total)]);
+  for (const f of r.refunds || []) out.push([`Refund${f.method ? ' ' + (REFUND_TO[f.method] || f.method) : ''}`, '-' + rupiah(f.amount)]);
+  return out;
+}
+
 // The Hanashuya Loyalty Card box with the stamp squares (Glenn loves this design).
 function drawCard(s, r, st) {
   const c = r.card, now = Math.min(c.position, c.size), before = Math.max(0, now - (r.stamps || 0));
@@ -250,6 +268,7 @@ export async function receiptCanvas(r, { mode = 'print', dots = 384, headerOnly 
   // Who and when.
   s.dotted();
   s.meta('No.', r.receipt_no);
+  if (r.local_no && r.local_no !== r.receipt_no) s.meta('No. offline', r.local_no);
   s.meta('Tanggal', receiptDate(r.sold_at));
   if (r.served_by) s.meta('Kasir', r.served_by);
   if (r.member) s.meta('Member', 'Kak ' + r.member);
@@ -277,10 +296,9 @@ export async function receiptCanvas(r, { mode = 'print', dots = 384, headerOnly 
   s.row('TOTAL', 'Rp' + rupiah(r.total), { size: [st.totL, st.totV[1]], lw: 700, lspacing: 2, rsize: st.totV, rw: 800, rcolor: st.accent });
   s.solid();
 
-  // Payment.
-  if (r.payment_method === 'tunai') { s.row('Tunai', rupiah(r.cash_received)); s.row('Kembali', rupiah(r.change)); }
-  else if (r.payment_method === 'qris') s.row('QRIS', rupiah(r.total));
-  else if (r.payment_method === 'platform') s.row(r.channel_label, rupiah(r.total));
+  // Payment. Bayar 2 cara (13 Nov 2026): both parts, then the cash for the Tunai part.
+  for (const [k, v] of paymentRows(r)) s.row(k, v);
+  if (r.note) { s.gap(8); s.text('Catatan: ' + r.note, st.base, 500); }
   s.gap(12);
 
   // Loyalty card, or the sign-up invite for walk-ins.

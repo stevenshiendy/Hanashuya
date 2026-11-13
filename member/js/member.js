@@ -1,4 +1,4 @@
-import { sb, configured, $, $$, esc, rpc, busy, notice, toast, day, mountLogin, setupMissing, session, prettyPhone, changePassword, waLink, forgetLogin } from './lib.js';
+import { sb, configured, $, $$, esc, rpc, busy, notice, toast, day, mountLogin, setupMissing, session, prettyPhone, changePassword, waLink, forgetLogin, maxBirth17 } from './lib.js';
 
 const app = $('#app');
 const VIEWS = ['kartu', 'hadiah', 'riwayat', 'akun'];
@@ -191,8 +191,7 @@ function firstPassword(who) {
 function profileForm(c, phone, { renew = false } = {}) {
   clearTimers();
   const edit = Boolean(c) && !renew;
-  const today = new Date();
-  const maxBirth = new Date(today.getFullYear() - 17, today.getMonth(), today.getDate()).toISOString().slice(0, 10);
+  const maxBirth = maxBirth17();
   $('#who').textContent = '';
   app.innerHTML = `<div class="wrap page-pad">
   <form class="stack-lg" id="profile" novalidate aria-labelledby="pf-title">
@@ -202,7 +201,7 @@ function profileForm(c, phone, { renew = false } = {}) {
     </div>
     <label class="field"><span>Nama lengkap</span>
       <input type="text" id="full_name" autocomplete="name" required value="${esc(c?.full_name)}"></label>
-    <label class="field"><span>Username <span class="hint">tidak wajib</span></span>
+    <label class="field"><span>Username</span>
       <input type="text" id="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="${esc(c?.username)}">
       <span class="hint">3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah. Tanpa username, masuk pakai nomor WhatsApp.</span></label>
     ${c?.birth_date ? `<div class="field"><span>Tanggal lahir</span><p>${esc(longDay(c.birth_date))}</p>
@@ -213,9 +212,9 @@ function profileForm(c, phone, { renew = false } = {}) {
       <span class="hint">Dipakai untuk hadiah ulang tahun dan tidak bisa diubah sendiri nanti.</span></label>`}
     <div class="field"><span>Nomor WhatsApp</span><p class="num">${esc(prettyPhone(c?.whatsapp || phone))}</p>
       <span class="hint">Untuk mengganti nomor, <a href="${esc(waLink(helpText(c) + 'saya mau mengganti nomor WhatsApp.'))}" target="_blank" rel="noopener">hubungi Hanashuya</a>.</span></div>
-    <fieldset class="field"><legend>Jenis kelamin <span class="hint">tidak wajib</span></legend>${choices('gender', GENDERS, c?.gender)}</fieldset>
+    <fieldset class="field"><legend>Jenis kelamin</legend>${choices('gender', GENDERS, c?.gender)}</fieldset>
     <label class="check"><input type="checkbox" id="marketing" ${c?.marketing_opt_in ? 'checked' : ''}>
-      <span>Kirim info promo Hanashuya ke WhatsApp saya. Tidak wajib.</span></label>
+      <span>Kirim info promo Hanashuya ke WhatsApp saya.</span></label>
     <div class="notice" id="pf-msg" hidden></div>
     <div class="row">
       <button class="btn" type="submit">${renew ? 'Setuju dan lanjut' : edit ? 'Simpan' : 'Aktifkan kartu'}</button>
@@ -375,9 +374,10 @@ function render(fresh) {
   $('#del').addEventListener('click', () => { $('#del-confirm').hidden = false; $('#del-yes').focus(); });
   $('#del-no').addEventListener('click', () => { $('#del-confirm').hidden = true; $('#del').focus(); });
   $('#del-yes').addEventListener('click', async (e) => {
-    busy(e.currentTarget, true, 'Menghapus…');
+    const b = e.currentTarget; // null after the first await
+    busy(b, true, 'Menghapus…');
     try { await rpc('delete_my_account'); forget(); await forgetLogin(); await sb.auth.signOut(); location.href = './'; }
-    catch (err) { notice($('#del-msg'), err.message); busy(e.currentTarget, false); }
+    catch (err) { notice($('#del-msg'), err.message); busy(b, false); }
   });
   loadPromo();
 }

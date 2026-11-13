@@ -42,10 +42,38 @@ export function cleanError(e) {
   return m;
 }
 
-export async function rpc(name, args = {}) {
-  const { data, error } = await sb.rpc(name, args);
-  if (error) throw new Error(cleanError(error));
-  return data;
+// A time limit for every rpc call on pages that set one (the till: 15 s, 13 Nov 2026). On Wi-Fi
+// that is connected but passes nothing the browser waits minutes; after the limit the call
+// fails with a "waktu habis" message, which the till treats like no internet.
+let rpcLimit = 0;
+export const setRpcTimeout = (ms) => { rpcLimit = Number(ms) || 0; };
+const TIMEOUT_MSG = 'Koneksi lambat, waktu habis. Periksa internet, lalu coba lagi.';
+
+export async function rpc(name, args = {}, { timeout = rpcLimit } = {}) {
+  let q = sb.rpc(name, args), timer = null, ctl = null;
+  if (timeout > 0 && typeof AbortController !== 'undefined') {
+    ctl = new AbortController();
+    timer = setTimeout(() => ctl.abort(), timeout);
+    q = q.abortSignal(ctl.signal);
+  }
+  try {
+    const { data, error } = await q;
+    if (error) throw new Error(ctl?.signal.aborted ? TIMEOUT_MSG : cleanError(error));
+    return data;
+  } catch (e) {
+    if (ctl?.signal.aborted || e?.name === 'AbortError') throw new Error(TIMEOUT_MSG);
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+
+// The latest birth date for someone 17 or older today, as YYYY-MM-DD, by the date in Bandung
+// (WIB). toISOString() gave the UTC day, one day early, so a 17th birthday was refused.
+export function maxBirth17(now = new Date()) {
+  const [y, m, d] = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(now).split('-').map(Number);
+  // On 29 Feb the year 17 back has no 29 Feb, so the limit is 28 Feb (Date rolled it to 1 Mar).
+  const dd = m === 2 && d === 29 ? 28 : d;
+  return `${y - 17}-${String(m).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
 }
 
 export function busy(btn, on, label) {
@@ -90,7 +118,9 @@ export function tabs(root, onChange) {
   list.forEach((t, i) => {
     t.addEventListener('click', () => show(t, true));
     t.addEventListener('keydown', (e) => {
-      const k = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+      // Left/right for a tab row, up/down for a vertical sidebar (owner page).
+      const vertical = t.closest('[aria-orientation="vertical"]');
+      const k = (vertical ? { ArrowDown: 1, ArrowUp: -1 } : { ArrowRight: 1, ArrowLeft: -1 })[e.key];
       let n = null;
       if (k) n = list[(i + k + list.length) % list.length];
       if (e.key === 'Home') n = list[0];
@@ -160,8 +190,7 @@ async function signInWith(login, password) {
 }
 
 export function mountLogin(root, { title, lead, onDone, stage = false, staff = false, start = 'masuk' }) {
-  const today = new Date();
-  const maxBirth = new Date(today.getFullYear() - 17, today.getMonth(), today.getDate()).toISOString().slice(0, 10);
+  const maxBirth = maxBirth17();
   const forms = `
     <div class="seg" role="tablist" aria-label="Masuk atau daftar" ${staff ? 'hidden' : ''}>
       <button type="button" role="tab" id="seg-masuk" aria-selected="true">Masuk</button>
@@ -189,11 +218,11 @@ export function mountLogin(root, { title, lead, onDone, stage = false, staff = f
       <label class="field"><span>Username</span><input type="text" id="su-username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" required>
         <span class="hint">3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.</span></label>
       ${pw('su-password', 'Password', 'new-password', '<span class="hint">Minimal 8 karakter.</span>')}
-      <fieldset class="field"><legend>Jenis kelamin <span class="hint">tidak wajib</span></legend>
+      <fieldset class="field"><legend>Jenis kelamin</legend>
         <div class="choices">${[['perempuan', 'Perempuan'], ['laki-laki', 'Laki-laki'], ['tidak_disebut', 'Tidak ingin menyebutkan']].map(([v, l]) =>
           `<label class="choice"><input type="radio" name="su-gender" value="${v}"><span>${l}</span></label>`).join('')}</div></fieldset>
       <label class="check"><input type="checkbox" id="su-marketing">
-        <span>Kirim info promo Hanashuya ke WhatsApp saya. Tidak wajib, bisa diubah kapan saja di Akun.</span></label>
+        <span>Kirim info promo Hanashuya ke WhatsApp saya. Bisa diubah kapan saja di Akun.</span></label>
       <div class="notice" id="signup-msg" hidden></div>
       <button class="btn btn-block" type="submit">Buat kartu member</button>
     </form>
@@ -327,9 +356,10 @@ export function mountLogin(root, { title, lead, onDone, stage = false, staff = f
   $('#fg-send', root)?.addEventListener('click', async (e) => {
     const msg = $('#fg-msg', root);
     if (fgLogin.value.trim().length < 3) { notice(msg, 'Tulis username atau nomor WhatsApp dulu.'); fgLogin.focus(); return; }
-    busy(e.currentTarget, true, 'Mengirim…');
+    const b = e.currentTarget; // null after the await
+    busy(b, true, 'Mengirim…');
     const { data, error } = await sb.functions.invoke('wa-reset', { body: { login: fgLogin.value.trim() } });
-    busy(e.currentTarget, false);
+    busy(b, false);
     if (error || data?.error) { notice(msg, data?.error || 'Kode belum bisa dikirim. Coba lagi sebentar.'); return; }
     notice(msg, '');
     toStep2('Jika akun ini terdaftar, kode 6 angka sudah dikirim ke WhatsApp-nya. Berlaku 15 menit.');
@@ -373,4 +403,19 @@ export async function signOut() {
   await sb.auth.signOut();
   location.hash = '';
   location.reload();
+}
+
+/* ---------------------------------------------------------------- staff landing pages
+ * Retiring the old cashier page (Glenn, 13 Nov 2026). While RETIRE_STAF_PAGE is false,
+ * staf.html works as before. Set it to true in the push that makes kasir.html the till:
+ * staf.html then sends everyone on, and staffHome() decides where:
+ *   kasir tablet account  -> kasir.html (the till)
+ *   staff, manager        -> absen.html (their own phone: absen, izin, profil)
+ *   owner                 -> kasir.html (the owner opened the cashier page; Dasbor is pemilik.html)
+ * Signed out, staf.html goes to kasir.html, which has its own sign-in. */
+export const RETIRE_STAF_PAGE = false;
+export function staffHome(who) {
+  if (!who || who.kasir_tablet || who.role === 'owner') return 'kasir.html';
+  if (who.role === 'staff' || who.role === 'manager') return 'absen.html';
+  return 'kasir.html';
 }

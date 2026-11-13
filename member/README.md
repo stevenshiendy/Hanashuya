@@ -147,3 +147,39 @@ Each printed voucher (first: the Papaya cashier voucher, 1 Signature, VireoPOS c
 ## Backups
 
 Supabase Free keeps no automatic backups. In the owner dashboard, **Pengaturan > Cadangan data > Unduh cadangan** downloads everything (accounts, sales, used rewards, filled cards, consent records, undo requests, imported VireoPOS receipts, promos, products, activity log) as one Excel file, a sheet per table. It leaves out secrets (password hashes, reset codes, the QR signing key). Do it weekly and keep the file somewhere private; it holds members' personal data. Ringkasan reminds the owner after 7 days. Supabase Pro adds daily automatic backups.
+
+## POS: the booth's own till (in progress, November 2026)
+
+Hanashuya is replacing VireoPOS with its own till on this database, so a member sale is rung once and the stamps, rewards, stock and receipt all come from that one sale. The plan, decisions and status are in `~/Documents/Hanashuya/POSDEVELOPMENT.md` (outside this repo).
+
+**Database.** After `schema.sql`, run these in the SQL Editor, in this order. Each is safe to run again:
+
+1. `pos.sql`: products with flavours and channels, orders, payments, shifts, cash, voids and refunds, receipt numbers `HS-YYMMDD-NNNN`.
+2. `stock.sql`: stock items, recipes, goods in, automatic deduction per sale, counts.
+3. `attendance.sql`: staff profiles, shifts and schedule, QR clock-in, leave, overtime, recap.
+4. `pos-owner.sql`: product prices and channel prices for the owner.
+5. `pos-approvals.sql`: the manager's approval list.
+6. `pos-reports.sql`: live statistics and the VireoPOS-style reports.
+7. `pos-home.sql`: the till's home screen figures (`pos_home`) and the owner's daily target (`owner_save_target`).
+8. `pos-backoffice.sql`: the owner's Pesanan, Promo and Member tabs, harga pokok per stock item and the Laba kotor report.
+9. `pos-cash.sql`: the owner's Rekap kas list (`owner_cash_shifts`) and Uang modal laci settings (`owner_save_cash_settings`). The till side of blind cash, back-to-back shifts and the rekap is in `pos.sql`.
+
+**Rules the database enforces.**
+
+- Prices, discounts and totals are worked out on the server; the tablet only sends what was ordered.
+- One promo per order, and only with a member card scanned.
+- An order is confirmed first (invoice number, status *menunggu*), then paid (Tunai or QRIS). **Once confirmed, only a manager or the owner can cancel it.** Staff send a request instead.
+- A paid order writes its `sales` row too, so stamps and rewards work as before.
+- Voids and refunds need a manager or the owner, and give back the stamps, the reward and the stock.
+- A shift can't close while an order waits for payment, and a cash difference needs a note.
+
+**Roles.** Member, staff, manager, owner. A manager can do everything staff can, and also approves voids, refunds, undo requests, leave and overtime, and corrects attendance. Only the owner adds accounts, changes prices and settings, and downloads the backup.
+
+**Printing.** The booth's PANDA 58 mm printer prints over Bluetooth straight from Chrome on the tablet (Web Bluetooth, BLE).
+
+- `js/receipt-fast.js` prints the logo, address and loyalty card as small pictures and the rest in the printer's own font, about 20 KB a receipt.
+- `js/receipt.js` draws the full design: the WhatsApp image, and the "Desain penuh" print.
+- Sending is paced, so the printer's buffer never overflows.
+- The owner can test it on `cetak-uji.html` (Pengaturan > Uji cetak struk).
+
+**Starting fresh.** `reset-after-testing.sql` also clears POS test orders, shifts, stock moves, goods in, counts and attendance scans. It keeps accounts, products, recipes, schedules and staff profiles.

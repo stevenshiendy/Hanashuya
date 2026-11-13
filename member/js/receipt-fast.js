@@ -3,7 +3,7 @@
 // This prints the header (logo, address, channels) as a small picture and everything
 // below in the printer's own font, about 15 KB in all, in the same order as the
 // approved receipt (B revision 1). Same input as receipt.js: pos_checkout / pos_receipt output.
-import { receiptCanvas, cardCanvas, receiptDate, rupiah } from './receipt.js';
+import { receiptCanvas, cardCanvas, receiptDate, rupiah, paymentRows } from './receipt.js';
 import { Receipt } from './escpos.js';
 
 const WA_NUMBER = '0858-9012-0577';
@@ -22,6 +22,7 @@ export function fastReceiptBytes(r, header, card, { dots = 384, cut = true, draw
 
   const meta = (k, v) => p.text(k.padEnd(9) + v);
   meta('No.', r.receipt_no);
+  if (r.local_no && r.local_no !== r.receipt_no) meta('No. offline', r.local_no);
   meta('Tanggal', receiptDate(r.sold_at));
   if (r.served_by) meta('Kasir', r.served_by);
   if (r.member) meta('Member', 'Kak ' + r.member);
@@ -46,9 +47,9 @@ export function fastReceiptBytes(r, header, card, { dots = 384, cut = true, draw
   p.bold(true).size(1, 2).row('TOTAL', 'Rp' + rupiah(r.total)).size(1, 1).bold(false);
   p.rule('=');
 
-  if (r.payment_method === 'tunai') { p.row('Tunai', rupiah(r.cash_received)); p.row('Kembali', rupiah(r.change)); }
-  else if (r.payment_method === 'qris') p.row('QRIS', rupiah(r.total));
-  else if (r.payment_method === 'platform') p.row(r.channel_label, rupiah(r.total));
+  // Payment rows as on the picture receipt; Bayar 2 cara lists both parts (13 Nov 2026).
+  for (const [k, v] of paymentRows(r)) p.row(k, v);
+  if (r.note) { p.line(1); p.text('Catatan: ' + r.note); }
   p.line(1);
 
   if (r.card && card) {

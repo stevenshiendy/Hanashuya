@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Build step for Vercel only: copies the site into dist/ with HTML, CSS and JS minified. Edit the readable sources; never edit dist/.",
   "scripts": {
+    "dev": "node dev.mjs",
     "build": "node build.mjs"
   },
   "devDependencies": {

@@ -11,8 +11,8 @@ const ROOT = dirname(new URL(import.meta.url).pathname);
 const OUT = join(ROOT, 'dist');
 // Never published: tooling, notes, database scripts, functions (built by Vercel).
 const SKIP = new Set(['dist', 'node_modules', 'api', '.git', '.vercel', 'build.mjs', 'package.json', 'package-lock.json',
-  'vercel.json', '.vercelignore', '.gitignore', '.mcp.json', 'CLAUDE.md', '.DS_Store', 'member/supabase', 'member/README.md']);
-const skip = (rel) => SKIP.has(rel) || SKIP.has(rel.split('/').pop()) || /(^|\/)_demo/.test(rel);
+  'vercel.json', '.vercelignore', '.gitignore', '.github', '.mcp.json', 'CLAUDE.md', '.DS_Store', 'member/supabase', 'member/README.md']);
+const skip = (rel) => SKIP.has(rel) || SKIP.has(rel.split('/').pop()) || /(^|\/)_(demo|dev|lokal)/.test(rel);
 
 async function* walk(dir) {
   for (const e of await readdir(dir, { withFileTypes: true })) {
