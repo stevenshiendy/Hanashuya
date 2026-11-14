@@ -317,6 +317,10 @@ create table if not exists public.pos_promos (
   check ((time_from is null) = (time_to is null) and (time_from is null or time_to > time_from))
 );
 alter table public.pos_promos enable row level security;
+-- Voucher code (Glenn, 14 Nov 2026): a promo with a code is not a Pakai button on the till;
+-- staff type the code in the Kode voucher box. Without a code it stays a Pakai button.
+alter table public.pos_promos add column if not exists code text;
+create unique index if not exists pos_promos_code_key on public.pos_promos (upper(code)) where code is not null;
 revoke all on public.pos_promos from anon, authenticated;
 alter table public.pos_orders add column if not exists promo_id int references public.pos_promos (id);
 -- Working offline (task 7, 11 Nov 2026): the number the tablet printed while the internet
@@ -1031,7 +1035,7 @@ begin
       -- Owner promos that can be used right now (member checks happen when it is used).
       'custom', coalesce((select json_agg(json_build_object('id', cp.id, 'name', cp.name, 'kind', cp.kind, 'value', cp.value,
           'products', cp.products, 'min_spend', cp.min_spend, 'member_only', cp.member_only, 'note', cp.note,
-          'time_to', to_char(cp.time_to, 'HH24.MI'), 'ends_on', cp.ends_on) order by cp.id)
+          'time_to', to_char(cp.time_to, 'HH24.MI'), 'ends_on', cp.ends_on, 'code', cp.code) order by cp.id)
         from pos_promos cp where public._pos_promo_block(cp, null, false) is null), '[]')));
 end $$;
 

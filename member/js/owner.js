@@ -6,6 +6,7 @@ import { mountOwnerAbsensi } from './attendance.js';
 import { mountOrders, mountMembers, mountPromos } from './owner-backoffice.js';
 import { mountCashRekap } from './owner-cash.js';
 import { mountStampBoosts, mountCommission } from './owner-loyalty.js';
+import { mountCommissionDashboard } from './owner-komisi.js';
 import { mountWaTemplates } from './owner-wa.js';
 import { mountMemberInsights } from './owner-member-insights.js';
 import { mountSamples } from './owner-samples.js';
@@ -41,7 +42,8 @@ const MENU = [
     ['t-boost', 'bonus-stempel', 'Bonus stempel'], ['t-wa', 'template-wa', 'Template WhatsApp'], ['t-join', 'qr-daftar', 'QR pendaftaran']]],
   // Per staf holds izin, rekap and profil for one person (Glenn, 12 Nov 2026); only these keep their own item.
   ['tim', 'team', 'Tim', [['t-staff', 'staf', 'Staf'], ['t-att', 'absensi', 'Presensi harian'], ['t-att-one', 'absen-staf', 'Per staf'],
-    ['t-att-ot', 'lembur', 'Lembur'], ['t-att-plan', 'jadwal', 'Jadwal'], ['t-komisi', 'komisi', 'Komisi']]],
+    ['t-att-ot', 'lembur', 'Lembur'], ['t-att-plan', 'jadwal', 'Jadwal'], ['t-komisi', 'komisi', 'Komisi'],
+    ['t-kmd', 'dashboard-komisi', 'Dashboard komisi']]],
   // Transaksi (Glenn, 12 Nov 2026, like VireoPOS): purchase orders, stock in and out, adjustments, commission payouts, voids.
   ['transaksi', 'swap', 'Transaksi', [['t-po', 'purchase-order', 'Purchase Order'], ['t-recv', 'penerimaan-barang', 'Penerimaan barang'],
     ['t-in', 'stok-masuk', 'Stok masuk'], ['t-out', 'stok-keluar', 'Stok keluar'], ['t-op2', 'opname-transaksi', 'Stok opname'],
@@ -65,7 +67,10 @@ const isLink = (item) => !!item[3];
 // promo setup, vouchers and member data stay with the owner (the SQL refuses them for a manager as well).
 const MANAGER_VIEWS = new Set(['ringkasan', 'stok-laporan', 'laporan-pembelian', 'laporan-pos', 'laba-kotor', 'laporan-sampel', 'laporan-lainnya',
   'purchase-order', 'penerimaan-barang', 'stok-masuk', 'stok-keluar', 'opname-transaksi', 'penyesuaian-stok', 'kartu-stok',
-  'dalam-perjalanan', 'proses-komisi', 'pembatalan', 'laporan-akunting']);
+  'dalam-perjalanan', 'proses-komisi', 'pembatalan', 'laporan-akunting',
+  // Komisi: a manager may switch commission on or off per staff (Glenn, 14 Nov 2026); the rules stay owner-only.
+  // Dashboard komisi (14 Nov 2026): managers see it and may mark payouts paid (not their own).
+  'komisi', 'dashboard-komisi']);
 const menuFor = (role) => (role === 'owner' ? MENU : MENU.map(([key, icon, title, items]) =>
   [key, icon, title, items.filter((i) => !isLink(i) && MANAGER_VIEWS.has(i[1]))]).filter(([, , , items]) => items.length));
 const viewsOf = (menu) => menu.flatMap(([, , group, items]) => items.filter((i) => !isLink(i)).map(([id, hash, label]) => ({ id, hash, label, group: group || 'Beranda' })));
@@ -170,7 +175,8 @@ async function boot() {
     lembur: () => mountOwnerAbsensi(P('p-att-ot'), { part: 'lembur' }), 'absen-staf': () => mountOwnerAbsensi(P('p-att-one'), { part: 'staf' }),
     jadwal: () => mountOwnerAbsensi(P('p-att-plan'), { part: 'jadwal' }),
     'bonus-stempel': () => mountStampBoosts(P('p-boost'), { rpc }), 'template-wa': () => mountWaTemplates(P('p-wa'), { rpc }),
-    komisi: () => mountCommission(P('p-komisi'), { rpc }),
+    komisi: () => mountCommission(P('p-komisi'), { rpc, owner: !READ_ONLY }),
+    'dashboard-komisi': () => mountCommissionDashboard(P('p-kmd'), { rpc }),
     cadangan: backupView, 'nota-antrian': queueSlipView, 'pajak-service': chargesView,
   };
   // Laporan hubs (13 Nov 2026): each Laporan item lists its sub-reports; the old views are its last item.

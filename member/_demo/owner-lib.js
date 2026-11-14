@@ -11,6 +11,7 @@ import { produksiFake } from './produksi-data.js';
 import { reservasiFake } from './reservasi-data.js';
 import { laporan2Fake } from './laporan2-data.js';
 import { sampleFake } from './sample-quota-data.js';
+import { komisiFake, schedule, komisiAnchor, komisiToday, komisiDue, komisiEnd } from './komisi-data.js';
 export * from '../js/lib.js';
 export const configured = true;
 export const session = async () => true;
@@ -25,7 +26,22 @@ const rules = [
   { id: 2, name: 'Signature Box', product_code: 'sig6', product: 'Signature Box isi 6', kind: 'rupiah', value: 2000, starts_on: addDays(-10), ends_on: null, active: true },
   { id: 1, name: 'Komisi standar 1%', product_code: null, product: null, kind: 'persen', value: 1, starts_on: '2026-01-01', ends_on: null, active: true },
 ];
+// Komisi switches (14 Nov 2026): off by default.
+const komisi = { enabled: true, staff: [
+  { id: 's-rany', name: 'Rany Marlina', role: 'staff', employer: 'Hanashuya', enabled: true, self: false },
+  { id: 's-fajar', name: 'Fajar Prihantoro', role: 'staff', employer: 'Hanashuya', enabled: true, self: false },
+  { id: 's-kevin', name: 'Kevin Hadiyan', role: 'staff', employer: 'Kaaramel Juice', enabled: true, self: false },
+  { id: 's-yuya', name: 'Eoudia Samulla Vidiani', role: 'staff', employer: 'Kaaramel Juice', enabled: false, self: false },
+  { id: 'o-glenn', name: 'Glenn', role: 'owner', employer: null, enabled: false, self: true }] };
 function loyalty(name, a) {
+  // Jadwal komisi (14 Nov 2026): the schedule lives in komisi-data.js with the dashboard fakes.
+  const withSchedule = () => { const from = komisiAnchor(), to = komisiEnd(from);
+    return { ...komisi, ...schedule, enabled_at: '2026-09-01', today: komisiToday, anchor: from, is_owner: !AS_MANAGER, current: { from, to, due: komisiDue(to) } }; };
+  if (name === 'commission_settings') return withSchedule();
+  if (name === 'commission_set_enabled') { komisi.enabled = !!a.p_enabled; return withSchedule(); }
+  if (name === 'commission_set_staff') { komisi.staff.find((s) => s.id === a.p_staff).enabled = !!a.p_enabled; return withSchedule(); }
+  const km = komisiFake(name, a, !AS_MANAGER);
+  if (km !== undefined) return km ?? withSchedule();
   if (name === 'owner_stamp_boosts') return boosts;
   if (name === 'owner_commission_rules') return rules;
   if (name === 'owner_save_stamp_boost' || name === 'owner_save_commission_rule') {
@@ -56,7 +72,7 @@ function loyalty(name, a) {
 // ?as=manager (13 Nov 2026): the page as a manager sees it. Like the SQL, only the read-only report
 // calls answer; anything else is refused, so a view that still asks for owner data shows up at once.
 const AS_MANAGER = new URLSearchParams(location.search).get('as') === 'manager';
-const MANAGER_OK = /^(whoami|report_dashboard|owner_pos_stats|owner_pos_report|owner_pos_profit|owner_laporan|owner_shift_detail|owner_purchase_report|owner_other_report|acc_(sync|accounts|journals|ledger|trial|pnl|balance_sheet|balance_monthly|journal_lines)|pos_void_overview|pos_commission_payouts|stock_[a-z_]+|staff_daily_summary)$/;
+const MANAGER_OK = /^(whoami|report_dashboard|owner_pos_stats|owner_pos_report|owner_pos_profit|owner_laporan|owner_shift_detail|owner_purchase_report|owner_other_report|acc_(sync|accounts|journals|ledger|trial|pnl|balance_sheet|balance_monthly|journal_lines)|pos_void_overview|pos_commission_payouts|commission_(settings|dashboard|set_enabled|set_staff|set_schedule)|pos_commission_mark_paid|stock_[a-z_]+|staff_daily_summary)$/;
 export async function rpc(name, args = {}) {
   if (AS_MANAGER && !MANAGER_OK.test(name)) throw new Error('Halaman ini hanya untuk pemilik.');
   if (name === 'whoami') return AS_MANAGER ? { id: 'm-ranny', role: 'manager', full_name: 'Manajer Uji', whatsapp: '6281444444444' }

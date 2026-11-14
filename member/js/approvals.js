@@ -1,5 +1,6 @@
 // Persetujuan tab on the cashier page: managers and the owner decide POS voids/refunds
-// and member-app undo requests (stamp or reward). Mounted from staff.js.
+// member-app undo requests (stamp or reward) and stock cancel requests (barang masuk or
+// keluar). Mounted from staff.js and the till's Persetujuan screen.
 import { $, $$, esc, rpc, busy, toast, rupiah, when } from './lib.js';
 
 const PAY = { tunai: 'Tunai', qris: 'QRIS', debit: 'Debit', transfer: 'Transfer', gratis: 'Gratis' };
@@ -14,10 +15,11 @@ export function mountApprovals(panel) {
 export async function loadApprovals() { if (root) await load(); }
 
 async function load() {
-  let voids, undo;
-  try { [voids, undo] = await Promise.all([rpc('pos_void_list'), rpc('manager_pending_undo')]); }
+  let voids, undo, stock;
+  // Stock cancel requests (stock.sql, 14 Nov 2026); a database without them just shows none.
+  try { [voids, undo, stock] = await Promise.all([rpc('pos_void_list'), rpc('manager_pending_undo'), rpc('stock_cancel_pending').catch(() => [])]); }
   catch (e) { root.innerHTML = `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`; return; }
-  voids = voids || []; undo = undo || [];
+  voids = voids || []; undo = undo || []; stock = stock || [];
   root.innerHTML = `
   <section class="panel stack" aria-labelledby="ap-void">
     <h2 id="ap-void">Pembatalan dari kasir${voids.length ? ` (${voids.length})` : ''}</h2>
@@ -26,6 +28,10 @@ async function load() {
   <section class="panel stack" aria-labelledby="ap-undo">
     <h2 id="ap-undo">Batal stempel atau hadiah${undo.length ? ` (${undo.length})` : ''}</h2>
     ${undo.length ? `<ul class="list">${undo.map(undoRow).join('')}</ul>` : '<p class="muted">Tidak ada permintaan yang menunggu.</p>'}
+  </section>
+  <section class="panel stack" aria-labelledby="ap-stock">
+    <h2 id="ap-stock">Batal barang masuk atau keluar${stock.length ? ` (${stock.length})` : ''}</h2>
+    ${stock.length ? `<ul class="list">${stock.map(stockRow).join('')}</ul>` : '<p class="muted">Tidak ada permintaan yang menunggu.</p>'}
   </section>`;
   bind(root);
 }
@@ -48,6 +54,16 @@ function undoRow(u) {
     <span class="row ap-actions">${buttons('undo', u.id)}</span></li>`;
 }
 
+const OUT = { buang: 'Dibuang', rusak: 'Rusak', promo: 'Promo' };
+function stockRow(c) {
+  const qty = Math.abs(Number(c.qty) || 0).toLocaleString('id-ID', { maximumFractionDigits: 2 });
+  const what = c.kind === 'masuk' ? 'Batal barang masuk' : `Batal barang keluar${OUT[c.out_kind] ? ` (${OUT[c.out_kind]})` : ''}`;
+  return `<li><span class="grow"><strong>${esc(what)}: ${esc(c.item)}, ${esc(qty)} ${esc(c.unit || '')}</strong><br>
+    <span class="muted small">${esc(c.requested_by || 'Kasir')}, ${esc(when(c.at))}: ${esc(c.reason)}</span></span>
+    <span class="row ap-actions">${buttons('stok', c.id)}</span></li>`;
+}
+
+const DECIDE = { pos: 'pos_decide_void', undo: 'owner_decide_undo', stok: 'stock_cancel_decide' };
 const buttons = (src, id) => `<button class="btn ap-btn" type="button" data-decide="${src}" data-id="${id}" data-ok="1">Setujui</button>
   <button class="btn btn-quiet ap-btn" type="button" data-decide="${src}" data-id="${id}" data-ok="0">Tolak</button>`;
 
@@ -65,7 +81,7 @@ function ask(btn) {
   yes.addEventListener('click', async () => {
     busy(yes, true);
     try {
-      await rpc(src === 'pos' ? 'pos_decide_void' : 'owner_decide_undo', { p_id: Number(id), p_approve: approve });
+      await rpc(DECIDE[src], { p_id: Number(id), p_approve: approve });
       toast(approve ? 'Disetujui' : 'Ditolak');
     } catch (e) { toast(e.message); }
     await load();

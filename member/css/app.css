@@ -404,9 +404,11 @@ tr.is-reversed td { color: var(--color-muted); text-decoration: line-through; }
    Total and Konfirmasi pesanan sit at the bottom on every tablet height.
    Fallback (14 Nov 2026, staff bug report): when a member card with several promos leaves no room even for
    3rem of order lines, the panel scrolls instead of hiding the rest, and the total with Konfirmasi pesanan
-   stays pinned (sticky) at the bottom so it is always on screen. On a normal height nothing scrolls. */
+   stays pinned (sticky) at the bottom so it is always on screen.
+   One scroll (14 Nov 2026, Glenn's video): the order lines no longer scroll in their own small box; the
+   whole panel scrolls as one, so every item reads in full, and the total stays pinned at the bottom. */
 .tl-right > * { flex: none; min-width: 0; }
-.tl-right > .tl-lines { flex: 1 1 0; min-height: 3rem; overflow-y: auto; overscroll-behavior: contain; }
+.tl-promo-acts { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-lg); }
 .tl-right > .tl-foot { position: sticky; bottom: 0; z-index: 1; margin-top: auto; padding-bottom: clamp(var(--space-sm), 2vh, var(--space-lg)); background: var(--color-paper-2); }
 /* Staff names on one line beside the label (Glenn, 12 Nov 2026); more names scroll sideways instead of wrapping. */
 .tl-served { display: flex; align-items: center; gap: var(--space-sm); }
@@ -1153,3 +1155,51 @@ table.fs-table { width: 100%; border-collapse: collapse; font-variant-numeric: t
 .sp-acc .is-sub { padding-left: var(--space-lg); }
 .sp-acc .is-tot { font-weight: 600; border-top: var(--rule-hair) solid var(--color-line); padding-top: var(--space-2xs); }
 .sp-rules { margin: 0; padding-left: 1.2rem; display: grid; gap: var(--space-2xs); font-size: var(--text-sm); }
+
+/* Stock tables (14 Nov 2026): barang masuk with many items, stok opname grouped choux first. */
+.sk-group th { text-align: start; background: var(--color-paper-3); color: var(--color-ink); font-weight: 600; font-size: var(--text-sm); }
+.sk-in-table input, .sk-count input { max-width: 9rem; }
+.sk-in-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; gap: var(--space-sm); align-items: end; }
+.sk-in-row:has([data-cost]) { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
+.sk-day li.is-off { color: var(--color-muted); }
+.sk-day li.is-off strong { text-decoration: line-through; }
+
+/* Till home: the stok opname reminder and Stok menipis side by side (14 Nov 2026). */
+.hm-alerts { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--space-sm); }
+/* Tebus Murah Rp1 checklist and the report line on the done screen (14 Nov 2026). */
+.tl-tebus { gap: var(--space-sm); text-align: left; }
+.tl-report { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-xs) var(--space-md); }
+.tl-tebus .check { min-height: var(--tl-tap); align-items: center; font-size: var(--text-md); }
+.tl-tebus .check input { min-height: 0; width: 24px; height: 24px; margin: 0; }
+
+/* ---------------------------------------------------------------- Dashboard komisi (draft A, 14 Nov 2026) */
+.km-range { display: inline-flex; gap: var(--space-2xs); padding: var(--space-2xs); background: var(--color-paper-3); border-radius: var(--radius-control); }
+.km-range button { min-height: 40px; padding: 0 var(--space-md); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--color-muted); font: inherit; font-weight: 500; cursor: pointer; }
+.km-range button[aria-pressed="true"] { background: var(--color-paper-2); color: var(--color-ink); box-shadow: var(--shadow-soft); }
+.km-range button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.km-stats .stat { align-content: start; }
+.km-stats .stat .btn { justify-self: start; margin-top: var(--space-2xs); }
+.km-stats .stat .km-late, .km-late { color: var(--color-error); font-weight: 500; }
+.km-key { white-space: nowrap; }
+.km-key::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: var(--space-2xs); border-radius: 2px; background: var(--sw); }
+.km-legend { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-md); font-size: var(--text-sm); color: var(--color-muted); }
+.km-berjalan { --sw: var(--color-km-open); }
+.km-belum { --sw: var(--color-km-due); }
+.km-bayar { --sw: var(--color-km-paid); }
+.km-proses { --sw: var(--color-km-todo); }
+.km-table td small { display: block; font-size: var(--text-xs); color: var(--color-muted); }
+.km-table tfoot td { font-weight: 600; border-top: var(--rule-hair) solid var(--color-line); }
+.km-table tr.km-off td { color: var(--color-muted); }
+.km-spark { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--space-3xs); align-items: end; width: 220px; height: 34px; border-bottom: var(--rule-hair) solid var(--color-rule); }
+.km-spark i, .km-plot i { display: block; background: var(--sw); }
+.km-spark i { border-radius: 2px 2px 0 0; }
+.km-chart { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr); gap: var(--space-xs); }
+.km-yax { position: relative; height: 200px; font-size: var(--text-xs); color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.km-yax span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; }
+.km-plot { height: 200px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--space-2xs); align-items: end; border-bottom: var(--rule-hair) solid var(--color-line);
+  background: repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), var(--color-rule) calc(25% - 1px) 25%); }
+.km-plot i { border-radius: 3px 3px 0 0; }
+.km-xax { grid-column: 2; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--space-2xs); font-size: var(--text-xs); color: var(--color-muted); }
+.km-xax span { white-space: nowrap; overflow: visible; }
+.km-preview { margin: 0; font-weight: 500; }
+.km-head > .stack-sm { flex: 1 1 24rem; min-width: 0; }

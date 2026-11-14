@@ -3,6 +3,7 @@
 // (owner_stamp_boosts / owner_save_stamp_boost, pos.sql). Komisi: the rules behind the staff
 // commission in Laporan POS and Laba kotor (owner_commission_rules / owner_save_commission_rule).
 import { $, $$, esc, rupiah, busy, toast, notice } from './lib.js';
+import { scheduleHtml, bindSchedule } from './owner-komisi.js';
 
 const DAYS = [[1, 'Sen'], [2, 'Sel'], [3, 'Rab'], [4, 'Kam'], [5, 'Jum'], [6, 'Sab'], [7, 'Min']];
 const fmtDay = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
@@ -63,15 +64,44 @@ export async function mountStampBoosts(p, { rpc }) {
 }
 
 /* ---------------------------------------------------------------- Komisi */
-export async function mountCommission(p, { rpc }) {
-  const again = () => mountCommission(p, { rpc });
+// Komisi on/off (Glenn, 14 Nov 2026): nothing is counted until the commission system is on and the
+// staff member is switched on (komisi-switch.sql). The owner or a manager switches; the rules
+// below stay owner-only. A manager can't switch their own.
+function switchesHtml(c) {
+  return `<section class="panel stack" aria-labelledby="kms-t">
+    <h2 id="kms-t">Komisi per staf</h2>
+    <label class="check"><input type="checkbox" data-km-all${c.enabled ? ' checked' : ''}><span><strong>Sistem komisi aktif</strong></span></label>
+    <p class="muted small">${c.enabled ? 'Komisi dihitung hanya untuk staf yang dicentang di bawah. Komisi dihitung dari saat staf dicentang sampai saat dimatikan; penjualan di luar waktu itu tidak mendapat komisi.' : 'Mati: tidak ada komisi yang dihitung untuk siapa pun.'}</p>
+    <fieldset class="field"${c.enabled ? '' : ' disabled'}><legend>Staf yang mendapat komisi</legend>
+      <div class="stack">${c.staff.map((s) => `<label class="check"><input type="checkbox" data-km-staff="${esc(s.id)}"${s.enabled ? ' checked' : ''}${s.self && s.role !== 'owner' ? ' disabled' : ''}>
+        <span>${esc(s.name)}${s.employer ? ` <span class="muted small">${esc(s.employer)}</span>` : ''}${s.self && s.role !== 'owner' ? ' <span class="muted small">diatur pemilik</span>' : ''}</span></label>`).join('')}</div>
+    </fieldset>
+    <div class="notice" data-km-msg hidden></div>
+  </section>`;
+}
+function bindSwitches(p, rpc, again) {
+  const msg = $('[data-km-msg]', p);
+  const send = async (box, fn, args) => {
+    box.disabled = true;
+    try { await rpc(fn, args); toast('Komisi tersimpan'); again(); }
+    catch (e) { box.checked = !box.checked; box.disabled = false; notice(msg, e.message); }
+  };
+  $('[data-km-all]', p).addEventListener('change', (e) => send(e.target, 'commission_set_enabled', { p_enabled: e.target.checked }));
+  $$('[data-km-staff]', p).forEach((x) => x.addEventListener('change', () => send(x, 'commission_set_staff', { p_staff: x.dataset.kmStaff, p_enabled: x.checked })));
+}
+
+export async function mountCommission(p, { rpc, owner = true }) {
+  const again = () => mountCommission(p, { rpc, owner });
   p.innerHTML = loading;
-  let rules, prods;
-  try { [rules, prods] = await Promise.all([rpc('owner_commission_rules'), rpc('owner_pos_products').then((d) => d.products.filter((m) => !m.archived))]); }
-  catch (e) { p.innerHTML = errorBox(e); return; }
+  let rules, prods, sw;
+  try {
+    [sw, rules, prods] = await Promise.all([rpc('commission_settings'),
+      owner ? rpc('owner_commission_rules') : [], owner ? rpc('owner_pos_products').then((d) => d.products.filter((m) => !m.archived)) : []]);
+  } catch (e) { p.innerHTML = errorBox(e); return; }
+  if (!owner) { p.innerHTML = scheduleHtml(sw) + switchesHtml(sw); bindSchedule(p, rpc, sw, again); bindSwitches(p, rpc, again); return; }
   const val = (r) => (r.kind === 'persen' ? `${Number(r.value).toLocaleString('id-ID')}% dari harga dibayar` : `${rupiah(Number(r.value))} per produk`);
-  p.innerHTML = `<section class="panel stack" aria-labelledby="km-t">
-      <h1 id="km-t">Komisi</h1>
+  p.innerHTML = `${scheduleHtml(sw)}${switchesHtml(sw)}<section class="panel stack" aria-labelledby="km-t">
+      <h2 id="km-t">Aturan komisi</h2>
       <p class="muted small">Komisi masuk ke staf yang melayani pesanan. Untuk setiap produk, aturan khusus produk itu dipakai lebih dulu daripada aturan "Semua produk". Paper bag gratis tidak dihitung. Hasilnya ada di Laporan POS dan Laba kotor.</p>
       <div class="table-wrap"><table><thead><tr><th>Nama</th><th>Produk</th><th>Komisi</th><th>Berlaku</th><th>Status</th><th></th></tr></thead><tbody>
         ${rules.map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.product || 'Semua produk')}</td><td>${esc(val(r))}</td>
@@ -115,6 +145,8 @@ export async function mountCommission(p, { rpc }) {
     });
     f.elements.name.focus();
   };
+  bindSchedule(p, rpc, sw, again);
+  bindSwitches(p, rpc, again);
   $('#km-new', p).addEventListener('click', () => open(null));
   $$('[data-edit]', p).forEach((x) => x.addEventListener('click', () => open(rules.find((r) => r.id === Number(x.dataset.edit)))));
 }

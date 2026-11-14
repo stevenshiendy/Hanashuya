@@ -3,15 +3,16 @@
 -- (back office > Pengaturan > Cadangan data).
 --
 -- Keeps: every account and its login (members, staff, managers, the owner, the kasir tablet
--- account), member profiles, promo consent records, saved voucher codes, settings, menu,
+-- account), member profiles, promo consent records, the voucher codes themselves, settings, menu,
 -- products, flavours, categories, channels and their prices, promos, rewards, campaigns,
 -- stamp bonus periods, commission rules, stock items, recipes, suppliers, locations, the
 -- chart of accounts, WhatsApp templates, shifts, staff schedules and staff profiles.
 --
 -- Clears (Glenn's picks):
 --   * Members back to zero: all stamps, visit history, used rewards and used vouchers, so the
---     welcome voucher (within its 30 days) and birthday voucher can be used again. Saved paper
---     voucher codes stay saved on the member who saved them, and become usable again.
+--     welcome voucher (within its 30 days) and birthday voucher can be used again.
+--   * Paper voucher codes (Papaya and extras) are freed: every code saved during testing is
+--     unclaimed again, so a real customer can scan it (Glenn, 14 Nov 2026).
 --   * Stock at 0: every stock move, goods in, count (opname), sample, request, transfer and
 --     production. Stock levels are worked out from the moves, so they all start at 0; record a
 --     Stok masuk or a stock opname with the real counts afterwards.
@@ -104,6 +105,8 @@ begin
   delete from public.redeem_codes;
   delete from public.redemptions;
   delete from public.card_cycles;
+  update public.voucher_codes set claimed_by = null, claimed_at = null, claimed_via = null
+    where claimed_by is not null;
   delete from public.sales;
   delete from public.pos_receipts;
   delete from public.password_resets;

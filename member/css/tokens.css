@@ -15,4 +15,6 @@
   --font-display: "Cinzel", Georgia, "Times New Roman", serif; --font-body: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; --font-outlier: var(--font-body);
   --radius-card: 8px; --radius-control: 4px; --radius-pill: 999px; --rule-hair: 1px; --shadow-card: none;
   --tracking-display: -0.02em;
+  /* Dashboard komisi status colours (14 Nov 2026): open period darkest, paid lightest. */
+  --color-km-open: #7b0202; --color-km-due: #c9474c; --color-km-paid: #e0a19c; --color-km-todo: #3f1607;
 }

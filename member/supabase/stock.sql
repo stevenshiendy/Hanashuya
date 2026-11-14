@@ -780,14 +780,18 @@ as $$
 declare me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg()); d date := public._stock_today();
 begin
   return json_build_object('day', d,
-    'goods_in', coalesce((select json_agg(public._stock_goods_in_json(g.id) order by g.id desc)
+    -- cancel_pending: a staff cancel request waits for a manager (14 Nov 2026).
+    'goods_in', coalesce((select json_agg(public._stock_goods_in_json(g.id)::jsonb || jsonb_build_object('cancel_pending',
+        exists (select 1 from stock_cancel_requests c where c.goods_in_id = g.id and c.status = 'menunggu')) order by g.id desc)
       from stock_goods_in g where g.day = d), '[]'),
     'outs', coalesce((select json_agg(json_build_object('id', m.id, 'item', i.name, 'unit', i.unit, 'kind', m.kind,
         'qty', -m.qty, 'reason', m.reason, 'at', m.created_at,
+        'cancelled', exists (select 1 from stock_moves x where x.reverses_id = m.id),
+        'cancel_pending', exists (select 1 from stock_cancel_requests c where c.move_id = m.id and c.status = 'menunggu'),
         'by', (select public._first_name(full_name) from profiles where id = m.created_by),
         'responsible', (select public._first_name(full_name) from profiles where id = coalesce(m.responsible_id, m.created_by))) order by m.id desc)
       from stock_moves m join stock_items i on i.id = m.item_id
-      where m.day = d and m.kind in ('sampel', 'buang', 'rusak', 'promo')), '[]'),
+      where m.day = d and m.kind in ('sampel', 'buang', 'rusak', 'promo') and m.reverses_id is null), '[]'),
     -- Barang keluar karena penjualan today, per item (sales minus cancelled sales).
     'sold', coalesce((select json_agg(json_build_object('item', x.name, 'unit', x.unit, 'qty', x.q) order by x.sort, x.id) from (
         select i.id, i.name, i.unit, i.sort, -sum(m.qty) as q from stock_moves m join stock_items i on i.id = m.item_id
@@ -1476,6 +1480,8 @@ begin
     from stock_moves m join stock_items i on i.id = m.item_id
     where m.day between p_from and p_to and m.kind in ('penjualan', 'batal_penjualan', 'sampel', 'buang', 'rusak', 'promo')
       and (k is null or m.kind = k or (k = 'penjualan' and m.kind = 'batal_penjualan'))
+      -- A cancelled barang keluar and its cancel row are both left out (14 Nov 2026).
+      and m.reverses_id is null and not exists (select 1 from stock_moves x where x.reverses_id = m.id)
     order by m.created_at desc, m.id desc limit 3000) x), '[]');
 end $$;
 
@@ -1516,6 +1522,185 @@ begin
       (select public._first_name(full_name) from profiles where id = m.created_by) as by
     from stock_moves m join stock_items i on i.id = m.item_id
     where m.kind = 'koreksi' and m.reason like 'Penyesuaian: %' and m.day between p_from and p_to) x), '[]');
+end $$;
+
+-- ---------------------------------------------------------------- 14 Nov 2026 (Glenn): many items per goods in, cancel requests
+-- Barang masuk with several items in one save (Glenn, 14 Nov 2026): Hanashuya's kitchen sends
+-- a table with every item, other pemasok a list with "Tambah barang". p_lines:
+--   [{ item: 3, qty: 40, cost_mode: 'total', cost: 120000 }]   (cost only from a manager or the owner)
+-- Everything is saved in one go, or nothing when one line is wrong.
+create or replace function public.stock_goods_in_batch(p_lines jsonb, p_note text, p_slip text, p_responsible uuid,
+  p_request bigint default null, p_supplier bigint default null) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg());
+  ln jsonb; seen int[] := '{}'; it int; res jsonb := '[]';
+begin
+  if p_lines is null or jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
+    raise exception 'Isi jumlah minimal satu barang.';
+  end if;
+  if jsonb_array_length(p_lines) > 60 then raise exception 'Paling banyak 60 barang sekali catat.'; end if;
+  for ln in select * from jsonb_array_elements(p_lines) loop
+    begin it := (ln->>'item')::int;
+    exception when invalid_text_representation then raise exception 'Barang tidak valid.'; end;
+    if it is null then raise exception 'Pilih barangnya.'; end if;
+    if it = any (seen) then
+      raise exception '% tertulis dua kali. Gabungkan jumlahnya di satu baris.', (select name from stock_items where id = it);
+    end if;
+    seen := seen || it;
+    res := res || jsonb_build_array(public.stock_goods_in(it, (ln->>'qty')::numeric, p_note, p_slip, p_responsible,
+      p_request, p_supplier, nullif(ln->>'cost_mode', ''), nullif(ln->>'cost', '')::numeric)::jsonb);
+  end loop;
+  return res::json;
+end $$;
+
+-- Cancelling barang keluar (dibuang, rusak, promo): stock_moves can't be changed, so a cancel
+-- is a second row of the same kind with the opposite amount that points at the first
+-- (reverses_id). Totals per kind (reports, the harga pokok journals) net to zero; lists hide both.
+alter table public.stock_moves add column if not exists reverses_id bigint references public.stock_moves (id);
+create unique index if not exists stock_moves_one_reversal on public.stock_moves (reverses_id) where reverses_id is not null;
+
+create or replace function public._stock_cancel_out(p_move bigint, p_reason text, p_by uuid) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare m stock_moves; i stock_items; r text := nullif(trim(coalesce(p_reason, '')), ''); rid bigint;
+begin
+  if r is null then raise exception 'Tulis alasan pembatalannya.'; end if;
+  select * into m from stock_moves where id = p_move for update;
+  if m.id is null or m.kind not in ('buang', 'rusak', 'promo') or m.reverses_id is not null then
+    raise exception 'Catatan barang keluar tidak ditemukan.';
+  end if;
+  if exists (select 1 from stock_moves where reverses_id = m.id) then raise exception 'Catatan ini sudah dibatalkan.'; end if;
+  select * into i from stock_items where id = m.item_id;
+  insert into stock_moves (item_id, kind, qty, day, reason, responsible_id, created_by, reverses_id)
+  values (m.item_id, m.kind, -m.qty, m.day, 'Batal barang keluar: ' || r, m.responsible_id, p_by, m.id) returning id into rid;
+  perform public._log('stok_batal_keluar', jsonb_build_object('move', m.id, 'item', i.name, 'kind', m.kind, 'qty', -m.qty, 'reason', r));
+  return json_build_object('id', m.id, 'item', i.name, 'unit', i.unit, 'kind', m.kind, 'qty', -m.qty, 'stock', public._stock_balance(m.item_id));
+end $$;
+
+create or replace function public.stock_cancel_out(p_id bigint, p_reason text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer yang bisa membatalkan barang keluar.');
+begin
+  return public._stock_cancel_out(p_id, p_reason, me);
+end $$;
+
+-- Staff ask, a manager or the owner decides (Glenn, 14 Nov 2026), like voids on the till.
+create table if not exists public.stock_cancel_requests (
+  id bigint generated always as identity primary key,
+  kind text not null check (kind in ('masuk', 'keluar')),
+  goods_in_id bigint references public.stock_goods_in (id),
+  move_id bigint references public.stock_moves (id),
+  reason text not null,
+  status text not null default 'menunggu' check (status in ('menunggu', 'disetujui', 'ditolak')),
+  requested_by uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  decided_by uuid references public.profiles (id) on delete set null,
+  decided_at timestamptz,
+  decision_note text,
+  check ((kind = 'masuk') = (goods_in_id is not null) and (kind = 'keluar') = (move_id is not null))
+);
+create unique index if not exists stock_cancel_one_open_in on public.stock_cancel_requests (goods_in_id) where status = 'menunggu';
+create unique index if not exists stock_cancel_one_open_out on public.stock_cancel_requests (move_id) where status = 'menunggu';
+alter table public.stock_cancel_requests enable row level security;
+revoke all on public.stock_cancel_requests from anon, authenticated;
+
+-- p_kind 'masuk' (p_id = goods in id) or 'keluar' (p_id = stock_moves id). Today's entries only;
+-- older ones are cancelled from the owner page.
+create or replace function public.stock_cancel_request(p_kind text, p_id bigint, p_reason text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg());
+  r text := nullif(trim(coalesce(p_reason, '')), ''); g stock_goods_in; m stock_moves; rid bigint; d date := public._stock_today();
+begin
+  if r is null then raise exception 'Tulis alasan pembatalannya.'; end if;
+  if p_kind = 'masuk' then
+    select * into g from stock_goods_in where id = p_id;
+    if g.id is null then raise exception 'Catatan barang masuk tidak ditemukan.'; end if;
+    if g.status = 'dibatalkan' then raise exception 'Catatan ini sudah dibatalkan.'; end if;
+    if g.day <> d then raise exception 'Hanya barang masuk hari ini yang bisa diminta batal dari kasir.'; end if;
+    if exists (select 1 from stock_cancel_requests where goods_in_id = g.id and status = 'menunggu') then
+      raise exception 'Permintaan batal untuk catatan ini sudah menunggu.';
+    end if;
+    insert into stock_cancel_requests (kind, goods_in_id, reason, requested_by) values ('masuk', g.id, r, me) returning id into rid;
+  elsif p_kind = 'keluar' then
+    select * into m from stock_moves where id = p_id;
+    if m.id is null or m.kind not in ('buang', 'rusak', 'promo') or m.reverses_id is not null then
+      raise exception 'Catatan barang keluar tidak ditemukan.';
+    end if;
+    if exists (select 1 from stock_moves where reverses_id = m.id) then raise exception 'Catatan ini sudah dibatalkan.'; end if;
+    if m.day <> d then raise exception 'Hanya barang keluar hari ini yang bisa diminta batal dari kasir.'; end if;
+    if exists (select 1 from stock_cancel_requests where move_id = m.id and status = 'menunggu') then
+      raise exception 'Permintaan batal untuk catatan ini sudah menunggu.';
+    end if;
+    insert into stock_cancel_requests (kind, move_id, reason, requested_by) values ('keluar', m.id, r, me) returning id into rid;
+  else
+    raise exception 'Jenis catatan tidak dikenal.';
+  end if;
+  perform public._log('stok_minta_batal', jsonb_build_object('request', rid, 'kind', p_kind, 'id', p_id, 'reason', r));
+  return json_build_object('id', rid, 'status', 'menunggu');
+end $$;
+
+create or replace function public.stock_cancel_pending() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer.');
+begin
+  return coalesce((select json_agg(json_build_object('id', c.id, 'kind', c.kind, 'reason', c.reason, 'at', c.created_at,
+      'requested_by', (select public._first_name(full_name) from profiles where id = c.requested_by),
+      'own', c.requested_by = me,
+      'item', i.name, 'unit', i.unit,
+      'qty', case when c.kind = 'masuk' then g.current_qty else -m.qty end,
+      'out_kind', m.kind, 'supplier', (select s.name from stock_suppliers s where s.id = g.supplier_id),
+      'entry_at', coalesce(g.created_at, m.created_at)) order by c.id)
+    from stock_cancel_requests c
+    left join stock_goods_in g on g.id = c.goods_in_id
+    left join stock_moves m on m.id = c.move_id
+    join stock_items i on i.id = coalesce(g.item_id, m.item_id)
+    where c.status = 'menunggu'), '[]');
+end $$;
+
+-- A manager can't decide their own request (the owner does), as with voids and undo.
+create or replace function public.stock_cancel_decide(p_id bigint, p_approve boolean, p_note text default null) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer yang bisa memutuskan.');
+  c stock_cancel_requests; who text;
+begin
+  select * into c from stock_cancel_requests where id = p_id and status = 'menunggu' for update;
+  if c.id is null then raise exception 'Permintaan ini sudah diputuskan.'; end if;
+  if c.requested_by = me and not exists (select 1 from profiles where id = me and role = 'owner') then
+    raise exception 'Permintaan Anda sendiri diputuskan oleh pemilik.';
+  end if;
+  who := coalesce((select public._first_name(full_name) from profiles where id = c.requested_by), 'staf');
+  if coalesce(p_approve, false) then
+    if c.kind = 'masuk' then
+      if (select status from stock_goods_in where id = c.goods_in_id) <> 'dibatalkan' then
+        perform public.stock_cancel_goods_in(c.goods_in_id, 'Diminta ' || who || ': ' || c.reason);
+      end if;
+    elsif not exists (select 1 from stock_moves where reverses_id = c.move_id) then
+      perform public._stock_cancel_out(c.move_id, 'Diminta ' || who || ': ' || c.reason, me);
+    end if;
+  end if;
+  update stock_cancel_requests set status = case when p_approve then 'disetujui' else 'ditolak' end,
+    decided_by = me, decided_at = now(), decision_note = nullif(trim(coalesce(p_note, '')), '') where id = c.id;
+  perform public._log('stok_putus_batal', jsonb_build_object('request', c.id, 'approve', coalesce(p_approve, false)));
+  return json_build_object('id', c.id, 'status', case when p_approve then 'disetujui' else 'ditolak' end);
+end $$;
+
+-- Closing reminder on the till home (Glenn, 14 Nov 2026): has today's stok opname been sent?
+create or replace function public.stock_count_today() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg()); d date := public._stock_today();
+begin
+  return json_build_object('day', d,
+    'sent', exists (select 1 from stock_counts where day = d and status in ('menunggu', 'diterima')),
+    'closing', exists (select 1 from stock_counts where day = d and status in ('menunggu', 'diterima') and closing));
 end $$;
 
 -- ---------------------------------------------------------------- permissions

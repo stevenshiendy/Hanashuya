@@ -68,13 +68,6 @@ const goodsSupplierField = (list) => {
   const opts = (list || []).map((x) => `<option value="${x.id}"${x === own ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
   return `<label class="field"><span>Pemasok</span><select data-supplier>${own ? '' : '<option value="">Tanpa pemasok</option>'}${opts}</select></label>`;
 };
-// Barang masuk: staff never see harga beli; the server costs the delivery at the item's harga
-// pokok (COGS). A manager or the owner may type the total paid instead (Glenn, 14 Nov 2026).
-const goodsCostField = () => `<fieldset class="field" data-cost><legend>Total harga beli <span class="hint">boleh dikosongkan</span></legend>
-    <input type="radio" value="total" checked hidden>
-    <input type="text" inputmode="numeric" autocomplete="off" data-cost-amount placeholder="Rp" aria-label="Total harga beli dalam rupiah">
-    <p class="muted small">Kosongkan: otomatis harga pokok (COGS) x jumlah. Diisi: harga pokok barang ini ikut dihitung ulang.</p>
-  </fieldset>`;
 // Harga beli: one amount, Total or Per satuan (optional).
 let costSeq = 0;
 function costField(prefix = '') {
@@ -124,6 +117,10 @@ function stockScreen(panel, part, ctx, o) {
   if (part === 'liner') return linerForm(wrap('Potong liner', ''), ctx, toMenu);
   if (part === 'opname') return opnameForm(wrap('Stok opname', ''), ctx, toMenu);
   if (part === 'permintaan') return requestScreen(body, ctx, toMenu);
+  if (part === 'hari-ini') {
+    body.innerHTML = '<h1 class="tl-title">Masuk dan keluar hari ini</h1><div class="stack-lg" data-d></div>';
+    return todayInOut($('[data-d]', body), ctx);
+  }
   if (part === 'minimum' && ctx.lead) return minimumForm(wrap('Stok minimum', ''), ctx);
   if (part === 'riwayat') {
     body.innerHTML = '<h1 class="tl-title">Riwayat stok opname</h1><div class="panel stack" data-h></div>';
@@ -138,6 +135,7 @@ function stockMenu(panel, ctx, show, toMenu) {
   const entries = [
     ['masuk', 'Barang masuk', 'Catat kiriman dapur atau supplier.'],
     ['keluar', 'Barang keluar', 'Dibuang, rusak atau promo. Sampel dicatat di Mode penjualan.'],
+    ['hari-ini', 'Masuk dan keluar hari ini', ctx.lead ? 'Catatan hari ini. Batalkan yang salah.' : 'Catatan hari ini. Minta batal kalau ada yang salah.'],
     ['opname', 'Stok opname', 'Hitung stok fisik dan bandingkan dengan stok sistem.'],
     ['permintaan', 'Permintaan barang', openReq ? `${openReq} permintaan belum selesai.` : 'Minta barang ke dapur atau supplier, lalu bagikan PDF-nya.'],
     ['riwayat', 'Riwayat stok opname', pend ? 'Ada stok opname yang menunggu dicek.' : 'Hasil stok opname 30 hari terakhir.'],
@@ -226,63 +224,117 @@ function waButton(root) {
 }
 
 /* ---------------------------------------------------------------- forms */
-function goodsInForm(box, { items, cat, open, lead }, done) {
+// Item groups for the long tables (Glenn, 14 Nov 2026: choux first, packaging below).
+const GROUPS = [['choux', 'Choux'], ['isian', 'Isian'], ['kemasan', 'Kemasan dan lainnya']];
+const groupOf = (i) => (i.closes_at_zero ? 'choux' : /^(g|kg|ml|l)$/i.test(i.unit || '') ? 'isian' : 'kemasan');
+const grouped = (items) => GROUPS.map(([k, l]) => [l, items.filter((i) => groupOf(i) === k)]).filter(([, list]) => list.length);
+const isOwnKitchen = (list, id) => (list || []).some((x) => String(x.id) === String(id) && x.name.trim().toLowerCase() === 'hanashuya');
+
+// Barang masuk, many items in one save (Glenn, 14 Nov 2026). Pemasok Hanashuya (the kitchen):
+// a table with every item, fill in what came. Another pemasok: one row per item with
+// "Tambah barang". From a permintaan: a table of the requested items with what is still owed.
+// Staff never see harga beli; a manager or the owner may type a total per row (other pemasok).
+function goodsInForm(box, { items, cat, open, lead, now }, done) {
+  const stockOf = Object.fromEntries((now || []).map((n) => [n.id, Number(n.qty)]));
   const form = document.createElement('form');
   form.className = 'stack'; form.noValidate = true;
   form.innerHTML = `
     ${open.length ? `<label class="field"><span>Dari permintaan</span><select data-req>
       <option value="">Bukan dari permintaan</option>
       ${open.map((r) => `<option value="${r.id}">${esc(r.no)}${r.needed_by ? ', dibutuhkan ' + esc(day(r.needed_by)) : ''}</option>`).join('')}</select></label>` : ''}
-    <label class="field"><span>Barang ${REQ}</span><select data-item>${itemOptions(items)}</select></label>
-    <p class="muted small" data-req-left hidden></p>
-    ${qtyInput('sk-in-qty-' + (++chipSeq), 'Jumlah', 'data-qty')}
     ${goodsSupplierField(cat.suppliers)}
-    ${lead ? goodsCostField() : ''}
+    <div data-lines></div>
     ${staffChips(cat.staff)}
     <label class="field"><span>Catatan</span><input type="text" data-note maxlength="200" placeholder="Contoh: kiriman dapur pagi"></label>
     <label class="field"><span>Surat jalan</span><input type="text" data-slip maxlength="200" placeholder="Nomor atau isi surat jalan"></label>
     <div class="notice" data-msg hidden></div>
     <button class="btn btn-big" type="submit">Catat barang masuk</button>`;
   box.append(form);
-  const reqSel = $('[data-req]', form), itemSel = $('[data-item]', form), left = $('[data-req-left]', form);
+  const reqSel = $('[data-req]', form), supSel = $('[data-supplier]', form), linesBox = $('[data-lines]', form);
+  const submitBtn = $('button[type="submit"]', form);
   const reqOf = () => open.find((r) => String(r.id) === reqSel?.value);
-  const supSel = $('[data-supplier]', form);
-  const showLeft = () => {
+  let mode = 'list';
+  const qtyCell = (i, val = '') => `<input type="text" inputmode="decimal" autocomplete="off" data-q value="${esc(val)}" aria-label="Jumlah masuk ${esc(i.name)}">`;
+  const tableHtml = (list, owed) => `<div class="table-wrap"><table class="sk-in-table"><thead><tr><th>Barang</th><th class="num">Stok sekarang</th>${owed ? '<th class="num">Masih diminta</th>' : ''}<th>Jumlah masuk</th></tr></thead>
+    ${grouped(list).map(([g, rows]) => `<tbody><tr class="sk-group"><th colspan="${owed ? 4 : 3}" scope="colgroup">${esc(g)}</th></tr>
+      ${rows.map((i) => `<tr data-item="${i.id}"><td>${esc(i.name)}</td><td class="num">${withUnit(stockOf[i.id] ?? 0, i.unit)}</td>
+        ${owed ? `<td class="num">${withUnit(owed[i.id] || 0, i.unit)}</td>` : ''}<td>${qtyCell(i, owed && owed[i.id] > 0 ? qtyText(owed[i.id]) : '')}</td></tr>`).join('')}</tbody>`).join('')}
+    </table></div><p class="muted small">Isi hanya barang yang datang. Yang kosong tidak dicatat.</p>`;
+  const rowHtml = () => `<div class="sk-in-row" data-row>
+      <label class="field"><span>Barang</span><select data-item>${itemOptions(items)}</select></label>
+      <label class="field"><span>Jumlah</span><input type="text" inputmode="decimal" autocomplete="off" data-q></label>
+      ${lead ? '<label class="field"><span>Total harga beli <span class="hint">boleh kosong</span></span><input type="text" inputmode="numeric" autocomplete="off" data-cost placeholder="Rp"></label>' : ''}
+      <button class="btn btn-text" type="button" data-del>Hapus</button></div>`;
+  const count = () => $$('[data-q]', linesBox).filter((x) => parseQty(x.value) !== null).length;
+  const label = () => { const n = count(); submitBtn.textContent = n > 1 ? `Catat ${n} barang masuk` : 'Catat barang masuk'; };
+  const draw = () => {
     const r = reqOf();
-    const l = r?.lines.find((x) => String(x.item_id) === itemSel.value);
-    left.hidden = !l;
-    if (l) {
-      left.textContent = `Diminta ${qtyText(l.qty)} ${l.unit}, sudah datang ${qtyText(l.received)} ${l.unit}.`;
-      const rest = Number(l.qty) - Number(l.received);
-      if (rest > 0) $('[data-qty]', form).value = qtyText(rest);
+    if (r) {
+      mode = 'table';
+      const owed = Object.fromEntries(r.lines.map((l) => [l.item_id, Math.max(0, Number(l.qty) - Number(l.received))]));
+      linesBox.innerHTML = tableHtml(items.filter((i) => r.lines.some((l) => l.item_id === i.id)), owed);
+    } else if (isOwnKitchen(cat.suppliers, supSel.value)) {
+      mode = 'table';
+      linesBox.innerHTML = tableHtml(items);
+    } else {
+      mode = 'list';
+      linesBox.innerHTML = `<div class="stack" data-rows>${rowHtml()}</div>
+        <div><button class="btn btn-quiet" type="button" data-add>Tambah barang</button></div>
+        ${lead ? '<p class="muted small">Harga beli kosong: otomatis harga pokok (COGS) x jumlah. Diisi: harga pokok barang itu ikut dihitung ulang.</p>' : ''}`;
     }
+    label();
   };
+  linesBox.addEventListener('input', label);
+  linesBox.addEventListener('click', (e) => {
+    if (e.target.closest('[data-add]')) {
+      $('[data-rows]', linesBox).insertAdjacentHTML('beforeend', rowHtml());
+      $$('[data-row]', linesBox).at(-1).querySelector('select').focus();
+    }
+    const del = e.target.closest('[data-del]');
+    if (del) {
+      const rows = $$('[data-row]', linesBox);
+      if (rows.length > 1) del.closest('[data-row]').replaceWith(); else $('[data-q]', rows[0]).value = '';
+      label();
+    }
+  });
   reqSel?.addEventListener('change', () => {
     const r = reqOf();
-    itemSel.innerHTML = itemOptions(r ? items.filter((i) => r.lines.some((l) => l.item_id === i.id)) : items);
     if (r?.supplier_id && [...supSel.options].some((o) => o.value === String(r.supplier_id))) supSel.value = String(r.supplier_id);
-    showLeft();
+    draw();
   });
-  itemSel.addEventListener('change', showLeft);
+  supSel.addEventListener('change', draw);
+  draw();
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const btn = $('button[type="submit"]', form), msg = $('[data-msg]', form);
-    const q = parseQty($('[data-qty]', form).value), who = pickedStaff(form);
-    if (!(q > 0)) return notice(msg, 'Isi jumlahnya.');
+    const msg = $('[data-msg]', form), who = pickedStaff(form);
+    const lines = [];
+    const rows = mode === 'table' ? $$('tr[data-item]', linesBox) : $$('[data-row]', linesBox);
+    for (const row of rows) {
+      const qIn = $('[data-q]', row), q = parseQty(qIn.value);
+      if (q === null) continue;
+      if (!(q > 0)) { qIn.setAttribute('aria-invalid', 'true'); qIn.focus(); return notice(msg, 'Ada jumlah yang tidak valid.'); }
+      qIn.removeAttribute('aria-invalid');
+      const item = Number(mode === 'table' ? row.dataset.item : $('[data-item]', row).value);
+      if (lines.some((l) => l.item === item)) return notice(msg, `${items.find((i) => i.id === item)?.name || 'Barang'} tertulis dua kali. Gabungkan jumlahnya di satu baris.`);
+      const line = { item, qty: q };
+      const costIn = $('[data-cost]', row);
+      if (costIn) {
+        const c = parseQty(costIn.value);
+        if (c !== null) { if (!(c > 0)) { costIn.focus(); return notice(msg, 'Harga beli harus lebih dari 0.'); } line.cost_mode = 'total'; line.cost = c; }
+      }
+      lines.push(line);
+    }
+    if (!lines.length) return notice(msg, 'Isi jumlah minimal satu barang.');
     if (!who) return notice(msg, needStaff);
-    let c;
-    try { c = lead ? readCost(form) : {}; } catch (err) { return notice(msg, err.message); }
-    busy(btn, true, 'Menyimpan…');
+    busy(submitBtn, true, 'Menyimpan…');
     try {
-      const args = { p_item: Number(itemSel.value), p_qty: q, p_note: $('[data-note]', form).value,
-        p_slip: $('[data-slip]', form).value, p_responsible: who, p_request: reqSel?.value ? Number(reqSel.value) : null };
-      // New arguments are sent only when used, so a database without the update still works.
+      const args = { p_lines: lines, p_note: $('[data-note]', form).value, p_slip: $('[data-slip]', form).value,
+        p_responsible: who, p_request: reqSel?.value ? Number(reqSel.value) : null };
       if (supSel.value) args.p_supplier = Number(supSel.value);
-      if (c.cost) { args.p_cost_mode = c.mode; args.p_cost = c.cost; }
-      const g = await rpc('stock_goods_in', args);
-      toast(`Tercatat: ${g.item} ${qtyText(g.qty)} ${g.unit}${g.request_no ? ', dari ' + g.request_no : ''}`);
+      const saved = await rpc('stock_goods_in_batch', args);
+      toast(saved.length === 1 ? `Tercatat: ${saved[0].item} ${qtyText(saved[0].qty)} ${saved[0].unit}` : `Tercatat: ${saved.length} barang masuk`);
       done();
-    } catch (err) { notice(msg, err.message); busy(btn, false); }
+    } catch (err) { notice(msg, err.message); busy(submitBtn, false); }
   });
 }
 
@@ -320,6 +372,43 @@ function stockOutForm(box, { items, cat }, done) {
   });
 }
 
+// Masuk dan keluar hari ini (Glenn, 14 Nov 2026): today's barang masuk and barang keluar. Staff
+// tap Minta batal with a reason; a manager or the owner decides it under Persetujuan on the
+// Dashboard. A manager or the owner signed in on the till cancels straight away.
+async function todayInOut(box, ctx) {
+  let t;
+  try { t = await rpc('stock_today'); } catch (e) { box.innerHTML = errorHtml(e); return; }
+  const ins = t.goods_in || [], outs = (t.outs || []).filter((o) => o.kind !== 'sampel');
+  const act = (x) => (x.status === 'dibatalkan' || x.cancelled ? ''
+    : x.cancel_pending ? '<span class="tag tag-warn">Menunggu persetujuan</span>'
+    : `<button class="btn btn-text" type="button" data-cancel>${ctx.lead ? 'Batalkan' : 'Minta batal'}</button>`);
+  const inRow = (g) => `<li data-kind="masuk" data-id="${g.id}"${g.status === 'dibatalkan' ? ' class="is-off"' : ''}><span class="grow"><strong>${esc(g.item)} ${withUnit(g.current_qty ?? g.qty, g.unit)}</strong>${g.status === 'dibatalkan' ? ' <span class="tag tag-bad">Dibatalkan</span>' : ''}<br>
+      <span class="muted small">${esc(time(g.at))}${g.supplier ? ', ' + esc(g.supplier) : ''}, ${esc(g.responsible || '-')}${g.note ? ': ' + esc(g.note) : ''}</span></span>${act(g)}</li>`;
+  const outRow = (o) => `<li data-kind="keluar" data-id="${o.id}"${o.cancelled ? ' class="is-off"' : ''}><span class="grow"><strong>${esc(o.item)} ${withUnit(o.qty, o.unit)}</strong> ${esc(KIND[o.kind] || o.kind)}${o.cancelled ? ' <span class="tag tag-bad">Dibatalkan</span>' : ''}<br>
+      <span class="muted small">${esc(time(o.at))}, ${esc(o.responsible || '-')}${o.reason ? ': ' + esc(o.reason) : ''}</span></span>${act(o)}</li>`;
+  box.innerHTML = `<div class="panel stack"><h2>Barang masuk</h2>${ins.length ? `<ul class="list sk-day">${ins.map(inRow).join('')}</ul>` : '<p class="muted">Belum ada barang masuk hari ini.</p>'}</div>
+    <div class="panel stack"><h2>Barang keluar</h2>${outs.length ? `<ul class="list sk-day">${outs.map(outRow).join('')}</ul>` : '<p class="muted">Belum ada barang keluar hari ini.</p>'}
+      <p class="muted small">Sampel dibatalkan lewat Mode penjualan. Barang keluar karena penjualan ikut batal saat pesanannya dibatalkan.</p></div>`;
+  $$('[data-cancel]', box).forEach((b) => b.addEventListener('click', () => {
+    const li = b.closest('li'), kind = li.dataset.kind, id = Number(li.dataset.id);
+    const what = li.querySelector('strong').textContent.trim();
+    formDialog({
+      title: `${ctx.lead ? 'Batalkan' : 'Minta batal'} ${kind === 'masuk' ? 'barang masuk' : 'barang keluar'}`,
+      submitLabel: ctx.lead ? 'Batalkan' : 'Kirim permintaan',
+      html: `<p>${esc(what)}</p>${ctx.lead ? '' : '<p class="muted small">Manajer atau pemilik memutuskan di Persetujuan.</p>'}
+        <label class="field"><span>Alasan ${REQ}</span><input type="text" name="reason" maxlength="200" placeholder="Contoh: salah jumlah"></label>`,
+      onSubmit: async (form) => {
+        const reason = form.reason.value.trim();
+        if (!reason) throw new Error('Tulis alasannya.');
+        if (!ctx.lead) await rpc('stock_cancel_request', { p_kind: kind, p_id: id, p_reason: reason });
+        else if (kind === 'masuk') await rpc('stock_cancel_goods_in', { p_id: id, p_reason: reason });
+        else await rpc('stock_cancel_out', { p_id: id, p_reason: reason });
+        toast(ctx.lead ? 'Dibatalkan' : 'Permintaan batal terkirim');
+      },
+    }).then((ok) => { if (ok) todayInOut(box, ctx); });
+  }));
+}
+
 function linerForm(box, { items, now }, done) {
   const liner = (code) => now.find((n) => items.find((i) => i.id === n.id)?.code === code);
   const lb = liner('liner_besar'), lk = liner('liner_kecil');
@@ -351,22 +440,23 @@ function opnameForm(box, { items, now, cat }, done) {
   const form = document.createElement('form');
   form.className = 'stack'; form.noValidate = true;
   form.innerHTML = `
-    <p class="small">Hitung stok fisik di booth, lalu tulis jumlahnya. Barang yang tidak dihitung boleh dikosongkan. Hasilnya dicek manajer atau pemilik; kalau diterima, stok fisik menjadi stok sistem yang baru.</p>
+    <p class="small">Hitung stok fisik di booth, lalu tulis jumlah setiap barang, termasuk yang habis (tulis 0). Hasilnya dicek manajer atau pemilik; kalau diterima, stok fisik menjadi stok sistem yang baru.</p>
     <label class="check"><input type="checkbox" data-close${hourNow() >= 20 ? ' checked' : ''}><span>Stok opname tutup booth: choux yang tersisa dicatat sebagai dibuang</span></label>
-    <div class="table-wrap"><table><thead><tr><th>Barang</th><th class="num">Stok sistem</th><th>Stok fisik</th><th class="num">Selisih</th></tr></thead><tbody>
-    ${items.map((i) => `<tr data-item="${i.id}" data-zero="${i.closes_at_zero ? 1 : 0}"><td>${esc(i.name)}
+    <div class="table-wrap"><table class="sk-count"><thead><tr><th>Barang</th><th class="num">Stok sistem</th><th>Stok fisik ${REQ}</th><th class="num">Selisih</th></tr></thead>
+    ${grouped(items).map(([g, list]) => `<tbody><tr class="sk-group"><th colspan="4" scope="colgroup">${esc(g)}</th></tr>
+    ${list.map((i) => `<tr data-item="${i.id}" data-zero="${i.closes_at_zero ? 1 : 0}"><td>${esc(i.name)}
         <span class="muted small" data-lbl></span></td>
       <td class="num">${withUnit(sys[i.id] ?? 0, i.unit)}</td>
       <td><input type="text" inputmode="decimal" autocomplete="off" aria-label="Stok fisik ${esc(i.name)}"></td>
-      <td class="num" data-diff></td></tr>`).join('')}
-    </tbody></table></div>
+      <td class="num" data-diff></td></tr>`).join('')}</tbody>`).join('')}
+    </table></div>
     ${staffChips(cat.staff)}
     <label class="field"><span>Catatan</span><input type="text" data-note maxlength="200"></label>
     <div class="notice" data-msg hidden></div>
     <button class="btn btn-big" type="submit">Kirim stok opname</button>`;
   box.append(form);
   const closeBox = $('[data-close]', form);
-  const rows = $$('tbody tr', form);
+  const rows = $$('tbody tr[data-item]', form);
   // Selisih = stok fisik - stok sistem; at closing a choux row is "left, thrown away" (fisik 0).
   const refresh = () => rows.forEach((tr) => {
     const zero = closeBox.checked && tr.dataset.zero === '1';
@@ -381,9 +471,16 @@ function opnameForm(box, { items, now, cat }, done) {
     e.preventDefault();
     const btn = $('button[type="submit"]', form), msg = $('[data-msg]', form);
     const lines = [];
+    // Every row must be counted (Glenn, 14 Nov 2026), so a daily count is never half done.
+    const empty = rows.filter((tr) => parseQty($('input', tr).value) === null);
+    rows.forEach((tr) => $('input', tr).toggleAttribute('aria-invalid', empty.includes(tr)));
+    if (empty.length) {
+      $('input', empty[0]).focus();
+      return notice(msg, empty.length === 1 ? `${$('td', empty[0]).firstChild.textContent.trim()} belum diisi. Tulis 0 kalau habis.`
+        : `${empty.length} barang belum diisi. Tulis 0 kalau habis.`);
+    }
     for (const tr of rows) {
       const input = $('input', tr), q = parseQty(input.value);
-      if (q === null) continue;
       if (!(q >= 0)) { input.setAttribute('aria-invalid', 'true'); input.focus(); return notice(msg, 'Ada angka yang tidak valid.'); }
       input.removeAttribute('aria-invalid');
       const thrownAway = closeBox.checked && tr.dataset.zero === '1';

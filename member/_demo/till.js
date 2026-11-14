@@ -17,12 +17,33 @@ export const rupiah = (n) => 'Rp' + Number(n || 0).toLocaleString('id-ID');
 export const time = (iso) => new Intl.DateTimeFormat('id-ID', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
 export const when = (iso) => new Intl.DateTimeFormat('id-ID', { timeZone: TZ, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
 export const day = (iso) => new Intl.DateTimeFormat('id-ID', { timeZone: TZ, day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+// Busy buttons (charles-ux-animation, 14 Nov 2026): the button is disabled on the same frame (no double
+// taps), but the busy label ("Menyimpan…") shows only after 300 ms, so fast answers never flash it, and
+// once shown it stays at least 500 ms, so slow answers don't flicker.
+const BUSY_DELAY = 300, BUSY_MIN = 500;
+const busyState = new WeakMap();
 export function busy(btn, on, label) {
   if (!btn) return;
-  if (on) { btn.dataset.label = btn.textContent; if (label) btn.textContent = label; }
-  else if (btn.dataset.label) btn.textContent = btn.dataset.label;
-  btn.disabled = on;
-  btn.setAttribute('aria-busy', String(on));
+  const prev = busyState.get(btn);
+  if (prev) clearTimeout(prev.timer);
+  if (on) {
+    const st = { label: prev?.label ?? btn.textContent, busyText: label || '', shownAt: 0, timer: 0 };
+    btn.dataset.label = st.label;
+    if (label) st.timer = setTimeout(() => { btn.textContent = label; st.shownAt = performance.now(); }, BUSY_DELAY);
+    busyState.set(btn, st);
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    return;
+  }
+  const done = () => {
+    busyState.delete(btn);
+    // Only put the label back if nothing else changed the text meanwhile (some callers set a new label).
+    if (prev && prev.shownAt && btn.textContent === prev.busyText) btn.textContent = prev.label;
+    btn.disabled = false;
+    btn.setAttribute('aria-busy', 'false');
+  };
+  const left = prev?.shownAt ? BUSY_MIN - (performance.now() - prev.shownAt) : 0;
+  if (left > 0) { prev.timer = setTimeout(done, left); busyState.set(btn, prev); } else done();
 }
 export function notice(el, msg, kind = 'error') {
   if (!el) return;
@@ -32,13 +53,32 @@ export function notice(el, msg, kind = 'error') {
   el.hidden = false;
   el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
 }
-let toastTimer;
-export function toast(msg) {
+// toast(msg) shows a short status line for 3.5 s. toast(msg, { undo }) adds a Batalkan button and stays
+// 5 s, so a removal can be put back (14 Nov 2026). It rises in over --dur-short and leaves in 150 ms (app.css).
+let toastTimer, toastOut;
+export function toast(msg, opts = {}) {
   let t = $('.toast');
-  if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); document.body.append(t); }
-  t.textContent = msg; t.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 3500);
+  if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.hidden = true; document.body.append(t); }
+  clearTimeout(toastTimer); clearTimeout(toastOut);
+  const wasShown = !t.hidden && t.classList.contains('is-in');
+  t.textContent = '';
+  const span = document.createElement('span'); span.textContent = msg; t.append(span);
+  if (typeof opts.undo === 'function') {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'toast-act'; b.textContent = opts.undoLabel || 'Batalkan';
+    b.addEventListener('click', () => { hide(); opts.undo(); }, { once: true });
+    t.append(b);
+  }
+  t.classList.remove('is-out');
+  t.hidden = false;
+  if (!wasShown) { t.classList.remove('is-in'); void t.offsetWidth; }
+  t.classList.add('is-in');
+  function hide() {
+    clearTimeout(toastTimer);
+    t.classList.add('is-out'); t.classList.remove('is-in');
+    toastOut = setTimeout(() => { t.hidden = true; t.classList.remove('is-out'); }, 150);
+  }
+  toastTimer = setTimeout(hide, opts.undo ? 5000 : 3500);
 }
 export function toPhone(raw) {
   let d = String(raw || '').replace(/\D/g, '');
@@ -76,6 +116,13 @@ export const mountLogin = (root) => { root.textContent = 'Masuk (demo)'; };
 /* ---------------------------------------------------------------- fake database */
 const q = new URLSearchParams(location.search);
 const role = q.get('role') || 'staff';
+// &jam=20.30 moves the clock to that WIB time today (demo only, for the closing reminder).
+if (q.get('jam')) {
+  const [jh, jm] = q.get('jam').split('.').map(Number), RD = Date;
+  const wib = new RD(RD.now() + 7 * 3600000), want = RD.UTC(wib.getUTCFullYear(), wib.getUTCMonth(), wib.getUTCDate(), jh, jm || 0) - 7 * 3600000;
+  const shift = want - RD.now();
+  globalThis.Date = class extends RD { constructor(...x) { if (x.length) super(...x); else super(RD.now() + shift); } static now() { return RD.now() + shift; } };
+}
 if (q.get('offline') === '1') Object.defineProperty(navigator, 'onLine', { get: () => false });
 // role=manager signs in as Ranny with the manager role, so no made-up person is listed. Whoever
 // is clocked in today (att_on_duty of the shared sample data) is in the staff picker; the person
@@ -128,6 +175,9 @@ const memberKey = (id) => id;
 const customPromos = [
   { id: 1, name: 'Diskon Akhir Pekan', kind: 'persen', value: 10, products: ['mini15', 'mini8'], min_spend: 0, member_only: false, note: null, time_to: null },
   { id: 2, name: 'Member Potong 15rb', kind: 'rupiah', value: 15000, products: null, min_spend: 100000, member_only: true, note: 'Tanya dulu sudah follow Instagram', time_to: '17.00' },
+  // Voucher-code promos (14 Nov 2026): not listed, used by typing the code in Kode voucher.
+  { id: 3, name: 'Diskon 10% (DISKONSTAMP1)', kind: 'persen', value: 10, products: null, min_spend: 0, member_only: false, note: 'Voucher lama VireoPOS (DISKONSTAMP1), untuk input ulang pesanan', time_to: null },
+  { id: 4, name: 'Diskon 20% (DISKONSTAMP2)', kind: 'persen', value: 20, products: null, min_spend: 0, member_only: false, note: null, time_to: null, code: 'DISKONSTAMP2' },
 ];
 const tickets = {};
 // Who can instruct Diskon 50% (pos_catalog().promos.instructors): managers and the owner.
@@ -361,6 +411,10 @@ async function fake(name, a) {
       total: va?.kind === 'refund' ? va.amount : o.total, payment_method: va?.kind === 'refund' ? va.method : o.payment_method,
       requested_by: g?.void?.requested_by || o.served_by, created_at: g?.void?.created_at || hoursAgo(0, 20), reason: g?.void?.reason || 'Salah input rasa' }; });
     case 'manager_pending_undo': return [];
+    // 14 Nov 2026: &opname=0 (none sent), 1 (sent, not the closing one), 2 (both); the bar shows from 20.00 WIB.
+    case 'stock_count_today': { const o = q.get('opname') ?? '0'; return { day: now().slice(0, 10), sent: o !== '0', closing: o === '2' }; }
+    case 'stock_cancel_pending': if (role === 'staff') fail('Hanya pemilik atau manajer.'); return stockAsks.slice();
+    case 'stock_cancel_decide': { const i = stockAsks.findIndex((x) => x.id === a.p_id); if (i < 0) fail('Permintaan ini sudah diputuskan.'); stockAsks.splice(i, 1); return { id: a.p_id, status: a.p_approve ? 'disetujui' : 'ditolak' }; }
     case 'pos_decide_void': { const o = orders.find((x) => x.void_pending); if (o) { o.void_pending = false; if (a.p_approve) o.status = 'batal'; } return null; }
     case 'att_on_duty': return V.onDuty();
     case 'att_tablet_location': return a.p_acc > 200 ? { saved: false, acc_m: Math.round(a.p_acc), location_set: true } : { saved: true, acc_m: Math.round(a.p_acc), location_set: true };
@@ -496,6 +550,11 @@ function shiftJson(all = full) {
 // The rekap in the shape of pos_shift_rekap: the last closed shift of the sample data, or the shift just closed in this demo.
 // Promo items per promo, as pos_shift_rekap().promos (13 Nov 2026): the sample orders of that shift
 // plus the orders paid in this demo visit.
+// Stock cancel requests for Persetujuan (stock.sql stock_cancel_pending, 14 Nov 2026).
+const stockAsks = [
+  { id: 1, kind: 'masuk', reason: 'Salah jumlah, harusnya 5', at: new Date(Date.now() - 40 * 60000).toISOString(), requested_by: 'Ranny', own: false, item: 'Paper bag', unit: 'pcs', qty: 10, out_kind: null, supplier: 'Hanashuya', entry_at: new Date(Date.now() - 50 * 60000).toISOString() },
+  { id: 2, kind: 'keluar', reason: 'Salah pilih barang', at: new Date(Date.now() - 15 * 60000).toISOString(), requested_by: 'Fajar', own: false, item: 'Kotak Mini isi 8', unit: 'pcs', qty: 2, out_kind: 'buang', supplier: null, entry_at: new Date(Date.now() - 20 * 60000).toISOString() },
+];
 const PROMO_LABEL = { bogo: 'BOGO', malam50: '50% malam', instruksi50: '50% instruksi', tebus_murah: 'Tebus murah', stempel: 'Hadiah stempel',
   welcome: 'Voucher member', ulang_tahun: 'Voucher member', kode: 'Voucher member' };
 const PROMO_ORDER = ['bogo', 'malam50', 'instruksi50', 'tebus_murah', 'voucher', 'stempel', 'promo'];

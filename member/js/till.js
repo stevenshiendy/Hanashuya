@@ -51,7 +51,8 @@ const S = {
   back: 'home',             // where Hari ini, Tutup shift and Stok return to: home or order
   home: null,               // the last pos_home reply
   duty: null,               // first names of staff clocked in (att_on_duty), or null
-  asks: null,               // void and refund requests waiting (managers and the owner only)
+  asks: null,               // void, refund and stock cancel requests waiting (managers and the owner only)
+  opname: null,             // stock_count_today() from 20.00 WIB: { day, sent, closing }
   stockMode: 'masuk',
   left: 'tiles',            // tiles | flavour | find | voucher | join
   pick: null,               // flavour picker: { code, flavour, qty, counts }
@@ -446,6 +447,16 @@ function lowHtml() {
   if (!S.low?.length) return '';
   return `<button class="hm-lowbar" type="button" data-act="low-open"><span><b>Stok menipis</b> · <span class="num">${S.low.length}</span> barang</span><span class="hm-lowgo">Lihat <span aria-hidden="true">›</span></span></button>`;
 }
+// Closing reminder (Glenn, 14 Nov 2026): from 20.00 WIB, until today's stok opname, then the
+// closing one, has been sent. Same calm one-line bar as Stok menipis; it opens Stok opname.
+const wibHour = () => Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
+function opnameHtml() {
+  const c = S.opname;
+  if (!c || wibHour() < 20 || (c.sent && c.closing)) return '';
+  return `<button class="hm-lowbar" type="button" data-act="opname-open"><span><b>${c.sent ? 'Stok opname tutup booth belum dikirim.' : 'Stok opname hari ini belum dikirim.'}</b></span><span class="hm-lowgo">Buka stok opname <span aria-hidden="true">›</span></span></button>`;
+}
+// Both bars share one row, so the reminder adds no height when Stok menipis is there too.
+const alertsHtml = () => { const x = [opnameHtml(), lowHtml()].filter(Boolean); return x.length > 1 ? `<div class="hm-alerts">${x.join('')}</div>` : x.join(''); };
 const qtyText = (n, unit) => (Number(n) <= 0 ? 'Habis' : `${Number(n).toLocaleString('id-ID', { maximumFractionDigits: 2 })} ${unit || ''}`.trim());
 function openLow() {
   const rows = (S.low || []).slice().sort((a, b) => a.qty - b.qty);
@@ -461,7 +472,7 @@ function homeLeft(h) {
   if (!h) return '<div class="hm-dash" aria-busy="true"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
   const topMax = Math.max(1, ...h.top_products.map((x) => x.qty));
   return `<div class="hm-dash">
-    ${lowHtml()}
+    ${alertsHtml()}
     <div class="hm-tiles">
       <div class="hm-kpi"><span class="hm-l">Omzet hari ini</span><span class="hm-v num">${rupiah(h.revenue)}</span>
         <span class="hm-s num">${h.orders} pesanan · rata-rata ${short(h.average)}<br>QRIS ${short(h.by_method.qris)} · Tunai ${short(h.by_method.tunai)}${h.service_charge || h.pbjt ? `<br>di luar omzet: ${[h.service_charge ? `service ${short(h.service_charge)}` : '', h.pbjt ? `PBJT ${short(h.pbjt)}` : ''].filter(Boolean).join(' · ')}` : ''}</span></div>
@@ -510,10 +521,12 @@ async function loadHome() {
   const n = ++homeSeq;
   try {
     // Managers and the owner also see how many void or refund requests wait for them.
-    const [h, asks, low] = await Promise.all([rpc('pos_home'), canCancel() ? rpc('pos_void_list').catch(() => null) : null,
-      rpc('stock_low').catch(() => null)]);
+    // Stock cancel requests count too (14 Nov 2026); from 20.00 WIB, whether today's stok opname is in.
+    const [h, asks, stockAsks, low, count] = await Promise.all([rpc('pos_home'), canCancel() ? rpc('pos_void_list').catch(() => null) : null,
+      canCancel() ? rpc('stock_cancel_pending').catch(() => []) : null,
+      rpc('stock_low').catch(() => null), wibHour() >= 20 ? rpc('stock_count_today').catch(() => null) : null]);
     if (n !== homeSeq) return;
-    S.home = h; S.asks = asks ? asks.length : null; S.low = low;
+    S.home = h; S.asks = asks ? asks.length + (stockAsks?.length || 0) : null; S.low = low; S.opname = count;
   } catch (e) {
     if (n !== homeSeq || S.screen !== 'home') return;
     const m = off.isNetError(e) ? 'Tidak ada internet. Angka hari ini muncul lagi saat internet kembali. Penjualan tanpa kartu member tetap bisa lewat Mode penjualan.' : e.message;
@@ -757,7 +770,7 @@ function renderFind(el) {
   const forVoucher = S.left === 'voucher';
   el.innerHTML = `<div class="tl-inl tl-find">
     <div class="tl-sh-head"><button class="tl-link" type="button" data-act="find-close">← Produk</button>
-      <span class="tl-sh-n">${forVoucher ? 'Voucher kertas' : 'Kartu member'}</span></div>
+      <span class="tl-sh-n">${forVoucher ? 'Kode voucher' : 'Kartu member'}</span></div>
     <div class="tl-find-grid">
       <div class="stack">
         <button class="btn tl-btn" type="button" id="tl-scan">${forVoucher ? 'Scan QR voucher' : 'Scan QR member'}</button>
@@ -768,13 +781,13 @@ function renderFind(el) {
       </div>
       <div class="stack">
         <form id="tl-code-form" class="stack" novalidate>
-          <label class="field"><span>${forVoucher ? 'Kode di bawah QR voucher' : 'Tanpa QR: nomor WhatsApp atau kode kartu'}</span>
+          <label class="field"><span>${forVoucher ? 'Ketik kode voucher' : 'Tanpa QR: nomor WhatsApp atau kode kartu'}</span>
             <input type="text" id="tl-code" autocomplete="off" autocapitalize="characters" spellcheck="false"
-              placeholder="${forVoucher ? 'K7PX-3MQ9' : '0812 3456 7890'}" maxlength="20"></label>
-          <button class="btn btn-quiet btn-big" type="submit">${forVoucher ? 'Simpan voucher' : 'Cari'}</button>
+              placeholder="${forVoucher ? 'DISKONSTAMP1 atau K7PX-3MQ9' : '0812 3456 7890'}" maxlength="20"></label>
+          <button class="btn btn-quiet btn-big" type="submit">${forVoucher ? 'Pakai kode' : 'Cari'}</button>
         </form>
         <div class="notice" id="tl-find-msg" hidden></div>
-        ${forVoucher ? '<p class="muted small">Terima voucher kertasnya dari pembeli dan cocokkan kodenya.</p>' : `
+        ${forVoucher ? '<p class="muted small">Voucher kertas Papaya: terima kertasnya dari pembeli dan cocokkan kodenya.</p>' : `
         <button class="btn btn-quiet btn-block" type="button" id="tl-join-this" hidden>Daftarkan nomor ini</button>
         <button class="btn btn-quiet btn-block btn-big" type="button" data-act="join">Daftar member baru di tablet</button>
         <p class="muted small">Belum member dan buru-buru? Lanjutkan saja sebagai pembeli tanpa kartu.</p>`}
@@ -831,7 +844,9 @@ const curPromoKey = () => (S.promo ? (S.promo.kind === 'stempel' ? `stempel:${S.
 function promoList() {
   const m = S.member;
   if (!m) {
-    const rows = [...(bogoOn() ? [{ key: 'bogo:0', label: 'BOGO Deals', sub: 'Beli 1 gratis 1, sisa stok hari ini.' }] : []), ...halfRows(), ...ownerPromos(false)];
+    // Tebus Murah is for members only (14 Nov 2026): without a card it is only a reminder to scan.
+    const rows = [...(bogoOn() ? [{ key: 'bogo:0', label: 'BOGO Deals', sub: 'Beli 1 gratis 1, sisa stok hari ini.' }] : []), ...halfRows(), ...ownerPromos(false),
+      ...(S.cat.promos?.tebus_murah_ktp ? [{ key: 'tebus_info', act: 'scan', btn: 'Scan member', label: 'Tebus Murah Rp1', sub: 'Khusus member. Scan kartu member dulu.' }] : [])];
     return { rows, extras: (bogoOn() ? '' : bogoStartHtml()) + halfAskHtml() };
   }
   const rows = [
@@ -846,10 +861,12 @@ function promoList() {
     ...halfRows(),
     ...ownerPromos(true),
   ];
-  return { rows, extras: '<button class="tl-mini" type="button" data-act="voucher">Ada voucher kertas?</button>' + (bogoOn() ? '' : bogoStartHtml()) + halfAskHtml() };
+  return { rows, extras: (bogoOn() ? '' : bogoStartHtml()) + halfAskHtml() };
 }
+// A row with act (Tebus Murah without a card) is not a promo: its button runs that action instead.
+const infoBtn = (x) => `<button class="tl-use" type="button" data-act="${esc(x.act)}">${esc(x.btn)}</button>`;
 const promoCompact = (x, cur) => `<div class="tl-prm${cur === x.key ? ' is-on' : ''}"><span class="tl-prm-t"><b>${esc(x.label)}</b><small title="${esc(x.sub)}">${esc(x.sub)}</small></span>
-  ${cur === x.key ? '<button class="tl-use" type="button" data-act="promo-off">Batal</button>'
+  ${x.act ? infoBtn(x) : cur === x.key ? '<button class="tl-use" type="button" data-act="promo-off">Batal</button>'
     : `<button class="tl-use" type="button" data-act="promo" data-key="${esc(x.key)}" ${cur ? 'disabled' : ''}>Pakai</button>`}</div>`;
 function promoStrip() {
   const { rows, extras } = promoList(), cur = curPromoKey();
@@ -857,12 +874,13 @@ function promoStrip() {
   const shown = [...rows.filter((x) => x.key === cur), ...rows.filter((x) => x.key !== cur)].slice(0, S.noteOpen || S.note ? 1 : 2);
   const more = rows.length - shown.length;
   return (shown.length ? `<div class="tl-promos">${shown.map((x) => promoCompact(x, cur)).join('')}</div>` : '')
-    + (more || extras ? `<button class="tl-mini" type="button" data-act="promo-more">${more ? `${more} promo lainnya` : 'Voucher dan promo lainnya'}</button>` : '');
+    + `<div class="tl-promo-acts"><button class="tl-mini" type="button" data-act="voucher">Kode voucher</button>`
+    + (more || extras ? `<button class="tl-mini" type="button" data-act="promo-more">${more ? `${more} promo lainnya` : 'Promo lainnya'}</button>` : '') + '</div>';
 }
 function openPromos() {
   const { rows, extras } = promoList(), cur = curPromoKey();
   sheet({ title: 'Promo dan voucher', body: `${rows.length ? `<div class="tl-promos">${rows.map((x) => promoRow(x, cur)).join('')}</div>` : '<p class="muted">Tidak ada promo yang berlaku sekarang.</p>'}
-    ${extras ? `<div class="tl-sheet-x">${extras}</div>` : ''}` });
+    <div class="tl-sheet-x"><button class="tl-mini" type="button" data-act="voucher">Kode voucher</button>${extras}</div>` });
 }
 function memberHtml() {
   const m = S.member;
@@ -926,14 +944,45 @@ function askHalf() {
     },
   });
 }
+// Tebus Murah Rp1 (SOP Bab 6 B, 14 Nov 2026): the cashier ticks every check before Pakai works.
+// The server still checks the day, once per member and the Mini isi 15; confirm says the rest was seen.
+function askTebus() {
+  const m = S.member, ktp = S.cat.promos.tebus_murah_ktp;
+  const checks = [
+    `Kartu member sudah discan dan atas nama pembeli: <b>${esc(m?.full_name || m?.first_name || '')}</b>`,
+    `KTP asli sudah dicek: <b>${esc(ktp)}</b>`,
+    'Bukti ulasan Google Maps sudah dikirim ke grup WhatsApp Operasional Hanashuya',
+    'Pesanan ada Mini Choux isi 15',
+  ];
+  ask({
+    title: 'Tebus Murah Rp1',
+    body: `<div class="stack tl-tebus">${checks.map((c, i) => `<label class="check"><input type="checkbox" name="tb${i}" data-tebus><span>${c}</span></label>`).join('')}</div>
+      <p class="small muted">Berlaku 1 kali per member.</p>`,
+    confirm: 'Pakai Tebus Murah',
+    run: async (f) => {
+      if ([...f.querySelectorAll('[data-tebus]')].some((x) => !x.checked)) throw new Error('Centang semua pengecekan dulu.');
+      S.promo = { kind: 'tebus_murah', confirm: true, line: null };
+      requote();
+    },
+  });
+  const form = $('#tl-dlg form'), go = $('button[type="submit"]', form);
+  const sync = () => { go.disabled = [...form.querySelectorAll('[data-tebus]')].some((x) => !x.checked); };
+  form.addEventListener('change', sync);
+  sync();
+}
 function bogoStartHtml() {
   return S.role === 'manager' || S.role === 'owner'
     ? '<button class="tl-mini" type="button" data-act="bogo-start">Mulai BOGO Deals sekarang</button>' : '';
 }
 // Promos the owner set up in the owner page, Promo tab (pos_catalog().promos.custom).
 // With a card: all of them; without: only those not marked "khusus member".
+// Voucher codes (Glenn, 14 Nov 2026): an owner promo with a code is used by typing that code in the
+// Kode voucher box, never listed as a Pakai button. The old VireoPOS vouchers carried their code only in
+// the note until promo-kode SQL runs, so that is read as a fallback.
+const promoCode = (p) => (p.code || (String(p.note || '').match(/^Voucher lama VireoPOS \(([A-Z0-9]+)\)/) || [])[1] || '').toUpperCase();
 function ownerPromos(withMember) {
-  return (S.cat?.promos?.custom || []).filter((p) => withMember || !p.member_only).map((p) => {
+  const cur = curPromoKey();
+  return (S.cat?.promos?.custom || []).filter((p) => (withMember || !p.member_only) && (!promoCode(p) || cur === `promo:${p.id}`)).map((p) => {
     const sub = [p.kind === 'persen' ? `${p.value}%` : `Potongan ${rupiah(p.value)}`,
       p.products?.length ? p.products.map((c) => product(c)?.name || c).join(', ') : 'semua produk',
       p.min_spend ? `min. ${rupiah(p.min_spend)}` : '', p.time_to ? `sampai ${p.time_to}` : '', p.note || ''].filter(Boolean).join(' · ');
@@ -941,7 +990,7 @@ function ownerPromos(withMember) {
   });
 }
 const promoRow = (x, cur) => `<div class="tl-vch${cur === x.key ? ' is-on' : ''}"><span><b>${esc(x.label)}</b>${esc(x.sub)}</span>
-  ${cur === x.key ? '<button class="tl-use" type="button" data-act="promo-off">Batal pakai</button>'
+  ${x.act ? infoBtn(x) : cur === x.key ? '<button class="tl-use" type="button" data-act="promo-off">Batal pakai</button>'
     : `<button class="tl-use" type="button" data-act="promo" data-key="${esc(x.key)}" ${cur ? 'disabled' : ''}>Pakai</button>`}</div>`;
 
 // SOP Bab 5, teknik stamp: when the total is at most Rp20.000 short of the next Rp50.000,
@@ -1057,9 +1106,9 @@ function renderRight() {
   // Konfirmasi stays live while the price is being checked (14 Nov 2026): a tap then waits for the
   // check inside placeOrder, so staff never meet a dead button after the last + or −.
   const blocked = liveOnly || !S.served || !S.items.length || (!S.quoting && !q) || S.confirming;
-  // The panel fits the screen (13 Nov 2026); only the order lines scroll. Keep their place on re-render
-  // and bring a newly added line into view.
-  const keep = $('.tl-lines', el)?.scrollTop || 0, added = S.items.length > (el._lines || 0);
+  // The whole panel scrolls as one (14 Nov 2026). Keep its place on re-render and bring a newly added
+  // line into view above the pinned total.
+  const keep = el.scrollTop, added = S.items.length > (el._lines || 0);
   const typing = ['tl-note-in', 'tl-name-in'].includes(document.activeElement?.id) ? document.activeElement.id : null;
   el._lines = S.items.length;
   el.innerHTML = `
@@ -1081,8 +1130,12 @@ function renderRight() {
       <button class="btn tl-btn" type="button" data-act="confirm" ${blocked ? 'disabled' : ''}${S.confirming ? ' aria-busy="true"' : ''}>${S.confirming ? 'Mengonfirmasi…' : 'Konfirmasi pesanan'}</button>
       <p class="notice" id="tl-confirm-msg" hidden></p>
     </div>`;
-  const ln = $('.tl-lines', el); if (ln) ln.scrollTop = keep;
-  if (added && ln) ln.scrollTop = ln.scrollHeight;
+  el.scrollTop = keep;
+  const last = $('.tl-lines .tl-line:last-child', el), foot = $('.tl-foot', el);
+  if (added && last && foot) {
+    const gap = last.getBoundingClientRect().bottom - foot.getBoundingClientRect().top;
+    if (gap > 0) el.scrollTop += gap + 8;
+  }
   if (typing) { const t = $('#' + typing); if (t) { t.focus({ preventScroll: true }); t.setSelectionRange(t.value.length, t.value.length); } }
 }
 // Catatan pesanan (Glenn, 13 Nov 2026): optional, typed before Konfirmasi, printed on the receipt.
@@ -1369,6 +1422,7 @@ function renderDone() {
       : r.member ? `Kak ${esc(r.member)} dapat ${r.stamps} stempel.${card}` : 'Penjualan tanpa kartu member.'}</p>
     ${r.offline ? '<p class="notice notice-warn" role="status">Tersimpan di tablet. Terkirim otomatis saat internet kembali.</p>' : ''}
     ${r.note ? `<p class="tl-onote"><span class="tl-h">Catatan</span> ${esc(r.note)}</p>` : ''}
+    ${reportHtml(r)}
     ${r.new_rewards?.length ? `<p class="notice notice-ok">Hadiah baru: ${esc(r.new_rewards.join(', '))}. Bisa dipakai di kunjungan berikutnya.</p>` : ''}
     <div class="tl-acts">
       ${queueOn() ? '<button class="btn btn-quiet tl-btn" type="button" data-act="print-queue">Cetak nota antrian</button>' : ''}
@@ -1383,6 +1437,33 @@ function renderDone() {
     </div>
   </section>`;
   $('#tl-done').focus();
+}
+
+// SOP: after a stamp, a new member or a promo, staff send "foto struk + nama + promo" to the
+// WhatsApp group Member Hanashuya (14 Nov 2026). One line with the text to send and Salin teks.
+function reportText(r) {
+  const name = r.member || r.customer_name || '';
+  const parts = [
+    S.member?.via === 'daftar' && r.member ? 'Member baru' : '',
+    r.promo_kind === 'tebus_murah' ? 'Tebus Murah Rp1' : r.promo_label || '',
+    r.member && r.stamps > 0 ? `Stempel +${r.stamps}` : '',
+  ].filter(Boolean);
+  return parts.length ? [name, ...parts].filter(Boolean).join(' · ') : '';
+}
+function reportHtml(r) {
+  const t = reportText(r);
+  return t ? `<p class="notice tl-report" role="status"><span>Kirim foto struk + "${esc(t)}" ke grup Member Hanashuya.</span>
+    <button class="btn btn-text" type="button" data-act="copy-report">Salin teks</button></p>` : '';
+}
+async function copyReport() {
+  const t = reportText(S.paid);
+  try { await navigator.clipboard.writeText(t); toast('Teks disalin'); return; } catch { /* older WebView: try the textarea route */ }
+  try {
+    const a = Object.assign(document.createElement('textarea'), { value: t, readOnly: true });
+    a.style.position = 'fixed'; a.style.opacity = '0'; document.body.append(a); a.select();
+    const ok = document.execCommand('copy'); a.remove();
+    toast(ok ? 'Teks disalin' : 'Teks tidak bisa disalin. Ketik manual di grup.');
+  } catch { toast('Teks tidak bisa disalin. Ketik manual di grup.'); }
 }
 
 async function printQueue(r, btn, msg) {
@@ -1488,7 +1569,17 @@ async function saveCode(raw) {
   const msg = $('#tl-find-msg');
   const say = (t, k) => (msg ? notice(msg, t, k) : toast(t));
   const k = (voucherFromScan(raw) || String(raw || '')).toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (k.length !== 8) { say('Kode voucher terdiri dari 8 huruf dan angka, misalnya K7PX-3MQ9.'); return; }
+  if (!k) { say('Ketik kode vouchernya.'); return; }
+  const op = (S.cat?.promos?.custom || []).find((p) => promoCode(p) === k);
+  if (op) {
+    if (op.member_only && !S.member) { say('Voucher ini khusus member. Scan kartu member dulu.', 'warn'); return; }
+    if (S.promo && curPromoKey() !== `promo:${op.id}`) { say('Satu pesanan hanya satu promo. Lepas promo yang sedang dipakai dulu.', 'warn'); return; }
+    S.promo = { kind: 'promo', period: op.id, line: null };
+    S.left = 'tiles'; renderLeft(); requote();
+    toast(`Voucher ${k} dipakai: ${op.name}`);
+    return;
+  }
+  if (k.length !== 8) { say('Kode voucher tidak dikenal atau sedang tidak berlaku.', 'warn'); return; }
   if (!S.member) { S.waitingCode = k; say('Scan kartu member dulu, voucher langsung masuk ke kartunya.', 'warn'); return; }
   try {
     const r = await rpc('staff_claim_code', { p_ticket: S.member.ticket, p_code: k });
@@ -2103,8 +2194,8 @@ async function onTap(e) {
     case 'member-clear': { const snap = orderSnap(); S.member = null; S.memberPhone = null; S.promo = null; renderLeft(); requote(); offerUndo('Kartu member dilepas', snap); return; }
     case 'promo': {
       const [kind, a, c] = b.dataset.key.split(':');
+      if (kind === 'tebus_murah') { askTebus(); return; }
       S.promo = kind === 'stempel' ? { kind, cycle: Number(a), slot: Number(c), line: null }
-        : kind === 'tebus_murah' ? { kind, confirm: true, line: null }
         : kind === 'bogo' || kind === 'malam50' ? { kind, line: null }
         : { kind, period: Number(a), line: null };
       requote(); return;
@@ -2132,6 +2223,7 @@ async function onTap(e) {
     case 'cancel-order': askCancel(S.placed, resetOrder); return;
     case 'ask-void': askVoid(S.placed, resetOrder); return;
     case 'print': printReceipt(S.paid, b, $('#tl-print-msg')); return;
+    case 'copy-report': copyReport(); return;
     case 'print-queue': printQueue(S.paid, b, $('#tl-print-msg')); return;
     case 'queue-device': store.set('hs-till-queue-slip', b.dataset.v); renderPrinter(); return;
     case 'new': resetOrder(); return;
@@ -2177,6 +2269,7 @@ async function onTap(e) {
     case 'qr-absen': case 'qr-istirahat': S.qrKind = act === 'qr-istirahat' ? 'istirahat' : 'absen'; if (S.screen === 'qr') renderQr(); else goTo('qr'); return;
     case 'low-request': $('#tl-dlg')?.close(); S.stockMode = 'permintaan'; goTo('stock'); return;
     case 'low-open': openLow(); return;
+    case 'opname-open': S.stockMode = 'opname'; goTo('stock'); return;
     case 'home-pending': goTo('today'); S.todayTab = 'menunggu'; return;
     case 'promo-more': openPromos(); return;
     case 'back-home': S.screen = 'home'; S.back = 'home'; render(); return;

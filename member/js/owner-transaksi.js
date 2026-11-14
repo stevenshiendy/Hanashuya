@@ -30,7 +30,9 @@ const PO_TAG = { dikirim: ['Dikirim', 'tag-warn'], sebagian: ['Diterima sebagian
 const GI_TAG = { aktif: null, diubah: ['Diubah', 'tag-warn'], dibatalkan: ['Dibatalkan', 'tag-bad'] };
 const OUT_LABEL = { penjualan: 'Penjualan', batal_penjualan: 'Batal penjualan', sampel: 'Sampel', buang: 'Dibuang', rusak: 'Rusak', promo: 'Promo' };
 const OP_TAG = { menunggu: ['Menunggu', 'tag-warn'], diterima: ['Diterima', 'tag-ok'], ditolak: ['Ditolak', 'tag-bad'], diganti: ['Diganti', ''] };
-const PAY_TAG = { diproses: ['Diproses', 'tag-warn'], dibayar: ['Dibayar', 'tag-ok'], batal: ['Dibatalkan', 'tag-bad'] };
+const PAY_TAG = { diproses: ['Belum dibayar', 'tag-warn'], terlambat: ['Terlambat', 'tag-bad'], dibayar: ['Dibayar', 'tag-ok'], batal: ['Dibatalkan', 'tag-bad'] };
+// Unpaid past its due date reads Terlambat (Jadwal komisi, 14 Nov 2026).
+const payKey = (r) => (r.status === 'diproses' && r.overdue ? 'terlambat' : r.status);
 const VOID_TAG = { menunggu: ['Menunggu', 'tag-warn'], disetujui: ['Disetujui', 'tag-ok'], ditolak: ['Ditolak', 'tag-bad'], selesai: ['Selesai', ''] };
 const tagOf = (map, k) => (map[k] ? tag(map[k][0], map[k][1]) : esc(k || '–'));
 
@@ -295,8 +297,24 @@ async function stokKeluarPart(panel, rpc, cat) {
         { key: 'reason', label: 'Keterangan', format: (v, r) => (r.receipt_no ? `Struk ${r.receipt_no}` : v || '–'), export: (r) => r.receipt_no || r.reason || '' },
         { key: 'responsible', label: 'Penanggung jawab', sort: true, format: (v) => v || '–' },
       ],
-      onAdd: add },
+      onAdd: add, editLabel: 'Buka', onEdit: (r) => outDialog(r) },
   });
+  // Batalkan barang keluar (Glenn, 14 Nov 2026): dibuang, rusak and promo only, with a reason.
+  // Penjualan is cancelled with its order, sampel from the till.
+  function outDialog(r) {
+    const head = `<p>${esc(r.item)} ${esc(withUnit(r.qty, r.unit))},${esc(OUT_LABEL[r.kind] || r.kind)}, ${esc(when(r.at))}${r.reason ? `: ${esc(r.reason)}` : ''}</p>`;
+    if (RO || !['buang', 'rusak', 'promo'].includes(r.kind)) return infoDialog({ title: `Barang keluar: ${r.item}`, html: head });
+    return formDialog({
+      title: `Barang keluar: ${r.item}`, submitLabel: 'Batalkan barang keluar',
+      html: `${head}${inp('reason', `Alasan pembatalan ${REQ}`, 'maxlength="200"')}`,
+      onSubmit: async (f) => {
+        const reason = F(f, 'reason').value.trim();
+        if (!reason) throw new Error('Tulis alasan pembatalannya.');
+        await rpc('stock_cancel_out', { p_id: r.id, p_reason: reason });
+        toast('Barang keluar dibatalkan');
+      },
+    });
+  }
 }
 
 /* ================================================================ e. Stok opname */
@@ -385,7 +403,7 @@ async function adjustmentPart(panel, rpc, cat) {
 async function komisiPart(panel, rpc) {
   if (RO) return komisiReadOnly(panel, rpc);
   panel.innerHTML = `<div class="panel stack"><div class="dt-head"><h1>Proses komisi</h1>
-      <p class="muted small">Komisi dari pesanan yang sudah dibayar, per staf yang melayani, memakai aturan di Tim > Komisi. Proses mencatat jumlahnya sekali per periode. Setelah itu tandai dibayar kalau uangnya sudah diberikan.</p></div>
+      <p class="muted small">Komisi dari pesanan yang sudah dibayar, per staf yang melayani, memakai aturan di Tim > Komisi. Dengan Proses otomatis (Tim › Komisi), periode yang sudah ditutup diproses sendiri; di sini untuk rentang di luar jadwal. Setelah itu tandai dibayar kalau uangnya sudah diberikan.</p></div>
     ${rangeHtml({ preset: 'bulan' })}
     <div class="notice notice-error" data-msg role="alert" hidden></div>
     <p class="muted small" data-unassigned></p><div data-prev></div></div>
@@ -457,7 +475,8 @@ async function komisiPart(panel, rpc) {
       { key: 'period_from', label: 'Periode', sort: true, format: (v, r) => `${day(v)} – ${day(r.period_to)}`, export: (r) => `${r.period_from} – ${r.period_to}` },
       { key: 'orders', label: 'Pesanan', sort: true, align: 'num' },
       { key: 'commission', label: 'Komisi', sort: true, align: 'num', format: (v) => rupiah(v), export: (r) => r.commission },
-      { key: 'status', label: 'Status', sort: true, html: true, format: (v) => tagOf(PAY_TAG, v), export: (r) => (PAY_TAG[r.status] || [r.status])[0] },
+      { key: 'due_on', label: 'Jatuh tempo', sort: true, format: (v) => (v ? day(v) : '–'), export: (r) => r.due_on },
+      { key: 'status', label: 'Status', sort: (r) => payKey(r), html: true, format: (v, r) => tagOf(PAY_TAG, payKey(r)), export: (r) => (PAY_TAG[payKey(r)] || [r.status])[0] },
       { key: 'processed_at', label: 'Diproses', sort: true, format: (v) => when(v), export: (r) => r.processed_at },
     ],
     onEdit: async (p) => { await payout(p); await reloadBoth(); },
@@ -468,7 +487,7 @@ async function komisiPart(panel, rpc) {
 // A manager sees what was processed and paid; processing and paying stay with the owner.
 async function komisiReadOnly(panel, rpc) {
   await screen(panel, {
-    title: 'Proses komisi', intro: 'Komisi yang sudah diproses dan statusnya. Hanya untuk dilihat: pemilik yang memproses dan menandai dibayar.',
+    title: 'Proses komisi', intro: 'Komisi yang sudah diproses dan statusnya. Tandai dibayar ada di Tim › Dashboard komisi.',
     load: ({ from, to }) => rpc('pos_commission_payouts', { p_from: from, p_to: to }),
     options: { rowKey: 'id', exportName: 'riwayat-komisi', pageSize: 15, emptyText: 'Belum ada komisi yang diproses di rentang ini.', defaultSort: { key: 'id', dir: 'desc' },
       columns: [
@@ -476,7 +495,8 @@ async function komisiReadOnly(panel, rpc) {
         { key: 'period_from', label: 'Periode', sort: true, format: (v, r) => `${day(v)} – ${day(r.period_to)}`, export: (r) => `${r.period_from} – ${r.period_to}` },
         { key: 'orders', label: 'Pesanan', sort: true, align: 'num' },
         { key: 'commission', label: 'Komisi', sort: true, align: 'num', format: (v) => rupiah(v), export: (r) => r.commission },
-        { key: 'status', label: 'Status', sort: true, html: true, format: (v) => tagOf(PAY_TAG, v), export: (r) => (PAY_TAG[r.status] || [r.status])[0] },
+        { key: 'due_on', label: 'Jatuh tempo', sort: true, format: (v) => (v ? day(v) : '–'), export: (r) => r.due_on },
+      { key: 'status', label: 'Status', sort: (r) => payKey(r), html: true, format: (v, r) => tagOf(PAY_TAG, payKey(r)), export: (r) => (PAY_TAG[payKey(r)] || [r.status])[0] },
         { key: 'processed_at', label: 'Diproses', sort: true, format: (v) => when(v), export: (r) => r.processed_at },
       ] },
   });

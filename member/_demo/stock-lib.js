@@ -45,7 +45,7 @@ const T = new Date().toISOString();
 const duty = V.onDuty();
 const meId = duty.some((x) => x.id === 's-ranny') ? 's-ranny' : 's-fajar';
 const suppliers = V.SUPPLIERS;
-const catalog = () => ({ role: q.get('role') || 'manager', items: V.stockItems(), suppliers: suppliers.filter((x) => x.active).map(({ id, name }) => ({ id, name })),
+const catalog = () => ({ role: q.get('role') || 'manager', items: V.stockItems(), suppliers: [{ id: 99, name: 'Hanashuya' }, ...suppliers.filter((x) => x.active).map(({ id, name }) => ({ id, name }))],
   staff: [...STAFF.map((s) => ({ id: s.id, name: s.name, is_me: s.id === meId, on_duty: duty.some((d) => d.id === s.id) })), { id: 'o-glenn', name: 'Glenn', on_duty: false }] });
 export async function rpc(name, args = {}) {
   switch (name) {
@@ -71,6 +71,12 @@ export async function rpc(name, args = {}) {
       return row;
     }
     case 'stock_supplier_set_active': { const x = suppliers.find((y) => y.id === args.p_id); x.active = !!args.p_active; return { id: x.id, name: x.name, active: x.active }; }
+    case 'stock_goods_in_batch': {
+      const items = V.stockItems();
+      return args.p_lines.map((l, n) => { const i = items.find((x) => x.id === l.item); return { id: 900 + n, item: i.name, unit: i.unit, qty: l.qty }; });
+    }
+    case 'stock_cancel_request': return { id: 1, status: 'menunggu' };
+    case 'stock_cancel_goods_in': case 'stock_cancel_out': return { id: args.p_id };
     case 'stock_request_create': {
       const items = V.stockItems(), d = data();
       const lines = args.p_lines.map((l) => { const i = items.find((x) => x.id === l.item); return { item_id: i.id, item: i.name, unit: i.unit, qty: l.qty, stock_at: i.qty, received: 0 }; });

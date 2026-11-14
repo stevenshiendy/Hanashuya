@@ -137,7 +137,7 @@ begin
         'products', p.products, 'min_spend', p.min_spend, 'days', p.days,
         'time_from', to_char(p.time_from, 'HH24:MI'), 'time_to', to_char(p.time_to, 'HH24:MI'),
         'starts_on', p.starts_on, 'ends_on', p.ends_on, 'member_only', p.member_only, 'per_member', p.per_member,
-        'quota', p.quota, 'active', p.active, 'note', p.note,
+        'quota', p.quota, 'active', p.active, 'note', p.note, 'code', p.code,
         'used', (select count(*) from pos_orders o where o.promo_id = p.id and o.status = 'dibayar'),
         'discount_given', (select coalesce(sum(o.discount), 0) from pos_orders o where o.promo_id = p.id and o.status = 'dibayar'),
         'live_now', public._pos_promo_block(p, null, false) is null) order by p.active desc, p.id desc)
@@ -154,7 +154,7 @@ as $$
 declare
   me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
   n text := nullif(trim(coalesce(p->>'name', '')), ''); k text := p->>'kind'; v int; ms int; pm int; qu int;
-  prods text[]; dys int[]; tf time; tt time; sd date; ed date; pid int; old pos_promos;
+  prods text[]; dys int[]; tf time; tt time; sd date; ed date; pid int; old pos_promos; cd text;
 begin
   if n is null or length(n) < 2 or length(n) > 40 then raise exception 'Isi nama promo (2 sampai 40 huruf). Nama ini tercetak di struk.'; end if;
   if k not in ('persen', 'rupiah') then raise exception 'Pilih potongan persen atau rupiah.'; end if;
@@ -188,11 +188,16 @@ begin
   if exists (select 1 from pos_promos where lower(name) = lower(n) and id is distinct from p_id) then
     raise exception 'Sudah ada promo bernama %. Pakai nama lain.', n;
   end if;
+  cd := nullif(upper(regexp_replace(coalesce(p->>'code', ''), '[^A-Za-z0-9]', '', 'g')), '');
+  if cd is not null and length(cd) not between 3 and 20 then raise exception 'Kode voucher 3 sampai 20 huruf atau angka.'; end if;
+  if cd is not null and exists (select 1 from pos_promos where upper(code) = cd and id is distinct from p_id) then
+    raise exception 'Kode % sudah dipakai promo lain.', cd;
+  end if;
   if p_id is null then
     insert into pos_promos (name, kind, value, products, min_spend, days, time_from, time_to, starts_on, ends_on,
-      member_only, per_member, quota, active, note, created_by)
+      member_only, per_member, quota, active, note, code, created_by)
     values (n, k, v, prods, ms, dys, tf, tt, sd, ed, coalesce((p->>'member_only')::boolean, false), pm, qu,
-      coalesce((p->>'active')::boolean, true), nullif(trim(coalesce(p->>'note', '')), ''), me)
+      coalesce((p->>'active')::boolean, true), nullif(trim(coalesce(p->>'note', '')), ''), cd, me)
     returning id into pid;
     perform public._log('promo_tambah', jsonb_build_object('promo', pid, 'name', n));
   else
@@ -200,7 +205,7 @@ begin
     if old.id is null then raise exception 'Promo tidak dikenal.'; end if;
     update pos_promos set name = n, kind = k, value = v, products = prods, min_spend = ms, days = dys, time_from = tf, time_to = tt,
       starts_on = sd, ends_on = ed, member_only = coalesce((p->>'member_only')::boolean, false), per_member = pm, quota = qu,
-      active = coalesce((p->>'active')::boolean, true), note = nullif(trim(coalesce(p->>'note', '')), '')
+      active = coalesce((p->>'active')::boolean, true), note = nullif(trim(coalesce(p->>'note', '')), ''), code = cd
      where id = p_id;
     pid := p_id;
     perform public._log('promo_ubah', jsonb_build_object('promo', pid, 'dari', to_jsonb(old) - 'created_at', 'jadi', p));

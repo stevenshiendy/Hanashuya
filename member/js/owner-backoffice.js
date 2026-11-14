@@ -222,6 +222,7 @@ const promoRule = (p, names) => {
   if (p.days && p.days.length < 7) bits.push(DAYS.filter(([d]) => p.days.includes(d)).map(([, l]) => l).join(', '));
   if (p.time_from) bits.push(`pukul ${p.time_from.replace(':', '.')}–${p.time_to.replace(':', '.')}`);
   if (p.starts_on || p.ends_on) bits.push([p.starts_on && `mulai ${p.starts_on.split('-').reverse().join('/')}`, p.ends_on && `sampai ${p.ends_on.split('-').reverse().join('/')}`].filter(Boolean).join(' '));
+  if (p.code) bits.push(`kode voucher ${p.code}`);
   if (p.member_only) bits.push('khusus member');
   if (p.per_member) bits.push(`${p.per_member}× per member`);
   if (p.quota) bits.push(`kuota ${p.quota}`);
@@ -237,7 +238,7 @@ export async function mountPromos(panel, { rpc }) {
   panel.innerHTML = `
   <section class="panel stack" aria-labelledby="pm-t">
     <h1 id="pm-t">Promo POS</h1>
-    <p class="muted small">Promo di sini muncul di kasir sebagai tombol Pakai selama berlaku (hari, jam dan tanggalnya cocok, kuotanya masih ada). Satu pesanan tetap hanya satu promo. Nama promo tercetak di struk. Hadiah stempel, voucher member, Tebus Murah dan BOGO tetap diatur seperti sekarang.</p>
+    <p class="muted small">Promo tanpa kode muncul di kasir sebagai tombol Pakai selama berlaku; promo dengan kode voucher dipakai dengan mengetik kodenya di kotak Kode voucher (hari, jam dan tanggalnya cocok, kuotanya masih ada). Satu pesanan tetap hanya satu promo. Nama promo tercetak di struk. Hadiah stempel, voucher member, Tebus Murah dan BOGO tetap diatur seperti sekarang.</p>
     ${d.promos.length ? `<ul class="list">${d.promos.map((p) => `<li data-id="${p.id}"><span class="grow"><strong>${esc(p.name)}</strong>
         ${p.active ? (p.live_now ? ' <span class="tag tag-ok">Tampil di kasir sekarang</span>' : ' <span class="tag">Aktif, belum waktunya</span>') : ' <span class="tag">Mati</span>'}<br>
         <span class="small">${esc(promoRule(p, names))}</span><br>
@@ -285,6 +286,7 @@ export async function mountPromos(panel, { rpc }) {
         <label class="field"><span>Batas per member <span class="hint">kosong = tanpa batas</span></span><input name="per_member" type="number" inputmode="numeric" min="1" value="${esc(v.per_member || '')}"></label>
         <label class="field"><span>Kuota total <span class="hint">kosong = tanpa batas</span></span><input name="quota" type="number" inputmode="numeric" min="1" value="${esc(v.quota || '')}"></label>
       </div>
+      <label class="field"><span>Kode voucher <span class="hint">kosong = tombol Pakai di kasir; diisi = kasir mengetik kode ini</span></span><input name="code" maxlength="20" autocapitalize="characters" spellcheck="false" value="${esc(v.code || '')}" placeholder="Misalnya DISKONSTAMP1"></label>
       <label class="check"><input type="checkbox" name="member_only"${v.member_only ? ' checked' : ''}><span>Khusus member (kasir harus scan kartu dulu)</span></label>
       <label class="field"><span>Catatan untuk kasir <span class="hint">tampil di bawah tombol Pakai</span></span><input name="note" maxlength="120" value="${esc(v.note || '')}" placeholder="Misalnya: tunjukkan postingan Instagram"></label>
       <label class="check"><input type="checkbox" name="active"${v.active ? ' checked' : ''}><span>Aktif</span></label>
@@ -306,7 +308,7 @@ export async function mountPromos(panel, { rpc }) {
         name: f.name.value, kind: f.kind.value, value: f.value.value, min_spend: f.min_spend.value || 0,
         products: checked('prod'), days: dayList.length === 7 ? null : dayList,
         time_from: f.time_from.value, time_to: f.time_to.value, starts_on: f.starts_on.value, ends_on: f.ends_on.value,
-        per_member: f.per_member.value, quota: f.quota.value, member_only: f.member_only.checked, active: f.active.checked, note: f.note.value,
+        per_member: f.per_member.value, quota: f.quota.value, member_only: f.member_only.checked, active: f.active.checked, note: f.note.value, code: f.code.value,
       };
       busy(btn, true, 'Menyimpan…'); notice(msg, '');
       try { await rpc('owner_save_pos_promo', { p_id: p ? p.id : null, p: body }); toast('Promo tersimpan'); again(); }

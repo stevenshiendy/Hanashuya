@@ -30,8 +30,9 @@ begin
   return json_build_object('kind', p_kind, 'value', p_value);
 end $$;
 
+-- Volatile since 14 Nov 2026: opening the dashboard also closes ended commission periods.
 create or replace function public.pos_home() returns json
-language plpgsql stable security definer set search_path = public
+language plpgsql volatile security definer set search_path = public
 as $$
 declare
   staff uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan akun Anda.');
@@ -41,6 +42,11 @@ declare
   h1 int := greatest(h0, extract(hour from s.close_time - interval '1 second')::int);
   v_rev int; v_orders int; v_units int; v_current int; shift bigint;
 begin
+  -- Jadwal komisi (komisi-switch.sql, 14 Nov 2026): turn every ended commission period into payouts.
+  -- Cheap when there is nothing to do, and it can never stop the till.
+  if to_regprocedure('public._commission_autoprocess_safe()') is not null then
+    begin execute 'select public._commission_autoprocess_safe()'; exception when others then null; end;
+  end if;
   -- Today's figures by the rule in pos-reports.sql: today's sales minus the batal and refund approved today.
   select coalesce(sum(o.total), 0), coalesce(sum(o.receipts), 0) into v_rev, v_orders from public._rep_orders(d, d) o;
   select coalesce(sum(l.qty), 0) into v_units from public._rep_lines(d, d) l where coalesce(l.product_code, '') <> 'bag';
