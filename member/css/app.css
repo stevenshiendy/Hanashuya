@@ -115,7 +115,12 @@ fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .notice-error { background: var(--color-error-bg); color: var(--color-error); border-color: color-mix(in oklab, var(--color-error) 30%, transparent); }
 .notice-ok { background: var(--color-success-bg); color: var(--color-success); border-color: color-mix(in oklab, var(--color-success) 30%, transparent); }
 .notice-warn { background: var(--color-warning-bg); color: var(--color-warning); border-color: color-mix(in oklab, var(--color-warning) 30%, transparent); }
-.toast { position: fixed; left: 50%; bottom: calc(var(--space-lg) + env(safe-area-inset-bottom, 0px)); translate: -50% 0; z-index: var(--z-toast); max-width: calc(100% - 2 * var(--space-md)); background: var(--color-ink); color: var(--color-paper); padding: var(--space-sm) var(--space-lg); border-radius: var(--radius-control); font-size: var(--text-sm); }
+.toast { position: fixed; left: 50%; bottom: calc(var(--space-lg) + env(safe-area-inset-bottom, 0px)); translate: -50% 0; z-index: var(--z-toast); max-width: calc(100% - 2 * var(--space-md)); background: var(--color-ink); color: var(--color-paper); padding: var(--space-sm) var(--space-lg); border-radius: var(--radius-control); font-size: var(--text-sm); display: flex; align-items: center; gap: var(--space-md); opacity: 0; transform: translateY(8px); transition: opacity var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out); }
+/* Toast: rises 8px and fades in over --dur-short; leaves faster on the ease-in curve (lib.js toast()). */
+.toast.is-in { opacity: 1; transform: none; }
+.toast.is-out { transition-duration: 150ms; transition-timing-function: var(--ease-in); }
+.toast-act { flex: none; min-height: 44px; margin: calc(-1 * var(--space-sm)) calc(-1 * var(--space-md)) calc(-1 * var(--space-sm)) 0; padding: 0 var(--space-md); border: 0; background: none; color: var(--color-paper); font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 0.2em; cursor: pointer; }
+.toast-act:focus-visible { outline: 2px solid var(--color-paper); outline-offset: -4px; }
 .skeleton { background: var(--color-paper-3); border-radius: var(--radius-control); min-height: 1.2em; }
 
 /* tabs */
@@ -553,6 +558,24 @@ button.tl-mlink { min-height: var(--tl-tap); text-decoration: underline; text-un
 /* till: category tabs above the products (12 Nov 2026) */
 .tl-tabs { gap: var(--space-xl); }
 .tl-tabs [role="tab"] { min-height: var(--tl-tap); font-size: var(--text-lg); }
+/* Press feedback on every till target (14 Nov 2026, charles-ux-animation review): the tablet has no hover,
+ * so the press is the only sign a tap landed. Surfaces wider than about 200px darken; small buttons shrink
+ * to 0.96. Both on the --dur-micro token, only while pressed; nothing moves by itself. */
+:where(.tl-tile, .tl-ftile, .tl-mth, .tl-q, .tl-extra, .hm-lowbar, button.hm-kpi, .hm-seg button, .tl-line-pick) { transition: background-color var(--dur-micro) ease; }
+:where(.tl-tile, .tl-ftile, .tl-mth, .tl-q, .tl-extra, .hm-lowbar, button.hm-kpi):active:not(:disabled) { background: var(--color-paper-3); }
+.hm-seg button:active:not(:disabled):not(.is-on) { background: var(--color-paper-3); }
+.tl-line-pick:active { background: color-mix(in oklab, var(--color-ink) 6%, transparent); }
+:where(.tl-chip, .tl-step button, .tl-use, .tl-ghost, .tl-sample-btn, .tl-link, .tl-mini, button.tl-mlink) { transition: transform var(--dur-micro) var(--ease-out); }
+:where(.tl-chip, .tl-step button, .tl-use, .tl-ghost, .tl-sample-btn, .tl-link, .tl-mini, button.tl-mlink):active:not(:disabled) { transform: scale(0.96); }
+/* Wide buttons (Konfirmasi pesanan, Bayar, Selesai) darken instead of shrinking: 3% of 400px is a jump. */
+.btn.tl-btn:active:not(:disabled) { transform: none; background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
+.btn-quiet.tl-btn:active:not(:disabled) { background: var(--color-paper-3); }
+.hm-sell { transition: background-color var(--dur-micro) ease; }
+.hm-sell:active:not(:disabled) { background: var(--color-accent-hover); }
+/* Touch minimum 44px: small buttons keep their look and get a larger invisible hit area. */
+.tl-ghost { min-height: 44px; }
+:is(.tl-prm .tl-use, .tl-right .tl-mini) { position: relative; }
+:is(.tl-prm .tl-use, .tl-right .tl-mini)::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); translate: -50% -50%; }
 
 /* till: the home screen, design A (Glenn, 12 Nov 2026; draft pos-kasir/home-drafts.html#a).
  * Figures on the left, the tools as buttons on the right. Nothing moves by itself. */
@@ -611,7 +634,9 @@ button.hm-kpi:focus-visible { outline: 2px solid var(--color-focus); outline-off
 .hm-sec { margin-top: var(--space-2xs); }
 /* Tools read as buttons (Glenn: "does not look like buttons"): ink outline, a raised bottom edge, an arrow. */
 .hm-tool { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); min-height: clamp(50px, 7.6vh, 60px); min-width: 0; padding: var(--space-2xs) var(--space-md); border: 1.5px solid var(--color-ink); border-bottom-width: 4px; border-radius: 10px; background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; }
-.hm-tool:active { border-bottom-width: 1.5px; translate: 0 2px; }
+/* Pressed: the button sinks 2px; the border keeps its width so the tools below never shift. */
+.hm-tool { transition: translate var(--dur-micro) var(--ease-out), background-color var(--dur-micro) ease; }
+.hm-tool:active:not(:disabled) { translate: 0 2px; background: var(--color-paper-3); }
 .hm-tt { display: grid; gap: var(--space-3xs); min-width: 0; }
 .hm-tt b { font-weight: 500; font-size: var(--text-lg); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hm-tt small { font-size: var(--text-sm); line-height: 1.2; color: var(--color-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

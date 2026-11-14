@@ -76,12 +76,33 @@ export function maxBirth17(now = new Date()) {
   return `${y - 17}-${String(m).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
 }
 
+// Busy buttons (charles-ux-animation, 14 Nov 2026): the button is disabled on the same frame (no double
+// taps), but the busy label ("Menyimpan…") shows only after 300 ms, so fast answers never flash it, and
+// once shown it stays at least 500 ms, so slow answers don't flicker.
+const BUSY_DELAY = 300, BUSY_MIN = 500;
+const busyState = new WeakMap();
 export function busy(btn, on, label) {
   if (!btn) return;
-  if (on) { btn.dataset.label = btn.textContent; if (label) btn.textContent = label; }
-  else if (btn.dataset.label) btn.textContent = btn.dataset.label;
-  btn.disabled = on;
-  btn.setAttribute('aria-busy', String(on));
+  const prev = busyState.get(btn);
+  if (prev) clearTimeout(prev.timer);
+  if (on) {
+    const st = { label: prev?.label ?? btn.textContent, busyText: label || '', shownAt: 0, timer: 0 };
+    btn.dataset.label = st.label;
+    if (label) st.timer = setTimeout(() => { btn.textContent = label; st.shownAt = performance.now(); }, BUSY_DELAY);
+    busyState.set(btn, st);
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    return;
+  }
+  const done = () => {
+    busyState.delete(btn);
+    // Only put the label back if nothing else changed the text meanwhile (some callers set a new label).
+    if (prev && prev.shownAt && btn.textContent === prev.busyText) btn.textContent = prev.label;
+    btn.disabled = false;
+    btn.setAttribute('aria-busy', 'false');
+  };
+  const left = prev?.shownAt ? BUSY_MIN - (performance.now() - prev.shownAt) : 0;
+  if (left > 0) { prev.timer = setTimeout(done, left); busyState.set(btn, prev); } else done();
 }
 
 export function notice(el, msg, kind = 'error') {
@@ -93,13 +114,32 @@ export function notice(el, msg, kind = 'error') {
   el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
 }
 
-let toastTimer;
-export function toast(msg) {
+// toast(msg) shows a short status line for 3.5 s. toast(msg, { undo }) adds a Batalkan button and stays
+// 5 s, so a removal can be put back (14 Nov 2026). It rises in over --dur-short and leaves in 150 ms (app.css).
+let toastTimer, toastOut;
+export function toast(msg, opts = {}) {
   let t = $('.toast');
-  if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); document.body.append(t); }
-  t.textContent = msg; t.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 3500);
+  if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.hidden = true; document.body.append(t); }
+  clearTimeout(toastTimer); clearTimeout(toastOut);
+  const wasShown = !t.hidden && t.classList.contains('is-in');
+  t.textContent = '';
+  const span = document.createElement('span'); span.textContent = msg; t.append(span);
+  if (typeof opts.undo === 'function') {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'toast-act'; b.textContent = opts.undoLabel || 'Batalkan';
+    b.addEventListener('click', () => { hide(); opts.undo(); }, { once: true });
+    t.append(b);
+  }
+  t.classList.remove('is-out');
+  t.hidden = false;
+  if (!wasShown) { t.classList.remove('is-in'); void t.offsetWidth; }
+  t.classList.add('is-in');
+  function hide() {
+    clearTimeout(toastTimer);
+    t.classList.add('is-out'); t.classList.remove('is-in');
+    toastOut = setTimeout(() => { t.hidden = true; t.classList.remove('is-out'); }, 150);
+  }
+  toastTimer = setTimeout(hide, opts.undo ? 5000 : 3500);
 }
 
 // One tab strip: arrow keys move between tabs, the hash keeps the open tab.

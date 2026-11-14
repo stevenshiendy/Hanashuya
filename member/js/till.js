@@ -286,10 +286,30 @@ function addItem(code, flv, qty = 1) {
 
 function changeQty(i, d) {
   const it = S.items[i]; if (!it) return;
-  it.qty += d;
-  if (it.qty <= 0) { S.items.splice(i, 1); if (S.promo) S.promo.line = null; }
-  it.qty = Math.min(50, it.qty);
+  if (it.qty + d <= 0) {
+    const snap = orderSnap();
+    S.items.splice(i, 1); if (S.promo) S.promo.line = null;
+    requote();
+    offerUndo(`${product(it.product)?.name || 'Produk'} dihapus`, snap);
+    return;
+  }
+  it.qty = Math.min(50, it.qty + d);
   requote();
+}
+
+// Undo instead of a confirm (14 Nov 2026): a removed line, member card or promo goes at once, and the
+// toast offers Batalkan for 5 s. It only puts things back while the same order is still open.
+function orderSnap() {
+  return { orderId: S.orderId, items: S.items.map((x) => ({ ...x })), promo: S.promo ? { ...S.promo } : null,
+    member: S.member, memberPhone: S.memberPhone };
+}
+function offerUndo(msg, snap) {
+  toast(msg, { undo: () => {
+    if (S.screen !== 'order' || S.confirming || S.placed || S.orderId !== snap.orderId) return;
+    const { orderId, ...rest } = snap;
+    Object.assign(S, rest);
+    renderLeft(); requote();
+  } });
 }
 
 let qTimer = null, qSeq = 0;
@@ -711,6 +731,9 @@ function renderLeft() {
   }
   el.classList.add('is-fit');
   el.innerHTML = tilesHtml(S.left === 'flavour' ? S.pick?.code : null);
+  const sheetWasOpen = el._sheet; el._sheet = S.left === 'flavour' && !!S.pick;
+  // Focus goes into the sheet when it opens (Esc closes it, see onKey), not on each re-render.
+  if (el._sheet && !sheetWasOpen) queueMicrotask(() => $('.tl-sheet .tl-ftile', el)?.focus({ preventScroll: true }));
   if (S.left === 'flavour' && S.pick) {
     const p = product(S.pick.code), [n, d] = splitName(p.name);
     const f = flavour(S.pick.flavour);
@@ -1031,7 +1054,9 @@ function renderRight() {
     : !S.served ? 'Pilih siapa yang melayani.'
     : !S.online && S.items.length ? 'Tidak ada internet. Penjualan tanpa kartu tetap bisa. Struknya memakai nomor L dan terkirim saat internet kembali.'
     : '';
-  const blocked = liveOnly || !S.served || !S.items.length || S.quoting || !q || S.confirming;
+  // Konfirmasi stays live while the price is being checked (14 Nov 2026): a tap then waits for the
+  // check inside placeOrder, so staff never meet a dead button after the last + or −.
+  const blocked = liveOnly || !S.served || !S.items.length || (!S.quoting && !q) || S.confirming;
   // The panel fits the screen (13 Nov 2026); only the order lines scroll. Keep their place on re-render
   // and bring a newly added line into view.
   const keep = $('.tl-lines', el)?.scrollTop || 0, added = S.items.length > (el._lines || 0);
@@ -1231,6 +1256,14 @@ async function placeOrder(btn) {
   // Locked while it is on its way: a tile tapped now would not be in the order (13 Nov 2026).
   S.confirming = true;
   busy(btn, true, 'Mengonfirmasi…');
+  if (S.quoting) {
+    // Tapped while the price check was still on its way: run it now and only go on if it passed.
+    clearTimeout(qTimer);
+    await runQuote();
+    if (!S.online) { S.confirming = false; renderRight(); return S.member || S.promo ? undefined : placeOffline(); }
+    if (S.quoting || !S.quote || S.quoteErr) { S.confirming = false; renderRight(); return; }
+    btn = $('#tl-right [data-act="confirm"]') || btn;
+  }
   try {
     const r = await rpc('pos_place_order', { p_order: orderPayload() });
     S.confirming = false;
@@ -1434,11 +1467,17 @@ async function lookup(raw) {
     return;
   }
   const phone = looksLikePhone(raw);
+  // Disabled on the tap, "Mencari…" only if the answer takes over 300 ms (14 Nov 2026).
+  const btn = $('#tl-code-form button[type="submit"]');
+  if (btn?.disabled) return;
+  busy(btn, true, 'Mencari…');
   try {
     const m = phone ? await rpc('staff_find_phone', { p_phone: raw }) : await rpc('staff_lookup', { p_scan: raw });
     if (phone) S.memberPhone = toPhone(raw);
+    busy(btn, false);
     setMember(m);
   } catch (e) {
+    busy(btn, false);
     const unknown = phone && /belum terdaftar/i.test(e.message);
     notice(msg, e.message, unknown ? 'warn' : 'error');
     if (join) join.hidden = !unknown;
@@ -1592,6 +1631,14 @@ function ask({ title, body, confirm, run }) {
   });
   d.showModal();
   form.querySelector('input:not([type="hidden"]), textarea')?.focus();
+}
+// The till's own yes/no dialog in place of window.confirm (14 Nov 2026). Kembali has the first focus.
+function confirmBox({ title, body = '', confirm }) {
+  return new Promise((resolve) => {
+    let ok = false;
+    ask({ title, body, confirm, run: async () => { ok = true; } });
+    $('#tl-dlg').addEventListener('close', () => resolve(ok), { once: true });
+  });
 }
 const pickRow = (name, opts, value) => `<input type="hidden" name="${name}" value="${esc(value)}"><div class="tl-chips">${opts.map(([v, l]) =>
   `<button type="button" class="tl-chip${v === value ? ' is-on' : ''}" aria-pressed="${v === value}" data-pick="${name}" data-v="${esc(v)}">${esc(l)}</button>`).join('')}</div>`;
@@ -1814,7 +1861,7 @@ async function renderClose() {
     e.preventDefault();
     const btn = $('#tl-close-btn'), total = denomTotal(), msg = $('#tl-close-msg');
     if (full && total !== sh.expected_cash && !$('#tl-note').value.trim()) { notice(msg, 'Uang di laci beda dari catatan. Tulis catatannya.'); $('#tl-note').focus(); return; }
-    if (!total && !window.confirm('Laci kosong (Rp0). Tutup shift?')) return;
+    if (!total && !(await confirmBox({ title: 'Laci kosong (Rp0)', body: '<p>Uang di laci tercatat Rp0. Tetap tutup shift?</p>', confirm: 'Tutup shift' }))) return;
     const den = Object.fromEntries([...DENOM_ROWS.map((d) => [d, S.count[d] || 0]), ['koin', S.count.koin || 0]]);
     busy(btn, true, 'Menutup…');
     try {
@@ -1984,7 +2031,7 @@ async function todayAction(act, id, btn) {
     if (act === 'reprint') { busy(btn, false); await printReceipt(r, btn, msg); return; }
     if (act === 'share') { busy(btn, false); await shareReceipt(r, btn, msg, msg); return; }
     if (act === 'resume') {
-      if (S.items.length && !window.confirm('Pesanan yang sedang diisi akan dikosongkan. Lanjutkan?')) { busy(btn, false); return; }
+      if (S.items.length && !(await confirmBox({ title: 'Kosongkan pesanan?', body: '<p>Pesanan yang sedang diisi akan dikosongkan.</p>', confirm: 'Kosongkan pesanan' }))) { busy(btn, false); return; }
       resetOrder();
       S.placed = r; S.screen = 'method'; render();
     }
@@ -2015,7 +2062,7 @@ async function onTap(e) {
     case 'cat': S.tab = b.dataset.v === '' ? null : Number(b.dataset.v); renderLeft(); return;
     case 'tile': {
       const p = product(b.dataset.code); if (!p) return;
-      if (!p.needs_flavour) { addItem(p.code, null); toast(`${p.name} ditambahkan`); return; }
+      if (!p.needs_flavour) { addItem(p.code, null); return; } // the new line on the right is the confirmation
       S.pick = { code: p.code, flavour: null, qty: 1, counts: {} }; S.left = 'flavour'; renderLeft(); return;
     }
     case 'flavour': {
@@ -2053,7 +2100,7 @@ async function onTap(e) {
     case 'voucher': S.left = 'voucher'; renderLeft(); return;
     case 'join': stopCamera(); S.left = 'join'; renderLeft(); return;
     case 'find-close': stopCamera(); S.left = 'tiles'; renderLeft(); return;
-    case 'member-clear': S.member = null; S.memberPhone = null; S.promo = null; renderLeft(); requote(); return;
+    case 'member-clear': { const snap = orderSnap(); S.member = null; S.memberPhone = null; S.promo = null; renderLeft(); requote(); offerUndo('Kartu member dilepas', snap); return; }
     case 'promo': {
       const [kind, a, c] = b.dataset.key.split(':');
       S.promo = kind === 'stempel' ? { kind, cycle: Number(a), slot: Number(c), line: null }
@@ -2062,7 +2109,7 @@ async function onTap(e) {
         : { kind, period: Number(a), line: null };
       requote(); return;
     }
-    case 'promo-off': S.promo = null; requote(); return;
+    case 'promo-off': { const snap = orderSnap(); S.promo = null; requote(); offerUndo('Promo dilepas', snap); return; }
     case 'bogo-start': startBogo(b); return;
     case 'promo-line': S.promo.line = Number(b.dataset.i) + 1; requote(); return;
     case 'confirm': placeOrder(b); return;
@@ -2144,6 +2191,11 @@ async function onTap(e) {
   }
 }
 app.addEventListener('click', onTap);
+// Esc closes the flavour sheet, like any other layer (14 Nov 2026). Native dialogs handle their own Esc.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || $('#tl-dlg')?.open) return;
+  if (S.left === 'flavour' && S.pick && PICKER !== 'inplace') { e.preventDefault(); S.pick = null; S.left = 'tiles'; renderLeft(); }
+});
 
 let rsvOpen = false;
 $('#tl-today').addEventListener('click', () => (S.screen === 'today' ? goBack() : goTo('today')));
