@@ -33,8 +33,7 @@ async function boot() {
   try { who = await rpc('whoami'); } catch (e) { app.innerHTML = `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`; return; }
   if (RETIRE_STAF_PAGE && who && ['staff', 'manager', 'owner'].includes(who.role)) return location.replace('kasir');
   if (!who || !['staff', 'manager', 'owner'].includes(who.role)) {
-    app.innerHTML = `<section class="panel stack"><h1>Belum terdaftar sebagai kasir</h1>
-      <p>Nomor <strong class="num">${esc(prettyPhone(who?.whatsapp) || 'ini')}</strong> bukan akun kasir. Akun kasir dibuat pemilik di dasbor pemilik, bagian Staf.</p>
+    app.innerHTML = `<section class="panel stack"><h1>Tidak ada akses</h1>
       <button class="btn btn-quiet" type="button" id="reload">Keluar</button></section>`;
     $('#reload').addEventListener('click', signOut);
     return;

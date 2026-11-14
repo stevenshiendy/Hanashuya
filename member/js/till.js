@@ -144,8 +144,7 @@ async function boot(offline = false) {
   }
   if (offline) { who = kept.who; S.online = false; }
   if (!who || !['staff', 'manager', 'owner'].includes(who.role)) {
-    app.innerHTML = `<section class="panel stack tl-solo"><h1>Belum terdaftar sebagai kasir</h1>
-      <p>Nomor <strong class="num">${esc(prettyPhone(who?.whatsapp) || 'ini')}</strong> bukan akun kasir. Akun kasir dibuat pemilik di dasbor pemilik, bagian Staf.</p>
+    app.innerHTML = `<section class="panel stack tl-solo"><h1>Tidak ada akses</h1>
       <button class="btn btn-quiet" type="button" id="reload">Keluar</button></section>`;
     $('#reload').addEventListener('click', signOut);
     return;

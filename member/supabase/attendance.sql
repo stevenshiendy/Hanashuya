@@ -257,7 +257,7 @@ begin
   if r = 'kasir' then
     raise exception 'Akun kasir tablet tidak bisa presensi. Masuk dengan akun staf Anda sendiri.' using errcode = '42501';
   end if;
-  if r is null or r not in ('staff', 'manager') then raise exception '%', msg using errcode = '42501'; end if;
+  if r is null or r not in ('staff', 'manager', 'owner') then raise exception '%', msg using errcode = '42501'; end if;
   return auth.uid();
 end $$;
 
@@ -267,7 +267,9 @@ language plpgsql stable security definer set search_path = public
 as $$
 declare r profiles;
 begin
-  select * into r from profiles where id = p and role in ('staff', 'manager') and deleted_at is null;
+  -- The owner may open the staff page with their own account (Glenn, 14 Nov 2026).
+  select * into r from profiles where id = p and deleted_at is null
+    and (role in ('staff', 'manager') or (role = 'owner' and p = auth.uid()));
   if r.id is null then raise exception 'Staf tidak ditemukan.'; end if;
   return r;
 end $$;

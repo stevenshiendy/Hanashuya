@@ -117,14 +117,11 @@ async function boot() {
   try {
     const who = await rpc('whoami');
     if (!who) throw new Error('Akun tidak ditemukan. Keluar, lalu masuk lagi.');
-    // Staff and managers have a member card on their own account (Glenn, 13 Nov 2026);
-    // the owner and the kasir tablet don't.
-    if (who.kasir_tablet || !['member', 'staff', 'manager'].includes(who.role)) {
-      app.innerHTML = `<div class="wrap page-pad"><section class="stack"><h1>${who.kasir_tablet ? 'Ini akun tablet kasir' : 'Ini akun pemilik'}</h1>
-        ${location.hash === '#daftar' ? '<p class="notice notice-warn">Perangkat ini sedang masuk sebagai kasir, jadi formulir daftar member tidak bisa dibuka di sini. Minta pembeli scan QR di tab Daftar member dengan HP-nya, atau kirim link lewat WhatsApp dari tab itu.</p>' : ''}
-        <p>${who.kasir_tablet ? 'Akun tablet kasir tidak punya kartu member. Staf membuka kartunya sendiri dengan akun staf di HP masing-masing.' : 'Akun pemilik tidak mengumpulkan stempel.'}</p>
-        <div class="row"><a class="btn" href="kasir">Buka halaman kasir</a>${who.role === 'owner' ? '<a class="btn btn-quiet" href="pemilik">Buka dasbor pemilik</a>' : ''}
-        <button class="btn btn-text" type="button" id="out">Keluar</button></div></section></div>`;
+    // Everyone but the kasir tablet opens the card view; the owner may view every page
+    // (Glenn, 14 Nov 2026). The till still refuses the owner's card at checkout.
+    if (who.kasir_tablet) {
+      app.innerHTML = `<div class="wrap page-pad"><section class="stack"><h1>Tidak ada akses</h1>
+        <div class="row"><a class="btn" href="kasir">Buka kasir</a><button class="btn btn-text" type="button" id="out">Keluar</button></div></section></div>`;
       $('#out').addEventListener('click', logout);
       return;
     }

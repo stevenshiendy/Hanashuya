@@ -153,7 +153,7 @@ async function boot() {
   $('#logout').hidden = false;
   const who = await rpc('whoami').catch(() => null);
   if (!who || who.role !== 'owner') {
-    app.innerHTML = `<section class="panel stack"><h1>Khusus pemilik</h1><p>Akun ${esc(prettyPhone(who?.whatsapp) || 'ini')} bukan akun pemilik. Halaman uji cetak hanya untuk pemilik.</p></section>`;
+    app.innerHTML = `<section class="panel stack"><h1>Tidak ada akses</h1></section>`;
     return;
   }
   app.hidden = true;

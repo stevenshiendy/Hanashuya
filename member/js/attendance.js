@@ -1099,13 +1099,13 @@ async function phone() {
   try { who = await rpc('whoami'); } catch (e) { return errBox(app, e); }
   // The kasir tablet account shows the QR; it never scans one (Glenn, 13 Nov 2026).
   if (who?.kasir_tablet) {
-    app.innerHTML = `<section class="panel stack"><h1>Ini akun kasir tablet</h1><p>Akun kasir tablet hanya untuk tablet kasir: menampilkan QR presensi dan mencatat penjualan. Untuk presensi, keluar lalu masuk dengan akun staf Anda sendiri di HP Anda.</p>
+    app.innerHTML = `<section class="panel stack"><h1>Tidak ada akses</h1><p>Masuk dengan akun staf Anda sendiri.</p>
       <div class="row"><a class="btn" href="/member/kasir">Buka kasir</a><button class="btn btn-quiet" type="button" id="out">Keluar</button></div></section>`;
     $('#out').addEventListener('click', signOut);
     return;
   }
-  if (!who || !['staff', 'manager'].includes(who.role)) {
-    app.innerHTML = `<section class="panel stack"><h1>Khusus akun staf</h1><p>Halaman ini dipakai staf dengan akunnya sendiri. Akun ${esc(prettyPhone(who?.whatsapp) || 'ini')} bukan akun staf.</p>
+  if (!who || !['staff', 'manager', 'owner'].includes(who.role)) {
+    app.innerHTML = `<section class="panel stack"><h1>Tidak ada akses</h1>
       <div class="row"><a class="btn" href="/member/">Buka kartu member</a><button class="btn btn-quiet" type="button" id="out">Keluar</button></div></section>`;
     $('#out').addEventListener('click', signOut);
     return;
