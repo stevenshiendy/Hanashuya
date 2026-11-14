@@ -393,13 +393,16 @@ tr.is-reversed td { color: var(--color-muted); text-decoration: line-through; }
 /* right panel */
 /* One scroll area for the whole order panel (12 Nov 2026): the member card and its promos never scroll on
    their own, and the total with Konfirmasi pesanan stays pinned at the bottom on every screen height. */
-.tl-right { display: flex; flex-direction: column; gap: clamp(var(--space-xs), 1.2vh, var(--space-sm)); min-height: 0; overflow: hidden; padding: clamp(var(--space-sm), 2vh, 20px) var(--space-lg) 0; background: var(--color-paper-2); border-left: var(--rule-hair) solid var(--color-rule); }
+.tl-right { display: flex; flex-direction: column; gap: clamp(var(--space-xs), 1.2vh, var(--space-sm)); min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: clamp(var(--space-sm), 2vh, 20px) var(--space-lg) 0; background: var(--color-paper-2); border-left: var(--rule-hair) solid var(--color-rule); }
 /* Sized to the screen (Glenn, 13 Nov 2026: "do not enable scroll on the right side"): every part keeps its
    natural height and only the order lines give way, scrolling inside themselves when an order is long.
-   Total and Konfirmasi pesanan sit at the bottom on every tablet height. */
+   Total and Konfirmasi pesanan sit at the bottom on every tablet height.
+   Fallback (14 Nov 2026, staff bug report): when a member card with several promos leaves no room even for
+   3rem of order lines, the panel scrolls instead of hiding the rest, and the total with Konfirmasi pesanan
+   stays pinned (sticky) at the bottom so it is always on screen. On a normal height nothing scrolls. */
 .tl-right > * { flex: none; min-width: 0; }
 .tl-right > .tl-lines { flex: 1 1 0; min-height: 3rem; overflow-y: auto; overscroll-behavior: contain; }
-.tl-right > .tl-foot { margin-top: auto; padding-bottom: clamp(var(--space-sm), 2vh, var(--space-lg)); background: var(--color-paper-2); }
+.tl-right > .tl-foot { position: sticky; bottom: 0; z-index: 1; margin-top: auto; padding-bottom: clamp(var(--space-sm), 2vh, var(--space-lg)); background: var(--color-paper-2); }
 /* Staff names on one line beside the label (Glenn, 12 Nov 2026); more names scroll sideways instead of wrapping. */
 .tl-served { display: flex; align-items: center; gap: var(--space-sm); }
 .tl-served > .tl-h { flex: none; }
