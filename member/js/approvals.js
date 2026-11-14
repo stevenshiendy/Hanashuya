@@ -1,7 +1,9 @@
 // Persetujuan tab on the cashier page: managers and the owner decide POS voids/refunds
 // member-app undo requests (stamp or reward) and stock cancel requests (barang masuk or
-// keluar). Mounted from staff.js and the till's Persetujuan screen.
+// keluar or stok opname). Mounted from staff.js and the till's Persetujuan screen. The stok
+// opname waiting to be checked shows on top (Terima or Tolak), so every request is in one place.
 import { $, $$, esc, rpc, busy, toast, rupiah, when } from './lib.js';
+import { countReview } from './stock.js';
 
 const PAY = { tunai: 'Tunai', qris: 'QRIS', debit: 'Debit', transfer: 'Transfer', gratis: 'Gratis' };
 let root;
@@ -21,6 +23,7 @@ async function load() {
   catch (e) { root.innerHTML = `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`; return; }
   voids = voids || []; undo = undo || []; stock = stock || [];
   root.innerHTML = `
+  <div data-count></div>
   <section class="panel stack" aria-labelledby="ap-void">
     <h2 id="ap-void">Pembatalan dari kasir${voids.length ? ` (${voids.length})` : ''}</h2>
     ${voids.length ? `<ul class="list">${voids.map(voidRow).join('')}</ul>` : '<p class="muted">Tidak ada permintaan yang menunggu.</p>'}
@@ -30,10 +33,12 @@ async function load() {
     ${undo.length ? `<ul class="list">${undo.map(undoRow).join('')}</ul>` : '<p class="muted">Tidak ada permintaan yang menunggu.</p>'}
   </section>
   <section class="panel stack" aria-labelledby="ap-stock">
-    <h2 id="ap-stock">Batal barang masuk atau keluar${stock.length ? ` (${stock.length})` : ''}</h2>
+    <h2 id="ap-stock">Batal catatan stok${stock.length ? ` (${stock.length})` : ''}</h2>
     ${stock.length ? `<ul class="list">${stock.map(stockRow).join('')}</ul>` : '<p class="muted">Tidak ada permintaan yang menunggu.</p>'}
   </section>`;
   bind(root);
+  // Stock functions may be missing on an older database: the box then stays empty.
+  countReview($('[data-count]', root), () => load()).catch(() => {});
 }
 
 const bind = (el) => $$('[data-decide]', el).forEach((b) => b.addEventListener('click', () => ask(b)));
@@ -58,7 +63,8 @@ const OUT = { buang: 'Dibuang', rusak: 'Rusak', promo: 'Promo' };
 function stockRow(c) {
   const qty = Math.abs(Number(c.qty) || 0).toLocaleString('id-ID', { maximumFractionDigits: 2 });
   const what = c.kind === 'masuk' ? 'Batal barang masuk' : `Batal barang keluar${OUT[c.out_kind] ? ` (${OUT[c.out_kind]})` : ''}`;
-  return `<li><span class="grow"><strong>${esc(what)}: ${esc(c.item)}, ${esc(qty)} ${esc(c.unit || '')}</strong><br>
+  const head = c.kind === 'opname' ? `Batal ${esc(c.item)}` : `${esc(what)}: ${esc(c.item)}, ${esc(qty)} ${esc(c.unit || '')}`;
+  return `<li><span class="grow"><strong>${head}</strong><br>
     <span class="muted small">${esc(c.requested_by || 'Kasir')}, ${esc(when(c.at))}: ${esc(c.reason)}</span></span>
     <span class="row ap-actions">${buttons('stok', c.id)}</span></li>`;
 }

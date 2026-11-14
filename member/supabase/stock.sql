@@ -971,44 +971,10 @@ end $$;
 -- till shows 30); a manager or the owner any range up to 400 days. Per opname: who sent
 -- it, who is responsible, the status, how many items were off, and the selisih per unit
 -- (pcs and grams are never added together).
-create or replace function public.stock_opname_list(p_from date, p_to date) returns json
-language plpgsql stable security definer set search_path = public
-as $$
-declare
-  me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg());
-  lead boolean := exists (select 1 from profiles where id = me and role in ('manager', 'owner'));
-begin
-  if p_from is null or p_to is null or p_from > p_to then raise exception 'Pilih tanggal dari dan sampai.'; end if;
-  if p_to - p_from > 400 then raise exception 'Rentang tanggal paling panjang 400 hari.'; end if;
-  if not lead and p_from < public._stock_today() - 31 then raise exception 'Riwayat stok opname untuk staf paling lama 30 hari.'; end if;
-  return coalesce((select json_agg(x order by x.at desc, x.id desc) from (
-    select c.id, c.day, c.submitted_at as at, c.status, c.closing, c.note,
-      (select public._first_name(full_name) from profiles where id = c.submitted_by) as by,
-      (select public._first_name(full_name) from profiles where id = coalesce(c.responsible_id, c.submitted_by)) as responsible,
-      (select public._first_name(full_name) from profiles where id = c.decided_by) as decided_by,
-      c.decided_at, c.decision_note,
-      (select count(*) from stock_count_lines l where l.count_id = c.id) as items,
-      (select count(*) from stock_count_lines l where l.count_id = c.id and l.counted <> l.expected) as items_off,
-      coalesce((select json_agg(json_build_object('unit', u.unit, 'qty', u.q) order by u.unit desc) from (
-        select i.unit, sum(l.counted - l.expected) as q from stock_count_lines l join stock_items i on i.id = l.item_id
-         where l.count_id = c.id and l.counted <> l.expected group by i.unit) u), '[]') as selisih
-    from stock_counts c where c.day between p_from and p_to) x), '[]');
-end $$;
+-- stock_opname_list: see "batal stok opname" below.
 
 -- One stok opname with every line: stok sistem, stok fisik, selisih, stok aktual.
-create or replace function public.stock_opname_detail(p_id bigint) returns json
-language plpgsql stable security definer set search_path = public
-as $$
-declare
-  me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg());
-  lead boolean := exists (select 1 from profiles where id = me and role in ('manager', 'owner'));
-  c stock_counts;
-begin
-  select * into c from stock_counts where id = p_id;
-  if c.id is null then raise exception 'Stok opname tidak ditemukan.'; end if;
-  if not lead and c.day < public._stock_today() - 31 then raise exception 'Riwayat stok opname untuk staf paling lama 30 hari.'; end if;
-  return public._stock_count_json(c.id);
-end $$;
+-- stock_opname_detail: see "batal stok opname" below.
 
 -- In, out and selisih per item for a date range (days are booth days, Asia/Jakarta).
 --   opening   stock at the start of p_from
@@ -1609,12 +1575,84 @@ revoke all on public.stock_cancel_requests from anon, authenticated;
 
 -- p_kind 'masuk' (p_id = goods in id) or 'keluar' (p_id = stock_moves id). Today's entries only;
 -- older ones are cancelled from the owner page.
+-- stock_cancel_request: see "batal stok opname" below.
+
+-- stock_cancel_pending: see "batal stok opname" below.
+
+-- A manager can't decide their own request (the owner does), as with voids and undo.
+-- stock_cancel_decide: see "batal stok opname" below.
+
+-- Closing reminder on the till home (Glenn, 14 Nov 2026): has today's stok opname been sent?
+create or replace function public.stock_count_today() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg()); d date := public._stock_today();
+begin
+  return json_build_object('day', d,
+    'sent', exists (select 1 from stock_counts where day = d and status in ('menunggu', 'diterima')),
+    'closing', exists (select 1 from stock_counts where day = d and status in ('menunggu', 'diterima') and closing));
+end $$;
+
+-- ---------------------------------------------------------------- batal stok opname
+-- Glenn, 14 Nov 2026: a manager or the owner can remove a stok opname on the Dashboard, and
+-- staff can ask for it (Minta batal), like barang masuk and keluar. Removing writes the
+-- opposite of every row the opname put in the ledger (its selisih koreksi and the choux
+-- thrown at closing), with count_id and reverses_id set, so stock, reports and the harga
+-- pokok journals net to zero. Only the newest opname that still counts can be removed:
+-- a later one was counted on top of it.
+alter table public.stock_counts drop constraint if exists stock_counts_status_check;
+alter table public.stock_counts add constraint stock_counts_status_check
+  check (status in ('menunggu', 'diterima', 'ditolak', 'diganti', 'dibatalkan'));
+alter table public.stock_counts add column if not exists cancelled_by uuid references public.profiles (id) on delete set null;
+alter table public.stock_counts add column if not exists cancelled_at timestamptz;
+alter table public.stock_counts add column if not exists cancel_reason text;
+
+alter table public.stock_cancel_requests add column if not exists count_id bigint references public.stock_counts (id);
+alter table public.stock_cancel_requests drop constraint if exists stock_cancel_requests_kind_check;
+alter table public.stock_cancel_requests add constraint stock_cancel_requests_kind_check check (kind in ('masuk', 'keluar', 'opname'));
+alter table public.stock_cancel_requests drop constraint if exists stock_cancel_requests_check;
+alter table public.stock_cancel_requests add constraint stock_cancel_requests_check
+  check ((kind = 'masuk') = (goods_in_id is not null) and (kind = 'keluar') = (move_id is not null) and (kind = 'opname') = (count_id is not null));
+create unique index if not exists stock_cancel_one_open_count on public.stock_cancel_requests (count_id) where status = 'menunggu';
+
+create or replace function public._stock_cancel_count(p_id bigint, p_reason text, p_by uuid) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare c stock_counts; r text := nullif(trim(coalesce(p_reason, '')), '');
+begin
+  if r is null then raise exception 'Tulis alasan pembatalannya.'; end if;
+  select * into c from stock_counts where id = p_id for update;
+  if c.id is null then raise exception 'Stok opname tidak ditemukan.'; end if;
+  if c.status = 'dibatalkan' then raise exception 'Stok opname ini sudah dibatalkan.'; end if;
+  if c.status not in ('menunggu', 'diterima') then raise exception 'Stok opname yang ditolak atau diganti tidak mengubah stok.'; end if;
+  if exists (select 1 from stock_counts x where x.id > c.id and x.status in ('menunggu', 'diterima')) then
+    raise exception 'Ada stok opname yang lebih baru. Batalkan yang terbaru dulu.';
+  end if;
+  insert into stock_moves (item_id, kind, qty, day, count_id, reason, responsible_id, created_by, reverses_id)
+  select m.item_id, m.kind, -m.qty, m.day, c.id, 'Batal stok opname: ' || r, m.responsible_id, p_by, m.id
+    from stock_moves m
+   where m.count_id = c.id and m.reverses_id is null
+     and not exists (select 1 from stock_moves x where x.reverses_id = m.id);
+  update stock_counts set status = 'dibatalkan', cancelled_by = p_by, cancelled_at = now(), cancel_reason = r where id = c.id;
+  perform public._log('stok_batal_opname', jsonb_build_object('count', c.id, 'day', c.day, 'was', c.status, 'reason', r));
+  return public._stock_count_json(c.id);
+end $$;
+
+create or replace function public.stock_cancel_count(p_id bigint, p_reason text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer yang bisa membatalkan stok opname.');
+begin
+  return public._stock_cancel_count(p_id, p_reason, me);
+end $$;
+
+-- p_kind 'opname' joins 'masuk' and 'keluar' (p_id = stock_counts id). Today's opname only.
 create or replace function public.stock_cancel_request(p_kind text, p_id bigint, p_reason text) returns json
 language plpgsql volatile security definer set search_path = public
 as $$
 declare
   me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg());
-  r text := nullif(trim(coalesce(p_reason, '')), ''); g stock_goods_in; m stock_moves; rid bigint; d date := public._stock_today();
+  r text := nullif(trim(coalesce(p_reason, '')), ''); g stock_goods_in; m stock_moves; c stock_counts; rid bigint; d date := public._stock_today();
 begin
   if r is null then raise exception 'Tulis alasan pembatalannya.'; end if;
   if p_kind = 'masuk' then
@@ -1637,6 +1675,15 @@ begin
       raise exception 'Permintaan batal untuk catatan ini sudah menunggu.';
     end if;
     insert into stock_cancel_requests (kind, move_id, reason, requested_by) values ('keluar', m.id, r, me) returning id into rid;
+  elsif p_kind = 'opname' then
+    select * into c from stock_counts where id = p_id;
+    if c.id is null then raise exception 'Stok opname tidak ditemukan.'; end if;
+    if c.status not in ('menunggu', 'diterima') then raise exception 'Stok opname ini sudah tidak mengubah stok.'; end if;
+    if c.day <> d then raise exception 'Hanya stok opname hari ini yang bisa diminta batal dari kasir.'; end if;
+    if exists (select 1 from stock_cancel_requests where count_id = c.id and status = 'menunggu') then
+      raise exception 'Permintaan batal untuk stok opname ini sudah menunggu.';
+    end if;
+    insert into stock_cancel_requests (kind, count_id, reason, requested_by) values ('opname', c.id, r, me) returning id into rid;
   else
     raise exception 'Jenis catatan tidak dikenal.';
   end if;
@@ -1649,21 +1696,22 @@ language plpgsql stable security definer set search_path = public
 as $$
 declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer.');
 begin
-  return coalesce((select json_agg(json_build_object('id', c.id, 'kind', c.kind, 'reason', c.reason, 'at', c.created_at,
-      'requested_by', (select public._first_name(full_name) from profiles where id = c.requested_by),
-      'own', c.requested_by = me,
-      'item', i.name, 'unit', i.unit,
-      'qty', case when c.kind = 'masuk' then g.current_qty else -m.qty end,
-      'out_kind', m.kind, 'supplier', (select s.name from stock_suppliers s where s.id = g.supplier_id),
-      'entry_at', coalesce(g.created_at, m.created_at)) order by c.id)
+  return coalesce((select json_agg(x order by x.id) from (
+    select c.id, c.kind, c.reason, c.created_at as at,
+      (select public._first_name(full_name) from profiles where id = c.requested_by) as requested_by,
+      c.requested_by = me as own,
+      case when c.kind = 'opname' then 'Stok opname ' || to_char(k.submitted_at at time zone 'Asia/Jakarta', 'HH24.MI') else i.name end as item,
+      i.unit, case when c.kind = 'masuk' then g.current_qty when c.kind = 'keluar' then -m.qty end as qty,
+      m.kind as out_kind, (select s.name from stock_suppliers s where s.id = g.supplier_id) as supplier,
+      coalesce(g.created_at, m.created_at, k.submitted_at) as entry_at, c.count_id
     from stock_cancel_requests c
     left join stock_goods_in g on g.id = c.goods_in_id
     left join stock_moves m on m.id = c.move_id
-    join stock_items i on i.id = coalesce(g.item_id, m.item_id)
-    where c.status = 'menunggu'), '[]');
+    left join stock_counts k on k.id = c.count_id
+    left join stock_items i on i.id = coalesce(g.item_id, m.item_id)
+    where c.status = 'menunggu') x), '[]');
 end $$;
 
--- A manager can't decide their own request (the owner does), as with voids and undo.
 create or replace function public.stock_cancel_decide(p_id bigint, p_approve boolean, p_note text default null) returns json
 language plpgsql volatile security definer set search_path = public
 as $$
@@ -1682,6 +1730,10 @@ begin
       if (select status from stock_goods_in where id = c.goods_in_id) <> 'dibatalkan' then
         perform public.stock_cancel_goods_in(c.goods_in_id, 'Diminta ' || who || ': ' || c.reason);
       end if;
+    elsif c.kind = 'opname' then
+      if (select status from stock_counts where id = c.count_id) in ('menunggu', 'diterima') then
+        perform public._stock_cancel_count(c.count_id, 'Diminta ' || who || ': ' || c.reason, me);
+      end if;
     elsif not exists (select 1 from stock_moves where reverses_id = c.move_id) then
       perform public._stock_cancel_out(c.move_id, 'Diminta ' || who || ': ' || c.reason, me);
     end if;
@@ -1692,15 +1744,55 @@ begin
   return json_build_object('id', c.id, 'status', case when p_approve then 'disetujui' else 'ditolak' end);
 end $$;
 
--- Closing reminder on the till home (Glenn, 14 Nov 2026): has today's stok opname been sent?
-create or replace function public.stock_count_today() returns json
+-- What the opname rows need for Batalkan / Minta batal (list and detail).
+create or replace function public._stock_count_extra(p_id bigint) returns jsonb
+language sql stable security definer set search_path = public
+as $$
+  select jsonb_build_object(
+    'cancel_pending', exists (select 1 from stock_cancel_requests r where r.count_id = c.id and r.status = 'menunggu'),
+    'cancelled_by', (select public._first_name(full_name) from profiles where id = c.cancelled_by),
+    'cancelled_at', c.cancelled_at, 'cancel_reason', c.cancel_reason,
+    'removable', c.status in ('menunggu', 'diterima')
+      and not exists (select 1 from stock_counts x where x.id > c.id and x.status in ('menunggu', 'diterima')))
+  from stock_counts c where c.id = p_id
+$$;
+
+create or replace function public.stock_opname_list(p_from date, p_to date) returns json
 language plpgsql stable security definer set search_path = public
 as $$
-declare me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg()); d date := public._stock_today();
+declare
+  me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg());
+  lead boolean := exists (select 1 from profiles where id = me and role in ('manager', 'owner'));
 begin
-  return json_build_object('day', d,
-    'sent', exists (select 1 from stock_counts where day = d and status in ('menunggu', 'diterima')),
-    'closing', exists (select 1 from stock_counts where day = d and status in ('menunggu', 'diterima') and closing));
+  if p_from is null or p_to is null or p_from > p_to then raise exception 'Pilih tanggal dari dan sampai.'; end if;
+  if p_to - p_from > 400 then raise exception 'Rentang tanggal paling panjang 400 hari.'; end if;
+  if not lead and p_from < public._stock_today() - 31 then raise exception 'Riwayat stok opname untuk staf paling lama 30 hari.'; end if;
+  return coalesce((select json_agg(x.j::jsonb || public._stock_count_extra(x.id) order by x.at desc, x.id desc) from (
+    select c.id, c.submitted_at as at, json_build_object('id', c.id, 'day', c.day, 'at', c.submitted_at, 'status', c.status, 'closing', c.closing, 'note', c.note,
+      'by', (select public._first_name(full_name) from profiles where id = c.submitted_by),
+      'responsible', (select public._first_name(full_name) from profiles where id = coalesce(c.responsible_id, c.submitted_by)),
+      'decided_by', (select public._first_name(full_name) from profiles where id = c.decided_by),
+      'decided_at', c.decided_at, 'decision_note', c.decision_note,
+      'items', (select count(*) from stock_count_lines l where l.count_id = c.id),
+      'items_off', (select count(*) from stock_count_lines l where l.count_id = c.id and l.counted <> l.expected),
+      'selisih', coalesce((select json_agg(json_build_object('unit', u.unit, 'qty', u.q) order by u.unit desc) from (
+        select i.unit, sum(l.counted - l.expected) as q from stock_count_lines l join stock_items i on i.id = l.item_id
+         where l.count_id = c.id and l.counted <> l.expected group by i.unit) u), '[]')) as j
+    from stock_counts c where c.day between p_from and p_to) x), '[]');
+end $$;
+
+create or replace function public.stock_opname_detail(p_id bigint) returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg());
+  lead boolean := exists (select 1 from profiles where id = me and role in ('manager', 'owner'));
+  c stock_counts;
+begin
+  select * into c from stock_counts where id = p_id;
+  if c.id is null then raise exception 'Stok opname tidak ditemukan.'; end if;
+  if not lead and c.day < public._stock_today() - 31 then raise exception 'Riwayat stok opname untuk staf paling lama 30 hari.'; end if;
+  return (public._stock_count_json(c.id)::jsonb || public._stock_count_extra(c.id))::json;
 end $$;
 
 -- ---------------------------------------------------------------- permissions

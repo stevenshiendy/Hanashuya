@@ -432,7 +432,9 @@ async function fake(name, a) {
     }
     case 'stock_count_pending': return V.countPending();
     case 'stock_goods_in_list': return V.goodsInList(a);
-    case 'stock_opname_list': return V.opnameList(a);
+    case 'stock_opname_list': { const rows = V.opnameList(a).map((x) => ({ ...x, status: cancelledCounts.has(x.id) ? 'dibatalkan' : x.status, cancel_pending: false }));
+      const top = rows.find((x) => ['menunggu', 'diterima'].includes(x.status)); return rows.map((x) => ({ ...x, removable: x === top })); }
+    case 'stock_cancel_count': cancelledCounts.add(a.p_id); return { id: a.p_id, status: 'dibatalkan' };
     case 'stock_opname_detail': return V.opnameDetail(a);
     case 'stock_request_list': return V.requestsIn(a);
     case 'stock_request_open': return V.requestsOpen();
@@ -551,6 +553,7 @@ function shiftJson(all = full) {
 // Promo items per promo, as pos_shift_rekap().promos (13 Nov 2026): the sample orders of that shift
 // plus the orders paid in this demo visit.
 // Stock cancel requests for Persetujuan (stock.sql stock_cancel_pending, 14 Nov 2026).
+const cancelledCounts = new Set();
 const stockAsks = [
   { id: 1, kind: 'masuk', reason: 'Salah jumlah, harusnya 5', at: new Date(Date.now() - 40 * 60000).toISOString(), requested_by: 'Ranny', own: false, item: 'Paper bag', unit: 'pcs', qty: 10, out_kind: null, supplier: 'Hanashuya', entry_at: new Date(Date.now() - 50 * 60000).toISOString() },
   { id: 2, kind: 'keluar', reason: 'Salah pilih barang', at: new Date(Date.now() - 15 * 60000).toISOString(), requested_by: 'Fajar', own: false, item: 'Kotak Mini isi 8', unit: 'pcs', qty: 2, out_kind: 'buang', supplier: null, entry_at: new Date(Date.now() - 20 * 60000).toISOString() },

@@ -1203,3 +1203,9 @@ table.fs-table { width: 100%; border-collapse: collapse; font-variant-numeric: t
 .km-xax span { white-space: nowrap; overflow: visible; }
 .km-preview { margin: 0; font-weight: 500; }
 .km-head > .stack-sm { flex: 1 1 24rem; min-width: 0; }
+
+/* Notifikasi and requests (14 Nov 2026): the header count, the Dashboard request bar, the sheet list. */
+.tl-notif { gap: var(--space-xs); }
+.tl-count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.5rem; height: 1.5rem; padding: 0 var(--space-2xs); border-radius: var(--radius-control); background: var(--color-accent); color: var(--color-accent-ink); font-size: var(--text-xs); font-weight: 600; line-height: 1; }
+.hm-askbar { border-color: var(--color-accent); background: var(--color-accent-tint); }
+.tl-notes li { align-items: center; }

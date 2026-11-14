@@ -18,7 +18,7 @@ const KIND = { masuk: 'Masuk', penjualan: 'Terjual', sampel: 'Sampel', buang: 'D
 const OUT_KINDS = [['buang', 'Dibuang'], ['rusak', 'Rusak'], ['promo', 'Promo']];
 const STATUS = { aktif: '', diubah: '<span class="tag tag-warn">Diubah</span>', dibatalkan: '<span class="tag tag-bad">Dibatalkan</span>' };
 const OPNAME_STATUS = { menunggu: '<span class="tag tag-warn">Menunggu</span>', diterima: '<span class="tag tag-ok">Diterima</span>',
-  ditolak: '<span class="tag tag-bad">Ditolak</span>', diganti: '<span class="tag">Diganti</span>' };
+  ditolak: '<span class="tag tag-bad">Ditolak</span>', diganti: '<span class="tag">Diganti</span>', dibatalkan: '<span class="tag tag-bad">Dibatalkan</span>' };
 const REQ_LABEL = { dikirim: 'Dikirim', sebagian: 'Diterima sebagian', selesai: 'Selesai', batal: 'Batal' };
 const REQ_STATUS = { dikirim: '<span class="tag tag-warn">Dikirim</span>', sebagian: '<span class="tag tag-warn">Diterima sebagian</span>',
   selesai: '<span class="tag tag-ok">Selesai</span>', batal: '<span class="tag tag-bad">Batal</span>' };
@@ -118,13 +118,13 @@ function stockScreen(panel, part, ctx, o) {
   if (part === 'opname') return opnameForm(wrap('Stok opname', ''), ctx, toMenu);
   if (part === 'permintaan') return requestScreen(body, ctx, toMenu);
   if (part === 'hari-ini') {
-    body.innerHTML = '<h1 class="tl-title">Masuk dan keluar hari ini</h1><div class="stack-lg" data-d></div>';
+    body.innerHTML = '<h1 class="tl-title">Catatan stok hari ini</h1><div class="stack-lg" data-d></div>';
     return todayInOut($('[data-d]', body), ctx);
   }
   if (part === 'minimum' && ctx.lead) return minimumForm(wrap('Stok minimum', ''), ctx);
   if (part === 'riwayat') {
     body.innerHTML = '<h1 class="tl-title">Riwayat stok opname</h1><div class="panel stack" data-h></div>';
-    return opnameHistory($('[data-h]', body), ymd(new Date(Date.now() - 29 * 864e5)), ymd(), '30 hari terakhir');
+    return opnameHistory($('[data-h]', body), ymd(new Date(Date.now() - 29 * 864e5)), ymd(), '30 hari terakhir', { lead: ctx.lead });
   }
   body.innerHTML = errorHtml(new Error('Bagian stok tidak dikenal.'));
 }
@@ -135,7 +135,7 @@ function stockMenu(panel, ctx, show, toMenu) {
   const entries = [
     ['masuk', 'Barang masuk', 'Catat kiriman dapur atau supplier.'],
     ['keluar', 'Barang keluar', 'Dibuang, rusak atau promo. Sampel dicatat di Mode penjualan.'],
-    ['hari-ini', 'Masuk dan keluar hari ini', ctx.lead ? 'Catatan hari ini. Batalkan yang salah.' : 'Catatan hari ini. Minta batal kalau ada yang salah.'],
+    ['hari-ini', 'Catatan stok hari ini', ctx.lead ? 'Barang masuk, keluar dan stok opname hari ini. Batalkan yang salah.' : 'Barang masuk, keluar dan stok opname hari ini. Minta batal kalau ada yang salah.'],
     ['opname', 'Stok opname', 'Hitung stok fisik dan bandingkan dengan stok sistem.'],
     ['permintaan', 'Permintaan barang', openReq ? `${openReq} permintaan belum selesai.` : 'Minta barang ke dapur atau supplier, lalu bagikan PDF-nya.'],
     ['riwayat', 'Riwayat stok opname', pend ? 'Ada stok opname yang menunggu dicek.' : 'Hasil stok opname 30 hari terakhir.'],
@@ -202,7 +202,7 @@ function stockPage(panel, ctx, reload) {
     $$('[data-mode]', panel).forEach((b) => { b.hidden = b.dataset.mode !== r.value; });
   }));
   waButton(panel);
-  opnameHistory($('#sk-hist', panel), ymd(new Date(Date.now() - 29 * 864e5)), ymd(), 'Riwayat stok opname, 30 hari terakhir');
+  opnameHistory($('#sk-hist', panel), ymd(new Date(Date.now() - 29 * 864e5)), ymd(), 'Riwayat stok opname, 30 hari terakhir', { lead });
   if (lead) {
     countReview($('#sk-pending', panel), reload);
     goodsInAudit($('#sk-audit', panel), ymd(new Date(Date.now() - 6 * 864e5)), ymd(), true, 'Barang masuk 7 hari terakhir (cek manajer)');
@@ -388,7 +388,9 @@ async function todayInOut(box, ctx) {
       <span class="muted small">${esc(time(o.at))}, ${esc(o.responsible || '-')}${o.reason ? ': ' + esc(o.reason) : ''}</span></span>${act(o)}</li>`;
   box.innerHTML = `<div class="panel stack"><h2>Barang masuk</h2>${ins.length ? `<ul class="list sk-day">${ins.map(inRow).join('')}</ul>` : '<p class="muted">Belum ada barang masuk hari ini.</p>'}</div>
     <div class="panel stack"><h2>Barang keluar</h2>${outs.length ? `<ul class="list sk-day">${outs.map(outRow).join('')}</ul>` : '<p class="muted">Belum ada barang keluar hari ini.</p>'}
-      <p class="muted small">Sampel dibatalkan lewat Mode penjualan. Barang keluar karena penjualan ikut batal saat pesanannya dibatalkan.</p></div>`;
+      <p class="muted small">Sampel dibatalkan lewat Mode penjualan. Barang keluar karena penjualan ikut batal saat pesanannya dibatalkan.</p></div>
+    <div class="panel stack" data-opname><h2>Stok opname</h2><div aria-busy="true" class="skeleton"></div></div>`;
+  opnameHistory($('[data-opname]', box), t.day, t.day, 'Stok opname', { lead: ctx.lead, today: t.day, empty: 'Belum ada stok opname hari ini.', after: () => todayInOut(box, ctx) });
   $$('[data-cancel]', box).forEach((b) => b.addEventListener('click', () => {
     const li = b.closest('li'), kind = li.dataset.kind, id = Number(li.dataset.id);
     const what = li.querySelector('strong').textContent.trim();
@@ -706,7 +708,8 @@ function opnameTable(c) {
 const selisihText = (c) => (Number(c.items_off) ? `${qtyText(c.items_off)} barang selisih: ${c.selisih.map((s) => `${signed(s.qty)} ${esc(s.unit)}`).join(', ')}` : 'Tanpa selisih');
 
 // Riwayat stok opname: one row per opname; Lihat opens every line.
-async function opnameHistory(box, from, to, title) {
+// o.lead: Batalkan straight away (manager, owner); staff get Minta batal for today's opname (o.today).
+async function opnameHistory(box, from, to, title, o = {}) {
   box.innerHTML = `<h2>${esc(title)}</h2><div aria-busy="true" class="skeleton"></div>`;
   let rows;
   try { rows = await rpc('stock_opname_list', { p_from: from, p_to: to }); }
@@ -717,7 +720,14 @@ async function opnameHistory(box, from, to, title) {
         <br><span class="small">${selisihText(c)}</span>
         <div class="stack" data-detail hidden></div></div>
         <button class="btn btn-quiet" type="button" data-open aria-expanded="false">Lihat</button></li>`).join('')}</ul>`
-      : '<p class="muted">Belum ada stok opname di tanggal ini.</p>'}`;
+      : `<p class="muted">${esc(o.empty || 'Belum ada stok opname di tanggal ini.')}</p>`}`;
+  const again = o.after || (() => opnameHistory(box, from, to, title, o));
+  $$('li[data-c]', box).forEach((li) => {
+    const c = rows.find((x) => String(x.id) === li.dataset.c);
+    const act = opnameAction(c, o);
+    if (act) $('[data-open]', li).insertAdjacentHTML('beforebegin', act);
+    $('[data-cancel]', li)?.addEventListener('click', () => cancelOpname(c, o, again));
+  });
   $$('li[data-c]', box).forEach((li) => $('[data-open]', li).addEventListener('click', async (e) => {
     const btn = e.currentTarget, det = $('[data-detail]', li);
     if (!det.hidden) { det.hidden = true; btn.textContent = 'Lihat'; btn.setAttribute('aria-expanded', 'false'); return; }
@@ -727,16 +737,43 @@ async function opnameHistory(box, from, to, title) {
       det.innerHTML = `${opnameTable(c)}
         ${c.note ? `<p class="small">Catatan: ${esc(c.note)}</p>` : ''}
         ${c.decided_by && c.status !== 'diganti' ? `<p class="muted small">${c.status === 'diterima' ? 'Diterima' : 'Ditolak'} ${esc(c.decided_by)}, ${esc(when(c.decided_at))}${c.decision_note ? ': ' + esc(c.decision_note) : ''}</p>` : ''}
-        ${c.status === 'diganti' ? '<p class="muted small">Diganti stok opname yang dikirim sesudahnya.</p>' : ''}`;
+        ${c.status === 'diganti' ? '<p class="muted small">Diganti stok opname yang dikirim sesudahnya.</p>' : ''}
+        ${c.status === 'dibatalkan' ? `<p class="muted small">Dibatalkan ${esc(c.cancelled_by || '')}${c.cancelled_at ? ', ' + esc(when(c.cancelled_at)) : ''}${c.cancel_reason ? ': ' + esc(c.cancel_reason) : ''}. Stok kembali seperti sebelum stok opname ini.</p>` : ''}`;
       det.hidden = false;
       busy(btn, false); btn.textContent = 'Tutup'; btn.setAttribute('aria-expanded', 'true');
     } catch (err) { det.innerHTML = errorHtml(err); det.hidden = false; busy(btn, false); }
   }));
 }
 
+// Batalkan (manager, owner) or Minta batal (staff, today's only). Only the newest opname that still
+// counts can go (stock.sql, removable); older ones show nothing.
+function opnameAction(c, o) {
+  if (!c || c.removable === undefined) return '';
+  if (c.cancel_pending) return '<span class="tag tag-warn">Menunggu persetujuan</span>';
+  if (!c.removable) return '';
+  if (o.lead) return '<button class="btn btn-text" type="button" data-cancel>Batalkan</button>';
+  return c.day === (o.today || ymd()) ? '<button class="btn btn-text" type="button" data-cancel>Minta batal</button>' : '';
+}
+function cancelOpname(c, o, after) {
+  formDialog({
+    title: o.lead ? 'Batalkan stok opname' : 'Minta batal stok opname',
+    submitLabel: o.lead ? 'Batalkan' : 'Kirim permintaan',
+    html: `<p>Stok opname ${esc(when(c.at))}, penanggung jawab ${esc(c.responsible || '-')}.</p>
+      <p class="muted small">${c.status === 'diterima' ? 'Stok kembali seperti sebelum stok opname ini, termasuk choux yang dicatat dibuang saat tutup.' : 'Stok opname ini belum diterima, jadi stok tidak berubah.'}${o.lead ? '' : ' Manajer atau pemilik memutuskan di Persetujuan.'}</p>
+      <label class="field"><span>Alasan ${REQ}</span><input type="text" name="reason" maxlength="200" placeholder="Contoh: salah hitung"></label>`,
+    onSubmit: async (form) => {
+      const reason = form.reason.value.trim();
+      if (!reason) throw new Error('Tulis alasannya.');
+      if (o.lead) await rpc('stock_cancel_count', { p_id: c.id, p_reason: reason });
+      else await rpc('stock_cancel_request', { p_kind: 'opname', p_id: c.id, p_reason: reason });
+      toast(o.lead ? 'Stok opname dibatalkan' : 'Permintaan batal terkirim');
+    },
+  }).then((ok) => { if (ok) after(); });
+}
+
 /* ================================================================ manager and owner */
 // The stok opname waiting for a decision, with Terima and Tolak.
-async function countReview(box, after) {
+export async function countReview(box, after) {
   let c;
   try { c = await rpc('stock_count_pending'); } catch (e) { box.innerHTML = errorHtml(e); return; }
   if (!c) { box.innerHTML = ''; return; }
@@ -947,7 +984,7 @@ function rangeView(body, days, title, load) {
 function osOpname(body) {
   body.innerHTML = `${hx(body) === 'h1' ? '<h1>Riwayat stok opname</h1>' : ''}<div data-pend></div><div class="stack-lg" data-view></div>`;
   const view = $('[data-view]', body);
-  const list = (box, f, t) => opnameHistory(box, f, t, hx(body) === 'h1' ? 'Daftar stok opname' : 'Riwayat stok opname');
+  const list = (box, f, t) => opnameHistory(box, f, t, hx(body) === 'h1' ? 'Daftar stok opname' : 'Riwayat stok opname', { lead: true });
   countReview($('[data-pend]', body), () => osOpname(body));
   rangeView(view, 30, '', list);
 }

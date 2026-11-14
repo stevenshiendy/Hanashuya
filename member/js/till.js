@@ -51,7 +51,8 @@ const S = {
   back: 'home',             // where Hari ini, Tutup shift and Stok return to: home or order
   home: null,               // the last pos_home reply
   duty: null,               // first names of staff clocked in (att_on_duty), or null
-  asks: null,               // void, refund and stock cancel requests waiting (managers and the owner only)
+  asks: null,               // every request waiting for a decision (managers and the owner only)
+  reqs: null,               // { voids, undo, stock, count }: the requests themselves, for the Notifikasi sheet and pop-up
   opname: null,             // stock_count_today() from 20.00 WIB: { day, sent, closing }
   stockMode: 'masuk',
   left: 'tiles',            // tiles | flavour | find | voucher | join
@@ -391,6 +392,7 @@ function renderBar() {
   $('#tl-queue').textContent = [n ? `${n} penjualan belum terkirim` : '', c ? `${c} perlu dicek` : ''].filter(Boolean).join(' · ');
   $('#tl-clock').hidden = !home;
   $('#tl-printer').hidden = !S.me || !home;
+  notifButton(inSale);
   if (home) $('#tl-clock').textContent = clockText();
 }
 const clockText = () => {
@@ -456,7 +458,7 @@ function opnameHtml() {
   return `<button class="hm-lowbar" type="button" data-act="opname-open"><span><b>${c.sent ? 'Stok opname tutup booth belum dikirim.' : 'Stok opname hari ini belum dikirim.'}</b></span><span class="hm-lowgo">Buka stok opname <span aria-hidden="true">›</span></span></button>`;
 }
 // Both bars share one row, so the reminder adds no height when Stok menipis is there too.
-const alertsHtml = () => { const x = [opnameHtml(), lowHtml()].filter(Boolean); return x.length > 1 ? `<div class="hm-alerts">${x.join('')}</div>` : x.join(''); };
+const alertsHtml = () => { const x = [opnameHtml(), lowHtml()].filter(Boolean); return askBarHtml() + (x.length > 1 ? `<div class="hm-alerts">${x.join('')}</div>` : x.join('')); };
 const qtyText = (n, unit) => (Number(n) <= 0 ? 'Habis' : `${Number(n).toLocaleString('id-ID', { maximumFractionDigits: 2 })} ${unit || ''}`.trim());
 function openLow() {
   const rows = (S.low || []).slice().sort((a, b) => a.qty - b.qty);
@@ -520,13 +522,12 @@ let homeSeq = 0;
 async function loadHome() {
   const n = ++homeSeq;
   try {
-    // Managers and the owner also see how many void or refund requests wait for them.
-    // Stock cancel requests count too (14 Nov 2026); from 20.00 WIB, whether today's stok opname is in.
-    const [h, asks, stockAsks, low, count] = await Promise.all([rpc('pos_home'), canCancel() ? rpc('pos_void_list').catch(() => null) : null,
-      canCancel() ? rpc('stock_cancel_pending').catch(() => []) : null,
+    // Managers and the owner also get every request waiting for them (loadRequests); from
+    // 20.00 WIB, whether today's stok opname is in.
+    const [h, , low, count] = await Promise.all([rpc('pos_home'), loadRequests(),
       rpc('stock_low').catch(() => null), wibHour() >= 20 ? rpc('stock_count_today').catch(() => null) : null]);
     if (n !== homeSeq) return;
-    S.home = h; S.asks = asks ? asks.length + (stockAsks?.length || 0) : null; S.low = low; S.opname = count;
+    S.home = h; S.low = low; S.opname = count;
   } catch (e) {
     if (n !== homeSeq || S.screen !== 'home') return;
     const m = off.isNetError(e) ? 'Tidak ada internet. Angka hari ini muncul lagi saat internet kembali. Penjualan tanpa kartu member tetap bisa lewat Mode penjualan.' : e.message;
@@ -541,13 +542,94 @@ async function loadHome() {
   const at = document.activeElement?.dataset?.act, v = document.activeElement?.dataset?.v;
   app.innerHTML = `<div class="hm">${homeLeft(S.home)}${homeRight(S.home)}</div>`;
   if (at) app.querySelector(`[data-act="${at}"]${v ? `[data-v="${v}"]` : ''}`)?.focus({ preventScroll: true });
+  renderBar();
+  popNewRequests();
 }
 function tick() {
   if (off.pending() || !S.online) sendQueued().then(() => { if (!S.online && navigator.onLine && !off.pending()) probe(); });
   if (!document.hidden) refreshCatalog();
-  if (S.screen !== 'home' || document.hidden) return;
+  if (document.hidden) return;
+  // Away from the Dashboard the Notifikasi count still refreshes; the pop-up waits for the Dashboard.
+  if (S.screen !== 'home') { if (canCancel()) loadRequests().then(() => renderBar()); return; }
   renderBar();
   if (!$('#tl-dlg')?.open) loadHome();
+}
+
+/* ---------------------------------------------------------------- requests and Notifikasi
+ * Glenn, 14 Nov 2026: every request waiting for a manager or the owner shows on the Dashboard
+ * (a bar that stays while any wait, plus a pop-up once for each new one), and the header has a
+ * Notifikasi button on every screen that lists everything that needs someone: requests, stok
+ * menipis, the closing stok opname, unsent offline sales and unpaid orders. */
+async function loadRequests() {
+  if (!canCancel()) { S.reqs = null; S.asks = null; return; }
+  const [voids, undo, stock, count] = await Promise.all([rpc('pos_void_list').catch(() => null),
+    rpc('manager_pending_undo').catch(() => []), rpc('stock_cancel_pending').catch(() => []), rpc('stock_count_pending').catch(() => null)]);
+  if (!voids) return; // offline or an error: keep the last list
+  S.reqs = { voids, undo: undo || [], stock: stock || [], count: count || null };
+  S.asks = voids.length + S.reqs.undo.length + S.reqs.stock.length + (count ? 1 : 0);
+}
+const OUT_LABEL = { buang: 'dibuang', rusak: 'rusak', promo: 'promo' };
+const fmtQty = (n) => Math.abs(Number(n) || 0).toLocaleString('id-ID', { maximumFractionDigits: 2 });
+// One entry per request: key (for the pop-up), title, line under it.
+function requestItems() {
+  const r = S.reqs;
+  if (!r) return [];
+  const by = (who, at, why) => [who || 'Kasir', at ? time(at) : '', why].filter(Boolean).join(' · ');
+  return [
+    ...(r.count ? [{ key: `c${r.count.id}`, title: `Stok opname menunggu dicek${r.count.closing ? ' (tutup booth)' : ''}`, sub: by(r.count.responsible || r.count.by, r.count.at, 'Terima atau tolak') }] : []),
+    ...r.voids.map((v) => ({ key: `v${v.id}`, title: `${v.kind === 'refund' ? 'Refund' : 'Batal'} struk ${v.receipt_no} · ${rupiah(v.total)}`, sub: by(v.requested_by, v.created_at, v.reason) })),
+    ...r.stock.map((c) => ({ key: `s${c.id}`, title: c.kind === 'opname' ? `Batal ${c.item}` : `Batal barang ${c.kind === 'masuk' ? 'masuk' : `keluar${OUT_LABEL[c.out_kind] ? ' (' + OUT_LABEL[c.out_kind] + ')' : ''}`}: ${c.item} ${fmtQty(c.qty)} ${c.unit || ''}`.trim(), sub: by(c.requested_by, c.at, c.reason) })),
+    ...r.undo.map((u) => ({ key: `u${u.id}`, title: `Batal ${u.kind === 'penjualan' ? 'stempel' : 'hadiah'} untuk ${u.member || 'member'}`, sub: by(u.requested_by, u.created_at, u.reason) })),
+  ];
+}
+function askBarHtml() {
+  const n = S.asks || 0;
+  if (!canCancel() || !n) return '';
+  return `<button class="hm-lowbar hm-askbar" type="button" data-act="approve"><span><b class="num">${n} permintaan menunggu keputusan</b></span><span class="hm-lowgo">Buka persetujuan <span aria-hidden="true">›</span></span></button>`;
+}
+// Everything that needs someone, newest worries first. act runs through onTap when tapped.
+function notifItems() {
+  const out = requestItems().map((x) => ({ ...x, act: 'approve', go: 'Putuskan' }));
+  const c = S.opname;
+  if (c && wibHour() >= 20 && !(c.sent && c.closing)) out.push({ title: c.sent ? 'Stok opname tutup booth belum dikirim' : 'Stok opname hari ini belum dikirim', sub: 'Kirim sebelum tutup booth', act: 'opname-open', go: 'Buka' });
+  if (S.low?.length) out.push({ title: `Stok menipis · ${S.low.length} barang`, sub: S.low.slice(0, 3).map((x) => x.name).join(', ') + (S.low.length > 3 ? ', …' : ''), act: 'low-open', go: 'Lihat' });
+  const q = off.pending(), chk = off.toCheck().length;
+  if (q) out.push({ title: `${q} penjualan belum terkirim`, sub: 'Terkirim sendiri saat internet kembali', act: 'queue-open', go: 'Lihat' });
+  if (chk) out.push({ title: `${chk} penjualan perlu dicek`, sub: 'Pembayaran offline untuk pesanan yang sudah dibatalkan', act: 'queue-open', go: 'Lihat' });
+  const unpaid = S.home?.pending_count ?? S.home?.waiting ?? 0;
+  if (unpaid) out.push({ title: `${unpaid} tagihan gantung`, sub: `${rupiah(S.home.pending_amount || 0)} belum dibayar`, act: 'home-pending', go: 'Lihat' });
+  return out;
+}
+function notifButton(inSale) {
+  const b = $('#tl-notif');
+  if (!b) return;
+  b.hidden = !S.me;
+  b.disabled = inSale;
+  const n = notifItems().length;
+  b.innerHTML = n ? `Notifikasi <span class="tl-count num">${n}</span>` : 'Notifikasi';
+  b.setAttribute('aria-label', n ? `Notifikasi, ${n}` : 'Notifikasi, tidak ada');
+}
+const notifList = (items) => `<ul class="list tl-notes">${items.map((x) => `<li><span class="grow"><strong>${esc(x.title)}</strong>${x.sub ? `<br><span class="muted small">${esc(x.sub)}</span>` : ''}</span>
+  ${x.act ? `<button class="btn btn-quiet" type="button" data-act="${x.act}">${esc(x.go || 'Buka')}</button>` : ''}</li>`).join('')}</ul>`;
+function openNotif() {
+  const items = notifItems();
+  markSeen();
+  sheet({ title: 'Notifikasi', body: items.length ? notifList(items) : '<p class="muted">Tidak ada yang perlu dicek sekarang.</p>' });
+}
+// The pop-up (Dashboard only): once per new request on this tablet. The bar stays until decided.
+const SEEN = 'hs-till-seen-req';
+const seen = () => { try { return new Set(JSON.parse(store.get(SEEN) || '[]')); } catch { return new Set(); } };
+function markSeen() { const keys = requestItems().map((x) => x.key); if (keys.length) store.set(SEEN, JSON.stringify(keys)); }
+function popNewRequests() {
+  if (S.screen !== 'home' || !canCancel() || $('#tl-dlg')?.open) return;
+  const old = seen(), fresh = requestItems().filter((x) => !old.has(x.key));
+  if (!fresh.length) return;
+  markSeen();
+  sheet({
+    title: fresh.length === 1 ? 'Permintaan baru' : `${fresh.length} permintaan baru`,
+    body: `${notifList(fresh.map((x) => ({ ...x, act: null })))}<p class="muted small">Permintaan ini tetap ada di Dashboard sampai diputuskan.</p>`,
+    actions: '<button class="btn tl-btn" type="button" data-act="approve">Buka persetujuan</button>',
+  });
 }
 
 /* Persetujuan: a manager or the owner decides Minta batal requests on the till itself
@@ -2269,6 +2351,7 @@ async function onTap(e) {
     case 'qr-absen': case 'qr-istirahat': S.qrKind = act === 'qr-istirahat' ? 'istirahat' : 'absen'; if (S.screen === 'qr') renderQr(); else goTo('qr'); return;
     case 'low-request': $('#tl-dlg')?.close(); S.stockMode = 'permintaan'; goTo('stock'); return;
     case 'low-open': openLow(); return;
+    case 'queue-open': showQueue(); return;
     case 'opname-open': S.stockMode = 'opname'; goTo('stock'); return;
     case 'home-pending': goTo('today'); S.todayTab = 'menunggu'; return;
     case 'promo-more': openPromos(); return;
@@ -2295,6 +2378,7 @@ $('#tl-today').addEventListener('click', () => (S.screen === 'today' ? goBack() 
 $('#tl-home').addEventListener('click', () => { stopCamera(); if (S.paid) freshOrder(); S.screen = 'home'; S.back = 'home'; render(); });
 $('#tl-cash').addEventListener('click', askCash);
 $('#tl-printer').addEventListener('click', () => goTo('printer'));
+$('#tl-notif').addEventListener('click', openNotif);
 $('#tl-close').addEventListener('click', () => goTo('close'));
 $('#tl-queue').addEventListener('click', showQueue);
 // The waiting sales stay in this tablet's storage through Keluar and go out after the next sign-in.

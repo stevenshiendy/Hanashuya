@@ -147,7 +147,7 @@ begin
   when 'stok_opname' then
     select json_agg(x order by x.tanggal desc, x.count_id desc, x.sort) into r from (
       select c.id as count_id, c.day as tanggal, case c.status when 'menunggu' then 'Menunggu keputusan' when 'diterima' then 'Diterima'
-               when 'ditolak' then 'Ditolak' when 'diganti' then 'Diganti' end as status,
+               when 'ditolak' then 'Ditolak' when 'diganti' then 'Diganti' when 'dibatalkan' then 'Dibatalkan' end as status,
         case when c.closing then 'Tutup hari' else 'Biasa' end as jenis, i.name as barang, i.unit as satuan, i.sort,
         l.expected as sistem, l.counted as dihitung, l.counted - l.expected as selisih, l.thrown as dibuang,
         round((l.counted - l.expected) * i.unit_cost)::bigint as nilai_selisih,
