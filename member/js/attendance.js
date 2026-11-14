@@ -280,66 +280,90 @@ function mountManage(root, { owner, compact = false }) {
   show('hari');
 }
 
-/* ---------- today and corrections */
+/* ---------- one day: a table with one row per person (Glenn, 14 Nov 2026: "simplify presensi
+   harian"). Jadwal, Masuk, Istirahat, Pulang and one Keterangan column; every correction
+   (add a forgotten scan or cancel one) goes through one Koreksi dialog per person. */
+function dayRow(x, isToday) {
+  const live = x.scans.filter((s) => !s.voided);
+  const first = (a) => live.find((s) => s.action === a);
+  const last = (a) => [...live].reverse().find((s) => s.action === a);
+  const sched = x.report.filter((r) => r.kind !== 'di_luar_jadwal');
+  const jadwal = !sched.length ? '<span class="muted">Tidak ada jadwal</span>'
+    : sched.map((r) => r.kind === 'izin' ? tag(['Izin', 'tag-warn']) : `<span class="dp-block">${esc(r.shift || 'Jadwal')} <span class="num muted">${esc(span(r))}</span></span>`).join('');
+  const brk = x.report.reduce((n, r) => n + (r.break_min || 0), 0);
+  const onBreak = isToday && x.next?.[0] === 'kembali';
+  const masuk = first('masuk'), pulang = last('pulang'), lastBreak = last('istirahat');
+  // Keterangan: what is happening now (today only), then anything that needs a look.
+  const notes = [];
+  if (isToday) {
+    if (onBreak) notes.push(['Istirahat', 'tag']);
+    else if (masuk && !pulang) notes.push(['Sedang bekerja', 'tag-ok']);
+    else if (!masuk && sched.some((r) => r.kind !== 'izin')) notes.push(['Belum masuk', 'tag']);
+  }
+  const late = x.report.reduce((n, r) => n + (r.late_min || 0), 0);
+  if (late) notes.push([`Terlambat ${hm(late)}`, 'tag-warn']);
+  const seen = new Set(['terlambat']);
+  x.report.forEach((r) => r.flags.forEach((f) => { if (!f.startsWith('sedang_') && !seen.has(f)) { seen.add(f); notes.push(FLAG[f] || [f, 'tag']); } }));
+  const fixed = x.scans.filter((s) => s.voided || s.via === 'koreksi').length;
+  if (fixed) notes.push([`${fixed} koreksi`, 'tag']);
+  const t = (s) => s ? `<span class="num">${esc(dot(time(s.at)))}</span>` : '<span class="muted">–</span>';
+  return `<tr>
+    <th scope="row">${nameBtn(x.id, x.full_name || x.name)}</th>
+    <td>${jadwal}</td>
+    <td>${t(masuk)}</td>
+    <td>${onBreak && lastBreak ? `sejak ${t(lastBreak)}` : brk ? `<span class="num">${esc(hm(brk))}</span>` : '<span class="muted">–</span>'}</td>
+    <td>${t(pulang)}</td>
+    <td><span class="dp-notes">${notes.map(tag).join('') || '<span class="muted">–</span>'}</span></td>
+    <td class="dp-act">${x.is_me ? '<span class="muted small">Akun Anda</span>' : `<button class="btn btn-quiet" type="button" data-fix="${esc(x.id)}">Koreksi</button>`}</td></tr>`;
+}
+
+function fixDialog(x, date, done) {
+  const live = x.scans.filter((s) => !s.voided);
+  const hist = x.scans.length ? `<ul class="list dp-hist">${x.scans.map((s) => `<li><span class="grow"><span class="num">${esc(dot(time(s.at)))}</span> ${ACTION[s.action]}
+      ${s.via === 'koreksi' ? `<span class="muted small">ditambah: ${esc(s.reason)}</span>` : ''}
+      ${s.voided ? `<span class="muted small">dibatalkan: ${esc(s.void_reason)}</span>` : ''}</span>${s.voided ? tag(['Dibatalkan', 'tag-bad']) : ''}</li>`).join('')}</ul>`
+    : '<p class="muted small">Belum ada scan di tanggal ini.</p>';
+  return formDialog({
+    title: `Koreksi presensi ${x.full_name || x.name}`,
+    submitLabel: 'Simpan koreksi',
+    html: `<div class="stack-sm"><p class="h-small">Scan ${esc(dmy(date))}</p>${hist}</div>
+      <label class="field"><span>Yang dikoreksi</span><select name="what">
+        <option value="add">Tambah scan yang lupa</option>
+        ${live.map((s) => `<option value="${s.id}">Batalkan scan ${esc(dot(time(s.at)))} ${ACTION[s.action]}</option>`).join('')}</select></label>
+      <div class="form-grid" data-addonly>
+        <label class="field"><span>Scan</span><select name="action">${Object.entries(ACTION).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+        <label class="field"><span>Jam <span class="hint is-req">wajib</span></span><input type="time" name="at"></label></div>
+      <label class="field"><span>Alasan <span class="hint is-req">wajib</span></span><input type="text" name="reason" placeholder="Contoh: lupa scan pulang" required></label>
+      <p class="muted small">Setiap koreksi tercatat dengan nama Anda dan alasannya.</p>`,
+    onOpen: (f) => { const sync = () => { $('[data-addonly]', f).hidden = f.elements.what.value !== 'add'; }; f.elements.what.addEventListener('change', sync); sync(); },
+    onSubmit: async (f) => {
+      const what = f.elements.what.value, reason = f.elements.reason.value;
+      if (what === 'add') {
+        if (!f.elements.at.value) throw new Error('Isi jamnya.');
+        await rpc('att_correct_add', { p_staff: x.id, p_action: f.elements.action.value, p_at: `${date}T${f.elements.at.value}:00+07:00`, p_reason: reason });
+      } else await rpc('att_correct_void', { p_event: Number(what), p_reason: reason });
+      toast('Koreksi tersimpan'); done();
+    },
+  });
+}
+
 async function dayPart(p, opts, date = ymd()) {
   skel(p);
   let d;
   try { d = await rpc('att_day_report', { p_date: date }); } catch (e) { return errBox(p, e); }
+  const isToday = d.date === ymd();
   p.innerHTML = `
   <section class="panel stack">
-    <div class="row-between"><${hx(p)}>Presensi per hari</${hx(p)}>
+    <div class="row-between"><div class="stack-sm"><${hx(p)}>Presensi per hari</${hx(p)}><p class="muted">${esc(longDate(d.date, { weekday: 'long', year: 'numeric' }))}</p></div>
       <label class="field"><span class="visually-hidden">Tanggal</span><input type="date" id="am-date" value="${esc(d.date)}" max="${ymd()}"></label></div>
-    ${d.people.length ? `<ul class="list">${d.people.map((x) => `<li><div class="stack-sm" style="flex:1 1 100%;min-width:0">
-      <div class="row-between"><strong>${nameBtn(x.id, x.full_name || x.name)}</strong>${date === ymd() ? tag([state(x.next), x.next[0] === 'masuk' ? 'tag' : 'tag-ok']) : ''}</div>
-      ${x.report.length ? x.report.map((r) => `<p class="small">${esc([r.kind === 'izin' ? 'Izin' : r.kind === 'di_luar_jadwal' ? 'Di luar jadwal' : `${r.shift || 'Jadwal'} ${range(r)}`,
-          r.masuk && `masuk ${time(r.masuk)}`, r.pulang && `pulang ${time(r.pulang)}`, r.break_min && `istirahat ${hm(r.break_min)}`, r.late_min && `terlambat ${r.late_min} menit`].filter(Boolean).join(', '))}
-        ${flags(r.flags.filter((f) => !f.startsWith('sedang_')))}</p>`).join('') : '<p class="muted small">Tidak ada jadwal.</p>'}
-      ${x.scans.length ? `<ul class="list">${x.scans.map((s) => `<li><span class="grow"><span class="num">${esc(time(s.at))}</span> ${ACTION[s.action]}
-          ${s.via === 'koreksi' ? `<span class="muted small">koreksi: ${esc(s.reason)}</span>` : ''}
-          ${s.voided ? `<span class="tag tag-bad">Dibatalkan</span> <span class="muted small">${esc(s.void_reason)}</span>` : ''}</span>
-          ${s.voided || x.is_me ? '' : `<button class="btn btn-text" type="button" data-void="${s.id}">Batalkan scan</button>`}</li>`).join('')}</ul>` : ''}
-      ${x.is_me ? '<p class="muted small">Presensi Anda sendiri dikoreksi oleh pemilik atau manajer lain.</p>'
-        : `<button class="btn btn-text" type="button" data-add="${esc(x.id)}" data-name="${esc(x.name)}" style="justify-self:start">Tambah scan yang lupa</button>`}
-    </div></li>`).join('')}</ul>` : '<p class="muted">Belum ada akun staf.</p>'}
-  </section>
-  <form class="panel stack" id="am-fix" hidden novalidate>
-    <h2 id="am-fix-title">Koreksi presensi</h2>
-    <div class="form-grid">
-      <label class="field" id="am-fix-act"><span>Scan</span><select id="am-fix-action">${Object.entries(ACTION).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
-      <label class="field" id="am-fix-time"><span>Jam <span class="hint is-req">wajib</span></span><input type="time" id="am-fix-at" required></label>
-      <label class="field"><span>Alasan <span class="hint is-req">wajib</span></span><input type="text" id="am-fix-reason" placeholder="Contoh: lupa scan pulang" required></label>
-    </div>
-    <p class="muted small">Setiap koreksi tercatat dengan nama Anda dan alasannya.</p>
-    <div class="notice" id="am-fix-msg" hidden></div>
-    <div class="row"><button class="btn" type="submit">Simpan koreksi</button><button class="btn btn-quiet" type="button" id="am-fix-no">Batal</button></div>
-  </form>`;
+    ${d.people.length ? `<div class="table-wrap"><table class="att-day">
+      <thead><tr><th scope="col">Staf</th><th scope="col">Jadwal</th><th scope="col">Masuk</th><th scope="col">Istirahat</th><th scope="col">Pulang</th><th scope="col">Keterangan</th><th scope="col"><span class="visually-hidden">Koreksi</span></th></tr></thead>
+      <tbody>${d.people.map((x) => dayRow(x, isToday)).join('')}</tbody></table></div>
+    <p class="muted small">Lupa scan atau scan salah? Tekan Koreksi di baris orangnya. Ketuk nama untuk rincian per staf.</p>` : '<p class="muted">Belum ada akun staf.</p>'}
+  </section>`;
   $('#am-date', p).addEventListener('change', (e) => e.target.value && dayPart(p, opts, e.target.value));
   wireNames(p);
-  let target = null;
-  const open = (t, title) => {
-    target = t; $('#am-fix-title', p).textContent = title;
-    $('#am-fix-act', p).hidden = $('#am-fix-time', p).hidden = t.kind === 'void';
-    $('#am-fix', p).hidden = false; notice($('#am-fix-msg', p), ''); $('#am-fix-reason', p).value = '';
-    (t.kind === 'void' ? $('#am-fix-reason', p) : $('#am-fix-action', p)).focus();
-  };
-  $$('[data-add]', p).forEach((b) => b.addEventListener('click', () => open({ kind: 'add', staff: b.dataset.add }, `Tambah scan untuk ${b.dataset.name}`)));
-  $$('[data-void]', p).forEach((b) => b.addEventListener('click', () => open({ kind: 'void', id: Number(b.dataset.void) }, 'Batalkan scan ini')));
-  $('#am-fix-no', p).addEventListener('click', () => { $('#am-fix', p).hidden = true; });
-  $('#am-fix', p).addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = $('button[type="submit"]', e.currentTarget), msg = $('#am-fix-msg', p), reason = $('#am-fix-reason', p).value;
-    try {
-      busy(btn, true, 'Menyimpan…');
-      if (target.kind === 'void') await rpc('att_correct_void', { p_event: target.id, p_reason: reason });
-      else {
-        const at = $('#am-fix-at', p).value;
-        if (!at) throw new Error('Isi jamnya.');
-        await rpc('att_correct_add', { p_staff: target.staff, p_action: $('#am-fix-action', p).value, p_at: `${d.date}T${at}:00+07:00`, p_reason: reason });
-      }
-      toast('Koreksi tersimpan');
-      dayPart(p, opts, d.date);
-    } catch (err) { notice(msg, err.message); busy(btn, false); }
-  });
+  $$('[data-fix]', p).forEach((b) => b.addEventListener('click', () => fixDialog(d.people.find((x) => x.id === b.dataset.fix), d.date, () => dayPart(p, opts, d.date))));
   // Lokasi booth, under the day (owner or manager, from a device at the booth).
   const loc = document.createElement('section');
   loc.className = 'panel stack'; loc.id = 'ab-loc'; loc.setAttribute('aria-labelledby', 'ab-loc-title');
@@ -437,40 +461,69 @@ function loadSheetJS() {
     document.head.append(s);
   });
 }
-const HEADER = ['Nama', 'Hari', 'Tanggal', 'Shift', 'Mulai', 'Selesai', 'Jenis', 'Catatan'];
-const toRow = (e, nameOf) => {
+// The template explains itself (Glenn, 14 Nov 2026: "make the templates easier to understand"):
+// each header carries its hint in brackets (schedule.js ignores the bracket), shift rows leave
+// the times empty, Jenis is empty for plain work, people are grouped with a blank row between,
+// and a Cara mengisi sheet shows numbered steps plus example rows.
+const HEADER = ['Nama', 'Hari (Senin sampai Minggu)', 'Tanggal (satu tanggal saja, dd/mm/yyyy)', 'Shift (lihat sheet Shift, atau Libur)',
+  'Mulai (kalau tanpa shift)', 'Selesai (kalau tanpa shift)', 'Jenis (kosong = kerja)', 'Catatan'];
+const toRow = (e, nameOf, shifts) => {
   const nm = nameOf(e.staff_id) || e.name;
   const hari = e.weekday ? WEEKDAYS[e.weekday - 1] : '', tgl = e.date ? e.date.split('-').reverse().join('/') : '';
   if (e.kind === 'libur') return [nm, hari, tgl, 'Libur', '', '', '', e.note || ''];
   if (e.kind !== 'kerja') return [nm, hari, tgl, '', e.start, e.end, KIND[e.kind], e.note || ''];
-  return [nm, hari, tgl, e.shift || 'Custom', e.start, e.end, 'Kerja', e.note || ''];
+  const sh = shifts.find((x) => x.name === e.shift);
+  const same = sh && sh.start === e.start && sh.end === e.end;
+  return [nm, hari, tgl, e.shift || '', same ? '' : e.start, same ? '' : e.end, '', e.note || ''];
 };
 
 async function downloadTemplate(setup) {
   await loadSheetJS();
   const X = window.XLSX, wb = X.utils.book_new();
   const nameOf = (id) => setup.staff.find((s) => s.id === id)?.name;
-  let rows = [...setup.weekly, ...setup.dates.filter((e) => e.date >= setup.today)].map((e) => toRow(e, nameOf));
-  // Nothing saved yet: one Libur row per person and day to fill in.
-  if (!rows.length) rows = setup.staff.flatMap((s) => WEEKDAYS.map((d) => [s.name, d, '', 'Libur', '', '', '', '']));
+  const active = setup.shifts.filter((s) => s.active);
+  const order = (e) => [setup.staff.findIndex((s) => s.id === e.staff_id), e.date ? 10 : 0, e.weekday || 0, e.date || '', e.start || ''];
+  const cmp = (a, b) => { const x = order(a), y = order(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1; return 0; };
+  const saved = [...setup.weekly, ...setup.dates.filter((e) => e.date >= setup.today)].sort(cmp);
+  const rows = [];
+  if (saved.length) saved.forEach((e, i) => { if (i && e.staff_id !== saved[i - 1].staff_id) rows.push([]); rows.push(toRow(e, nameOf, active)); });
+  // Nothing saved yet: one Libur row per person and day, ready to overwrite.
+  else setup.staff.forEach((s, i) => { if (i) rows.push([]); WEEKDAYS.forEach((d) => rows.push([s.name, d, '', 'Libur', '', '', '', ''])); });
   const ws = X.utils.aoa_to_sheet([HEADER, ...rows]);
-  ws['!cols'] = [14, 10, 13, 12, 9, 9, 11, 30].map((wch) => ({ wch }));
+  ws['!cols'] = [14, 16, 20, 22, 12, 12, 14, 30].map((wch) => ({ wch }));
   X.utils.book_append_sheet(wb, ws, 'Jadwal');
-  const help = [['Petunjuk mengisi jadwal staf'], [''],
-    ['Satu baris untuk satu orang dan satu blok jam. Kalau dalam sehari ada dua blok jam, pakai dua baris.'],
-    ['Jadwal mingguan: isi kolom Hari (Senin sampai Minggu). Jadwal ini berulang setiap minggu.'],
-    ['Satu hari tertentu: isi kolom Tanggal (dd/mm/yyyy), kosongkan Hari. Tanggal itu menggantikan jadwal mingguan.'],
-    ['Shift: pilih salah satu dari sheet Shift, atau Libur, atau Custom. Kalau memilih shift, Mulai dan Selesai boleh dikosongkan.'],
-    ['Custom: isi jam Mulai dan Selesai sendiri, contoh 08:00 dan 11:00. Libur: tidak perlu jam.'],
-    ['Jenis: Kerja, Kuliah atau Tidak bisa (jam orang itu tidak tersedia). Kuliah dan Tidak bisa tidak memakai Shift.'],
-    [`Jam kerja harus di dalam jam buka ${setup.opening.open} sampai ${setup.opening.close}.`],
-    ['Nama harus sama dengan nama staf di aplikasi: ' + setup.staff.map((s) => s.name).join(', ') + '.'],
-    ['Setiap orang yang ada di file ini, jadwal mingguannya diganti dengan isi file. Orang yang tidak ada di file tetap memakai jadwal lamanya.']];
-  const wh = X.utils.aoa_to_sheet(help); wh['!cols'] = [{ wch: 120 }];
-  X.utils.book_append_sheet(wb, wh, 'Petunjuk');
-  const sh = X.utils.aoa_to_sheet([['Shift', 'Mulai', 'Selesai', 'Istirahat (menit)'],
-    ...setup.shifts.filter((s) => s.active).map((s) => [s.name, s.start, s.end, s.break_minutes]), ['Libur', '', '', ''], ['Custom', '', '', '']]);
-  sh['!cols'] = [{ wch: 14 }, { wch: 9 }, { wch: 9 }, { wch: 18 }];
+
+  const who = setup.staff[0]?.name || 'Nama', sh1 = active[0], sh2 = active[1] || active[0];
+  const ex = [
+    [who, 'Senin', '', sh1 ? sh1.name : 'Fulltime 1', '', '', '', `Kerja ${sh1 ? sh1.name : 'shift'} setiap Senin, jamnya ikut shift`],
+    [who, 'Selasa', '', 'Libur', '', '', '', 'Libur setiap Selasa'],
+    [who, 'Rabu', '', '', '13:00', '17:00', '', 'Kerja di luar shift: kosongkan Shift, isi jamnya'],
+    [who, 'Kamis', '', '', '08:00', '12:00', 'Kuliah', 'Jam kuliah, tidak bisa dijadwalkan kerja'],
+    [who, 'Kamis', '', sh2 ? sh2.name : 'Parttime 2', '', '', '', 'Hari yang sama boleh dua baris'],
+    [who, '', '24/12/2026', 'Libur', '', '', '', 'Satu tanggal saja, menggantikan jadwal mingguan hari itu'],
+  ];
+  const help = [
+    ['Cara mengisi jadwal staf'], [''],
+    ['1. Isi sheet Jadwal. Satu baris = satu orang, satu hari, satu blok jam.'],
+    ['2. Jadwal yang sama setiap minggu: isi kolom Hari. Untuk satu tanggal saja (tukar shift, libur khusus): isi kolom Tanggal dan kosongkan Hari.'],
+    ['3. Kerja sesuai shift: tulis nama shift persis seperti di sheet Shift. Jam Mulai dan Selesai dikosongkan, jamnya ikut shift.'],
+    ['4. Kerja di luar shift: kosongkan Shift, lalu isi Mulai dan Selesai, contoh 13:00 dan 17:00.'],
+    ['5. Tidak masuk: tulis Libur di kolom Shift.'],
+    ['6. Kuliah atau jam lain yang tidak bisa kerja: tulis Kuliah atau Tidak bisa di kolom Jenis, lalu isi Mulai dan Selesai. Kolom Jenis kosong berarti kerja.'],
+    ['7. Simpan file, lalu unggah di halaman Jadwal. Aplikasi menunjukkan baris yang salah sebelum ada yang disimpan.'],
+    [''], ['Contoh'], HEADER.map((h) => h.replace(/\s*\(.*$/, '')), ...ex, [''],
+    ['Perlu diingat'],
+    ['Nama ditulis persis seperti di aplikasi: ' + setup.staff.map((s) => s.name).join(', ') + '.'],
+    [`Jam kerja harus di dalam jam buka booth, ${setup.opening.open} sampai ${setup.opening.close}.`],
+    ['Orang yang ada di file ini: jadwal mingguannya diganti isi file. Orang yang tidak ada di file: jadwalnya tetap.'],
+    ['Baris kosong boleh dibiarkan.'],
+  ];
+  const wh = X.utils.aoa_to_sheet(help);
+  wh['!cols'] = [16, 10, 12, 14, 8, 8, 10, 60].map((wch) => ({ wch }));
+  X.utils.book_append_sheet(wb, wh, 'Cara mengisi');
+  const sh = X.utils.aoa_to_sheet([['Tulis di kolom Shift', 'Mulai', 'Selesai', 'Istirahat'],
+    ...active.map((s) => [s.name, s.start, s.end, `${s.break_minutes} menit`]), ['Libur', '', '', 'tidak masuk']]);
+  sh['!cols'] = [{ wch: 20 }, { wch: 9 }, { wch: 9 }, { wch: 14 }];
   X.utils.book_append_sheet(wb, sh, 'Shift');
   X.writeFile(wb, `jadwal-staf-${ymd()}.xlsx`);
 }
@@ -549,7 +602,7 @@ function shiftCards(sec, setup, reload, editing = null) {
       <button class="btn btn-quiet sh-edit" type="button" data-sh-edit="${s.id}" aria-label="Ubah shift ${esc(s.name)}">Ubah</button></li>`;
   sec.innerHTML = `
     <div class="stack-sm"><h2 id="am-sh">Pilihan shift</h2>
-      <p class="muted small">Shift yang bisa dipilih di jadwal dan di template. Shift nonaktif tidak muncul lagi di pilihan; jadwal yang sudah tersimpan tetap.</p></div>
+      <p class="muted small">Jam kerja yang dipakai berulang. Nama shift ini yang ditulis di jadwal dan di file Excel. Shift yang dimatikan tidak muncul lagi sebagai pilihan, jadwal lama tetap.</p></div>
     <ul class="sh-cards">${setup.shifts.map(card).join('')}
       ${editing === 'baru' ? card(blank) : '<li class="sh-card sh-new"><button class="sh-add" type="button" data-sh-edit="baru">Tambah shift</button></li>'}</ul>`;
   $$('[data-sh-edit]', sec).forEach((b) => b.addEventListener('click', () => shiftCards(sec, setup, reload, b.dataset.shEdit)));
@@ -597,9 +650,12 @@ async function schedulePart(p) {
     <div class="notice" id="am-sh-msg" hidden></div>
   </section>` : '<section class="panel stack" id="am-shifts" aria-labelledby="am-sh"></section>'}
   <section class="panel stack" aria-labelledby="am-up">
-    <h2 id="am-up">Unggah jadwal</h2>
-    <p class="muted small">Unduh template (berisi jadwal yang tersimpan sekarang), isi di Excel atau Google Sheets, lalu unggah. Aplikasi menampilkan baris yang tidak terbaca sebelum disimpan.</p>
-    <div class="row"><button class="btn btn-quiet" type="button" id="am-tpl">Unduh template</button>
+    <h2 id="am-up">Isi jadwal lewat Excel</h2>
+    <ol class="small stack-sm" style="padding-left:1.25rem;margin:0">
+      <li>Unduh file jadwal. Isinya jadwal yang tersimpan sekarang, plus sheet Cara mengisi dengan contoh.</li>
+      <li>Ubah di Excel atau Google Sheets: satu baris untuk satu orang dan satu hari. Tulis nama shift, atau Libur.</li>
+      <li>Unggah lagi. Baris yang salah ditunjukkan dulu, belum ada yang disimpan sampai Anda menekan Simpan.</li></ol>
+    <div class="row"><button class="btn btn-quiet" type="button" id="am-tpl">Unduh file jadwal</button>
       <button class="btn" type="button" id="am-pick">Unggah file .xlsx</button><input type="file" id="am-file" accept=".xlsx,.xls,.csv" hidden></div>
     <div id="am-preview" class="stack"></div>
   </section>

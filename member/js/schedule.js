@@ -86,7 +86,8 @@ export function parseScheduleRows(rows, { shifts = DEFAULT_SHIFTS, staffNames = 
   let h = 0;
   while (h < rows.length && !(rows[h] || []).some((c) => clean(c))) h++;
   const col = {};
-  (rows[h] || []).forEach((c, i) => { const k = HEADERS[norm(c)]; if (k && !(k in col)) col[k] = i; });
+  // A header may carry its own hint in brackets, as the template does: "Hari (Senin sampai Minggu)".
+  (rows[h] || []).forEach((c, i) => { const k = HEADERS[norm(c).replace(/\s*\(.*$/, '')]; if (k && !(k in col)) col[k] = i; });
   if (!('name' in col)) { err(h + 1, 'Kolom "Nama" tidak ditemukan di baris judul.'); return { entries, problems }; }
   if (!('day' in col) && !('date' in col)) { err(h + 1, 'Kolom "Hari" atau "Tanggal" tidak ditemukan di baris judul.'); return { entries, problems }; }
   const get = (r, k) => (k in col ? r[col[k]] : '');

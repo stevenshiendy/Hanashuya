@@ -445,9 +445,10 @@ async function shiftDetail(panel, rpc, id, back) {
 }
 
 /* ---------------------------------------------------------------- Akunting: Neraca bulanan, Laporan jurnal */
-const SOURCES = [['', 'Semua sumber'], ['penjualan', 'Penjualan'], ['batal', 'Batal / refund'], ['pembelian', 'Pembelian'], ['kas', 'Kas'], ['stok', 'Stok'], ['komisi', 'Komisi'], ['manual', 'Manual']];
+const SOURCES = [['', 'Semua sumber'], ['penjualan', 'Penjualan'], ['batal', 'Retur / pembatalan penjualan'], ['pembelian', 'Pembelian'], ['kas', 'Kas'], ['stok', 'Stok'], ['komisi', 'Komisi'], ['manual', 'Manual']];
 const SRC = Object.fromEntries(SOURCES);
-const TYPE = { aset: 'Aset', kewajiban: 'Kewajiban', ekuitas: 'Ekuitas', pendapatan: 'Pendapatan', beban: 'Beban' };
+// SAK EMKM terms; 'kewajiban' is the database key for Liabilitas (14 Nov 2026).
+const TYPE = { aset: 'Aset', kewajiban: 'Liabilitas', ekuitas: 'Ekuitas', pendapatan: 'Pendapatan', beban: 'Beban' };
 
 async function exportAoa(aoa, sheet, name) {
   await loadSheetJS();
@@ -462,8 +463,8 @@ export function accExtraView(body, { rpc, tab, from, to, accounts = [] }) {
 
 function monthlyView(body, rpc, from, to) {
   const st = { mutasi: false, d: null };
-  body.innerHTML = `<h2>Neraca bulanan</h2>
-    <p class="muted small">Saldo akun neraca di akhir setiap bulan, berdampingan. Bulan diambil dari rentang tanggal di atas (paling banyak 24 bulan); bulan berjalan dihitung sampai hari ini.</p>
+  body.innerHTML = `<h2>Posisi keuangan bulanan <span class="muted small" lang="en">Monthly statement of financial position</span></h2>
+    <p class="muted small">Saldo akun posisi keuangan (neraca) di akhir setiap bulan, berdampingan. Bulan diambil dari rentang tanggal di atas (paling banyak 24 bulan); bulan berjalan dihitung sampai hari ini.</p>
     <div class="lap-bar"><label class="row" style="gap:var(--space-xs);min-height:40px"><input type="checkbox" data-mutasi> <span>Tampilkan mutasi debit dan kredit</span></label>
       <button class="btn" type="button" data-go>Tampilkan</button><button class="btn btn-quiet" type="button" data-x disabled>Ekspor .xlsx</button></div>
     <div class="notice" data-msg role="status" hidden></div><div data-out></div>`;
@@ -477,12 +478,12 @@ function monthlyView(body, rpc, from, to) {
     const tot = (k, label) => line(label, null, d.totals.map((t) => ({ saldo: t[k] })), true);
     out.innerHTML = `<div class="table-wrap"><table><thead>${head}</thead><tbody>
       <tr><th scope="rowgroup" colspan="${2 + M.length * (mut ? 3 : 1)}">Aset</th></tr>${sec('aset')}${tot('aset', 'Jumlah aset')}
-      <tr><th scope="rowgroup" colspan="${2 + M.length * (mut ? 3 : 1)}">Kewajiban</th></tr>${sec('kewajiban')}${tot('kewajiban', 'Jumlah kewajiban')}
+      <tr><th scope="rowgroup" colspan="${2 + M.length * (mut ? 3 : 1)}">Liabilitas</th></tr>${sec('kewajiban')}${tot('kewajiban', 'Jumlah liabilitas')}
       <tr><th scope="rowgroup" colspan="${2 + M.length * (mut ? 3 : 1)}">Ekuitas</th></tr>${sec('ekuitas')}
-      ${line('Laba (rugi) berjalan', null, d.profit.map((p) => ({ saldo: p.saldo })))}${tot('ekuitas', 'Jumlah ekuitas')}
-      ${line('Kewajiban + ekuitas', null, d.totals.map((t) => ({ saldo: Number(t.kewajiban) + Number(t.ekuitas) })), true)}
+      ${line('Laba (rugi) periode berjalan', null, d.profit.map((p) => ({ saldo: p.saldo })))}${tot('ekuitas', 'Jumlah ekuitas')}
+      ${line('Jumlah liabilitas dan ekuitas', null, d.totals.map((t) => ({ saldo: Number(t.kewajiban) + Number(t.ekuitas) })), true)}
       </tbody></table></div>
-      <p class="${d.totals.every((t) => t.balanced) ? 'muted small' : 'notice notice-error'}">${d.totals.every((t) => t.balanced) ? 'Seimbang di setiap bulan: aset sama dengan kewajiban ditambah ekuitas.' : 'Ada bulan yang tidak seimbang. Hubungi pengembang.'}</p>`;
+      <p class="${d.totals.every((t) => t.balanced) ? 'muted small' : 'notice notice-error'}">${d.totals.every((t) => t.balanced) ? 'Seimbang di setiap bulan: aset sama dengan liabilitas ditambah ekuitas.' : 'Ada bulan yang tidak seimbang. Hubungi pengembang.'}</p>`;
   };
   const load = async () => {
     notice(msg, '');
@@ -497,13 +498,13 @@ function monthlyView(body, rpc, from, to) {
     const d = st.d; if (!d) return;
     const aoa = [['Kode', 'Akun', 'Jenis', 'Saldo awal', ...d.months.flatMap((m) => [`${m.label} debit`, `${m.label} kredit`, `${m.label} saldo`])]];
     d.rows.forEach((r) => aoa.push([r.code, r.name, TYPE[r.type], Number(r.opening), ...r.months.flatMap((c) => [Number(c.debit), Number(c.credit), Number(c.saldo)])]));
-    aoa.push(['', 'Laba (rugi) berjalan', 'Ekuitas', '', ...d.profit.flatMap((p) => ['', '', Number(p.saldo)])]);
+    aoa.push(['', 'Laba (rugi) periode berjalan', 'Ekuitas', '', ...d.profit.flatMap((p) => ['', '', Number(p.saldo)])]);
     aoa.push(['', 'Jumlah aset', '', '', ...d.totals.flatMap((t) => ['', '', Number(t.aset)])]);
-    aoa.push(['', 'Jumlah kewajiban', '', '', ...d.totals.flatMap((t) => ['', '', Number(t.kewajiban)])]);
+    aoa.push(['', 'Jumlah liabilitas', '', '', ...d.totals.flatMap((t) => ['', '', Number(t.kewajiban)])]);
     aoa.push(['', 'Jumlah ekuitas', '', '', ...d.totals.flatMap((t) => ['', '', Number(t.ekuitas)])]);
     const btn = e.currentTarget; // currentTarget is null after the first await
     busy(btn, true, 'Menyiapkan…');
-    try { await exportAoa(aoa, 'Neraca bulanan', `hanashuya-neraca-bulanan-${d.from}-${d.to}.xlsx`); } catch (err) { notice(msg, err.message); }
+    try { await exportAoa(aoa, 'Posisi keuangan bulanan', `hanashuya-posisi-keuangan-bulanan-${d.from}-${d.to}.xlsx`); } catch (err) { notice(msg, err.message); }
     busy(btn, false);
   });
   load();

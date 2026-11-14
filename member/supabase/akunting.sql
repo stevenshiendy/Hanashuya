@@ -4,7 +4,7 @@
 -- manager (read-only for the manager, Glenn 13 Nov 2026). It edits no other file's functions.
 --
 -- Simple booth bookkeeping (SAK EMKM style, accrual light):
---   acc_accounts / acc_save_account / acc_delete_account   Akun Buku Besar: the chart of accounts (the owner adds,
+--   acc_accounts / acc_save_account / acc_delete_account   Bagan akun (was Akun buku besar): the chart of accounts (the owner adds,
 --                           renames, switches off; a used account can never be deleted)
 --   acc_journals / acc_lines   the journal. Debit must equal kredit (checked when posting and again by a trigger)
 --   acc_sync(from, to)      builds the automatic journals from the POS tables. Safe to run again: one live journal
@@ -15,13 +15,14 @@
 -- Automatic journals (source): penjualan (each paid order), batal (void or refund of a paid order), pembelian
 -- (goods in with a harga beli), kas (cash moves and the drawer selisih at shift close), stok (sampel, promo,
 -- buang, rusak at harga pokok), komisi (payouts of pos-transaksi.sql). Opening balances are entered by hand
--- in Buat jurnal, for example Dr Kas laci / Cr Modal pemilik for the drawer float.
+-- in Buat jurnal, for example Dr Kas di tangan / Cr Modal pemilik for the drawer float.
 
 -- ---------------------------------------------------------------- tables
 create table if not exists public.acc_accounts (
   id bigint generated always as identity primary key,
   code text not null unique check (code ~ '^[0-9]-[0-9]{4}$'),
   name text not null check (length(trim(name)) between 2 and 80),
+  name_en text check (name_en is null or length(trim(name_en)) between 2 and 80),
   type text not null check (type in ('aset', 'kewajiban', 'ekuitas', 'pendapatan', 'beban')),
   normal text not null check (normal in ('debit', 'kredit')),
   parent_id bigint references public.acc_accounts (id),
@@ -30,6 +31,8 @@ create table if not exists public.acc_accounts (
   created_at timestamptz not null default now()
 );
 create unique index if not exists acc_accounts_name on public.acc_accounts (lower(name));
+-- English (IFRS) name, 14 Nov 2026. Added here for databases made before it.
+alter table public.acc_accounts add column if not exists name_en text check (name_en is null or length(trim(name_en)) between 2 and 80);
 
 create table if not exists public.acc_journals (
   id bigint generated always as identity primary key,
@@ -91,33 +94,89 @@ create constraint trigger acc_lines_balance after insert on public.acc_lines
 -- ---------------------------------------------------------------- chart of accounts
 -- System accounts are the ones the automatic journals use: the owner can rename them but not
 -- switch them off or change their code or type.
-insert into public.acc_accounts (code, name, type, normal, system) values
-  ('1-1100', 'Kas laci', 'aset', 'debit', true),
-  ('1-1200', 'Kas QRIS (GoPay Merchant)', 'aset', 'debit', true),
-  ('1-1300', 'Bank', 'aset', 'debit', true),
-  ('1-1400', 'Piutang platform pesan-antar', 'aset', 'debit', true),
-  ('1-1500', 'Persediaan bahan (choux, vla, kemasan)', 'aset', 'debit', true),
-  ('2-1100', 'Hutang usaha (pemasok)', 'kewajiban', 'kredit', true),
-  ('2-1200', 'Hutang komisi', 'kewajiban', 'kredit', true),
-  ('2-1300', 'Hutang lain-lain', 'kewajiban', 'kredit', false),
-  ('3-1100', 'Modal pemilik', 'ekuitas', 'kredit', true),
-  ('3-1200', 'Prive / setor ke pemilik', 'ekuitas', 'debit', true),
-  ('4-1100', 'Pendapatan penjualan booth', 'pendapatan', 'kredit', true),
-  ('4-1200', 'Pendapatan pesan-antar', 'pendapatan', 'kredit', true),
-  ('4-1300', 'Pendapatan lain-lain', 'pendapatan', 'kredit', false),
-  ('4-2000', 'Diskon penjualan', 'pendapatan', 'debit', true),
-  ('5-1100', 'Harga pokok penjualan (HPP)', 'beban', 'debit', true),
-  ('6-1100', 'Beban komisi', 'beban', 'debit', true),
-  ('6-1200', 'Beban sampel', 'beban', 'debit', true),
-  ('6-1300', 'Beban promosi', 'beban', 'debit', true),
-  ('6-1400', 'Beban barang rusak / dibuang', 'beban', 'debit', true),
-  ('6-1500', 'Selisih kas', 'beban', 'debit', true),
-  ('6-2100', 'Beban sewa', 'beban', 'debit', false),
-  ('6-2200', 'Beban gaji', 'beban', 'debit', false),
-  ('6-2300', 'Beban listrik dan air', 'beban', 'debit', false),
-  ('6-2400', 'Beban pemasaran', 'beban', 'debit', false),
-  ('6-9000', 'Beban lain-lain', 'beban', 'debit', true)
+insert into public.acc_accounts (code, name, name_en, type, normal, system) values
+  ('1-1100', 'Kas di tangan', 'Cash on hand', 'aset', 'debit', true),
+  ('1-1200', 'Kas di dompet digital (QRIS GoPay Merchant)', 'Cash in e-wallet (QRIS GoPay Merchant)', 'aset', 'debit', true),
+  ('1-1300', 'Kas di bank', 'Cash in bank', 'aset', 'debit', true),
+  ('1-1400', 'Piutang usaha platform pesan-antar', 'Trade receivables, delivery platforms', 'aset', 'debit', true),
+  ('1-1500', 'Persediaan', 'Inventories', 'aset', 'debit', true),
+  ('2-1100', 'Utang usaha', 'Trade payables', 'kewajiban', 'kredit', true),
+  ('2-1200', 'Utang komisi', 'Commissions payable', 'kewajiban', 'kredit', true),
+  ('2-1300', 'Utang lain-lain', 'Other payables', 'kewajiban', 'kredit', false),
+  ('3-1100', 'Modal pemilik', 'Owner''s capital', 'ekuitas', 'kredit', true),
+  ('3-1200', 'Prive', 'Owner''s drawings', 'ekuitas', 'debit', true),
+  ('4-1100', 'Penjualan booth', 'Sales, booth', 'pendapatan', 'kredit', true),
+  ('4-1200', 'Penjualan pesan-antar', 'Sales, delivery platforms', 'pendapatan', 'kredit', true),
+  ('4-1300', 'Pendapatan lain-lain', 'Other income', 'pendapatan', 'kredit', false),
+  ('4-2000', 'Potongan penjualan', 'Sales discounts', 'pendapatan', 'debit', true),
+  ('5-1100', 'Beban pokok penjualan', 'Cost of goods sold', 'beban', 'debit', true),
+  ('6-1100', 'Beban komisi penjualan', 'Sales commission expense', 'beban', 'debit', true),
+  ('6-1200', 'Beban sampel produk', 'Product sample expense', 'beban', 'debit', true),
+  ('6-1300', 'Beban promosi', 'Promotion expense', 'beban', 'debit', true),
+  ('6-1400', 'Beban penghapusan persediaan', 'Inventory write-off expense', 'beban', 'debit', true),
+  ('6-1500', 'Selisih kas', 'Cash over and short', 'beban', 'debit', true),
+  ('6-2100', 'Beban sewa', 'Rent expense', 'beban', 'debit', false),
+  ('6-2200', 'Beban gaji dan upah', 'Salaries and wages expense', 'beban', 'debit', false),
+  ('6-2300', 'Beban listrik dan air', 'Utilities expense', 'beban', 'debit', false),
+  ('6-2400', 'Beban pemasaran', 'Marketing expense', 'beban', 'debit', false),
+  ('6-9000', 'Beban lain-lain', 'Other expenses', 'beban', 'debit', true)
 on conflict (code) do nothing;
+
+-- Standard names (Glenn, 14 Nov 2026: "industry standard naming for both international and bahasa indonesia").
+-- Indonesian follows SAK EMKM / PSAK wording and KBBI spelling (utang, not hutang); the books stay in Indonesian
+-- and rupiah (UU KUP Pasal 28 ayat 4). name_en is the IFRS-style English name, shown next to it and in exports.
+-- A system account is renamed only while it still has its old default name, so the owner's own renames are kept.
+update public.acc_accounts a set name = v.new_name
+  from (values
+    ('1-1100', 'Kas laci', 'Kas di tangan'),
+    ('1-1200', 'Kas QRIS (GoPay Merchant)', 'Kas di dompet digital (QRIS GoPay Merchant)'),
+    ('1-1300', 'Bank', 'Kas di bank'),
+    ('1-1400', 'Piutang platform pesan-antar', 'Piutang usaha platform pesan-antar'),
+    ('1-1500', 'Persediaan bahan (choux, vla, kemasan)', 'Persediaan'),
+    ('2-1100', 'Hutang usaha (pemasok)', 'Utang usaha'),
+    ('2-1200', 'Hutang komisi', 'Utang komisi'),
+    ('2-1300', 'Hutang lain-lain', 'Utang lain-lain'),
+    ('3-1200', 'Prive / setor ke pemilik', 'Prive'),
+    ('4-1100', 'Pendapatan penjualan booth', 'Penjualan booth'),
+    ('4-1200', 'Pendapatan pesan-antar', 'Penjualan pesan-antar'),
+    ('4-2000', 'Diskon penjualan', 'Potongan penjualan'),
+    ('5-1100', 'Harga pokok penjualan (HPP)', 'Beban pokok penjualan'),
+    ('6-1100', 'Beban komisi', 'Beban komisi penjualan'),
+    ('6-1200', 'Beban sampel', 'Beban sampel produk'),
+    ('6-1400', 'Beban barang rusak / dibuang', 'Beban penghapusan persediaan'),
+    ('6-2200', 'Beban gaji', 'Beban gaji dan upah')
+  ) v(code, old_name, new_name)
+ where a.code = v.code and a.name = v.old_name
+   and not exists (select 1 from public.acc_accounts b where lower(b.name) = lower(v.new_name) and b.id <> a.id);
+update public.acc_accounts a set name_en = v.en
+  from (values
+    ('1-1100', 'Cash on hand'),
+    ('1-1200', 'Cash in e-wallet (QRIS GoPay Merchant)'),
+    ('1-1300', 'Cash in bank'),
+    ('1-1400', 'Trade receivables, delivery platforms'),
+    ('1-1500', 'Inventories'),
+    ('2-1100', 'Trade payables'),
+    ('2-1200', 'Commissions payable'),
+    ('2-1300', 'Other payables'),
+    ('3-1100', 'Owner''s capital'),
+    ('3-1200', 'Owner''s drawings'),
+    ('4-1100', 'Sales, booth'),
+    ('4-1200', 'Sales, delivery platforms'),
+    ('4-1300', 'Other income'),
+    ('4-2000', 'Sales discounts'),
+    ('5-1100', 'Cost of goods sold'),
+    ('6-1100', 'Sales commission expense'),
+    ('6-1200', 'Product sample expense'),
+    ('6-1300', 'Promotion expense'),
+    ('6-1400', 'Inventory write-off expense'),
+    ('6-1500', 'Cash over and short'),
+    ('6-2100', 'Rent expense'),
+    ('6-2200', 'Salaries and wages expense'),
+    ('6-2300', 'Utilities expense'),
+    ('6-2400', 'Marketing expense'),
+    ('6-9000', 'Other expenses')
+  ) v(code, en)
+ where a.code = v.code and a.name_en is null;
 
 -- ---------------------------------------------------------------- posting helpers
 create or replace function public._acc_next_no(p_day date) returns text
@@ -149,7 +208,7 @@ begin
   if n < 2 then raise exception 'Jurnal butuh paling sedikit dua baris.'; end if;
   if d <> k then raise exception 'Jurnal tidak seimbang: debit % dan kredit %.', d, k; end if;
   if p_source = 'manual' and exists (select 1 from jsonb_array_elements(norm) e join acc_accounts a on a.id = (e->>'account_id')::bigint where not a.active) then
-    raise exception 'Ada akun yang sedang dimatikan. Nyalakan dulu di Akun buku besar.';
+    raise exception 'Ada akun yang sedang dimatikan. Nyalakan dulu di Bagan akun.';
   end if;
   insert into acc_journals (day, no, description, source, source_id, posted_by, reverses, reason)
   values (p_day, public._acc_next_no(p_day), left(trim(p_desc), 200), p_source, p_source_id, auth.uid(), p_reverses, p_reason)
@@ -432,7 +491,7 @@ as $$
 declare me uuid := public._rep_reader();
 begin
   return coalesce((select json_agg(x order by x.code) from (
-    select a.id, a.code, a.name, a.type, a.normal, a.parent_id, a.active, a.system,
+    select a.id, a.code, a.name, a.name_en, a.type, a.normal, a.parent_id, a.active, a.system,
            coalesce(u.n, 0)::int as used,
            (case when a.normal = 'debit' then coalesce(u.d, 0) - coalesce(u.k, 0) else coalesce(u.k, 0) - coalesce(u.d, 0) end)::bigint as balance
       from acc_accounts a
@@ -445,11 +504,12 @@ language plpgsql volatile security definer set search_path = public
 as $$
 declare
   me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
-  a acc_accounts; nm text := trim(coalesce(p->>'name', '')); cd text := trim(coalesce(p->>'code', ''));
+  a acc_accounts; nm text := trim(coalesce(p->>'name', '')); en text := nullif(trim(coalesce(p->>'name_en', '')), ''); cd text := trim(coalesce(p->>'code', ''));
   tp text := p->>'type'; nr text := p->>'normal'; used boolean; par bigint := nullif(p->>'parent_id', '')::bigint; act boolean;
   rid bigint;
 begin
   if length(nm) < 2 or length(nm) > 80 then raise exception 'Nama akun 2 sampai 80 huruf.'; end if;
+  if en is not null and (length(en) < 2 or length(en) > 80) then raise exception 'Nama Inggris 2 sampai 80 huruf.'; end if;
   if p_id is null then
     if cd !~ '^[0-9]-[0-9]{4}$' then raise exception 'Kode akun seperti 6-2500: satu angka, tanda minus, empat angka.'; end if;
     if tp not in ('aset', 'kewajiban', 'ekuitas', 'pendapatan', 'beban') then raise exception 'Pilih jenis akun.'; end if;
@@ -457,7 +517,7 @@ begin
     if nr not in ('debit', 'kredit') then raise exception 'Sisi normal harus debit atau kredit.'; end if;
     if exists (select 1 from acc_accounts where code = cd) then raise exception 'Kode % sudah dipakai.', cd; end if;
     if exists (select 1 from acc_accounts where lower(name) = lower(nm)) then raise exception 'Nama akun ini sudah ada.'; end if;
-    insert into acc_accounts (code, name, type, normal, parent_id) values (cd, nm, tp, nr, par) returning id into rid;
+    insert into acc_accounts (code, name, name_en, type, normal, parent_id) values (cd, nm, en, tp, nr, par) returning id into rid;
     perform public._log('akun_tambah', jsonb_build_object('akun', rid, 'kode', cd, 'nama', nm));
     return json_build_object('id', rid);
   end if;
@@ -475,7 +535,7 @@ begin
   if nr is not null and nr <> a.normal and (a.system or used) then raise exception 'Sisi normal akun yang dipakai jurnal atau sistem tidak bisa diganti.'; end if;
   if not act and a.system then raise exception 'Akun sistem dipakai jurnal otomatis, jadi tidak bisa dimatikan.'; end if;
   if par = a.id then raise exception 'Akun tidak bisa menjadi induk dirinya sendiri.'; end if;
-  update acc_accounts set code = cd, name = nm, type = coalesce(tp, type), normal = coalesce(nr, normal), parent_id = par, active = act where id = a.id;
+  update acc_accounts set code = cd, name = nm, name_en = case when p ? 'name_en' then en else name_en end, type = coalesce(tp, type), normal = coalesce(nr, normal), parent_id = par, active = act where id = a.id;
   perform public._log('akun_ubah', jsonb_build_object('akun', a.id, 'kode', cd, 'nama', nm, 'aktif', act));
   return json_build_object('id', a.id);
 end $$;

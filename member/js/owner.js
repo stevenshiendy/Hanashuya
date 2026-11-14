@@ -50,7 +50,7 @@ const MENU = [
     ['t-rsv', 'pesanan-di-muka', 'Pesanan di muka'], ['t-dmut', 'mutasi-deposito', 'Mutasi deposito'], ['t-dres', 'deposit-reservasi', 'Deposit reservasi'],
     ['t-stamp', 'koreksi-stempel', 'Koreksi stempel']]],
   // Akunting (Glenn, 12 Nov 2026, like VireoPOS): chart of accounts, journals (automatic from sales, purchases, cash and stock; manual), reports.
-  ['akunting', 'book', 'Akunting', [['t-acc', 'akun-buku-besar', 'Akun buku besar'], ['t-jurnal', 'buat-jurnal', 'Buat jurnal'], ['t-lacc', 'laporan-akunting', 'Laporan akunting']]],
+  ['akunting', 'book', 'Akunting', [['t-acc', 'akun-buku-besar', 'Bagan akun'], ['t-jurnal', 'buat-jurnal', 'Jurnal umum'], ['t-lacc', 'laporan-akunting', 'Laporan keuangan']]],
   ['pengaturan', 'gear', 'Pengaturan', [['t-set', 'cadangan', 'Cadangan data'], ['t-queue', 'nota-antrian', 'Nota antrian']]],
 ];
 // Hashes that no longer name a view. Every other old hash (produk, stok, staf, absensi,
