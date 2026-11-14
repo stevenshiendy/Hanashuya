@@ -31,7 +31,7 @@ const D = {
   },
   att_scan: null,
   att_recap_range: (a) => V.recapRange(a), att_week: (a) => V.week(a),
-  att_save_shift: null, att_decide_leave: null, att_add_leave: null, att_set_day: null, att_decide_overtime: null, att_correct_add: null, att_correct_void: null,
+  att_save_shift: null, att_decide_leave: null, att_add_leave: null, att_set_day: null, att_decide_overtime: null, att_correct_add: null, att_correct_void: null, att_correct_day: () => ({ added: 1, voided: 1 }),
 };
 // Phone, QR and location checks (11 Nov): ?hp=lain = a second phone, ?hp=dipakai = a phone
 // already used by another account, ?loc=jauh = 3 km from the booth, ?loc=off = booth

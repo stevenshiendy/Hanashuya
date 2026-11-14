@@ -1034,6 +1034,59 @@ begin
   perform public._log('koreksi_absen_batal', jsonb_build_object('event', e.id, 'staff', e.staff_id, 'action', e.action, 'at', e.at, 'reason', trim(p_reason)));
 end $$;
 
+-- Koreksi satu hari sekaligus (Glenn, 14 Nov 2026: "combine them and change everything at once
+-- in one prompt"). p_times is the whole day as it should be: [{ action, time: 'HH:MI' }, ...].
+-- A live scan with the same action and minute stays as it is (a QR scan keeps its seconds and
+-- location); every other live scan that day is cancelled, and every new time is added as a
+-- koreksi. One reason covers all of it. Same rules as att_correct_add / att_correct_void.
+create or replace function public.att_correct_day(p_staff uuid, p_date date, p_times jsonb, p_reason text) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer yang bisa mengoreksi presensi.');
+  p profiles; r text := left(trim(coalesce(p_reason, '')), 300); want jsonb := '[]'; x jsonb; a text; t time; at_ts timestamptz;
+  e att_events; added int := 0; voided int := 0; i int; new_id bigint;
+begin
+  perform public._att_can_correct(me, p_staff);
+  p := public._att_staff(p_staff);
+  if p_date is null then raise exception 'Pilih tanggalnya.'; end if;
+  if p_date > public._att_today() then raise exception 'Jam koreksi tidak boleh di masa depan.'; end if;
+  if p_date < public._att_today() - 62 then raise exception 'Koreksi hanya untuk 2 bulan terakhir.'; end if;
+  if length(r) < 3 then raise exception 'Tulis alasan koreksi.'; end if;
+  if jsonb_typeof(p_times) is distinct from 'array' then raise exception 'Isi jam presensinya.'; end if;
+  -- The wanted scans, as timestamps (the booth day is Asia/Jakarta).
+  for x in select * from jsonb_array_elements(p_times) loop
+    a := x->>'action';
+    if a not in ('masuk', 'istirahat', 'kembali', 'pulang') then raise exception 'Jenis scan tidak dikenal.'; end if;
+    begin t := (x->>'time')::time; exception when others then raise exception 'Jam tidak valid.'; end;
+    at_ts := (p_date + t) at time zone 'Asia/Jakarta';
+    if at_ts > now() + interval '1 minute' then raise exception 'Jam koreksi tidak boleh di masa depan.'; end if;
+    if exists (select 1 from jsonb_array_elements(want) w where w->>'action' = a and (w->>'at')::timestamptz = at_ts) then
+      raise exception 'Jam % untuk % tertulis dua kali.', to_char(t, 'HH24.MI'), a;
+    end if;
+    want := want || jsonb_build_array(jsonb_build_object('action', a, 'at', at_ts));
+  end loop;
+  -- Cancel live scans that are not wanted any more; drop wanted ones that already exist.
+  for e in select * from att_events where staff_id = p_staff and voided_at is null and public._local(at)::date = p_date order by at for update loop
+    i := (select min(n) from jsonb_array_elements(want) with ordinality w(v, n)
+          where v->>'action' = e.action and date_trunc('minute', (v->>'at')::timestamptz) = date_trunc('minute', e.at));
+    if i is null then
+      update att_events set voided_at = now(), voided_by = me, void_reason = r where att_events.id = e.id;
+      voided := voided + 1;
+    else
+      want := want - (i::int - 1);
+    end if;
+  end loop;
+  for x in select * from jsonb_array_elements(want) loop
+    insert into att_events (staff_id, action, at, via, reason, created_by)
+    values (p_staff, x->>'action', (x->>'at')::timestamptz, 'koreksi', r, me) returning att_events.id into new_id;
+    added := added + 1;
+  end loop;
+  if added + voided = 0 then raise exception 'Tidak ada jam yang berubah.'; end if;
+  perform public._log('koreksi_absen_hari', jsonb_build_object('staff', p_staff, 'date', p_date, 'added', added, 'voided', voided,
+    'times', p_times, 'reason', r));
+  return json_build_object('added', added, 'voided', voided);
+end $$;
+
 -- One day for everyone (or one person): schedule report and every scan with its id, for
 -- the corrections screen and the manager's view on the tablet.
 create or replace function public.att_day_report(p_date date default null, p_staff uuid default null) returns json

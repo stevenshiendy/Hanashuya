@@ -317,32 +317,80 @@ function dayRow(x, isToday) {
     <td class="dp-act">${x.is_me ? '<span class="muted small">Akun Anda</span>' : `<button class="btn btn-quiet" type="button" data-fix="${esc(x.id)}">Koreksi</button>`}</td></tr>`;
 }
 
+// Koreksi (Glenn, 14 Nov 2026: "combine them and change everything at once in one prompt"): the
+// whole day in one form, Masuk and Pulang plus each istirahat (Mulai, Selesai), prefilled from the
+// scans. An empty box means no scan. One reason, one save (att_correct_day); unchanged scans stay.
+const hhmm = (iso) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso));
+// Pair scans in order: a start with the next end of its kind (masuk-pulang, istirahat-kembali).
+function pairs(live, start, end) {
+  const out = [];
+  live.filter((s) => s.action === start || s.action === end).forEach((s) => {
+    const last = out[out.length - 1];
+    if (s.action === start || !last || last.end) out.push({ start: s.action === start ? hhmm(s.at) : '', end: s.action === end ? hhmm(s.at) : '' });
+    else last.end = hhmm(s.at);
+  });
+  return out;
+}
+const pairRow = (kind, p, first) => `<div class="dp-pair" data-pair="${kind}">
+  <label class="field"><span>${kind === 'kerja' ? 'Masuk' : 'Mulai istirahat'}</span><input type="time" step="60" data-start value="${esc(p.start || '')}"></label>
+  <label class="field"><span>${kind === 'kerja' ? 'Pulang' : 'Selesai istirahat'}</span><input type="time" step="60" data-end value="${esc(p.end || '')}"></label>
+  ${first ? '<span></span>' : '<button class="btn btn-text" type="button" data-drop>Hapus</button>'}</div>`;
+
 function fixDialog(x, date, done) {
   const live = x.scans.filter((s) => !s.voided);
-  const hist = x.scans.length ? `<ul class="list dp-hist">${x.scans.map((s) => `<li><span class="grow"><span class="num">${esc(dot(time(s.at)))}</span> ${ACTION[s.action]}
+  const work = pairs(live, 'masuk', 'pulang'), brk = pairs(live, 'istirahat', 'kembali');
+  if (!work.length) work.push({});
+  if (!brk.length) brk.push({});
+  const hist = x.scans.length ? `<details class="dp-histbox"><summary class="small">Riwayat scan (${x.scans.length})</summary><ul class="list dp-hist">${x.scans.map((s) => `<li><span class="grow"><span class="num">${esc(dot(time(s.at)))}</span> ${ACTION[s.action]}
       ${s.via === 'koreksi' ? `<span class="muted small">ditambah: ${esc(s.reason)}</span>` : ''}
-      ${s.voided ? `<span class="muted small">dibatalkan: ${esc(s.void_reason)}</span>` : ''}</span>${s.voided ? tag(['Dibatalkan', 'tag-bad']) : ''}</li>`).join('')}</ul>`
+      ${s.voided ? `<span class="muted small">dibatalkan: ${esc(s.void_reason)}</span>` : ''}</span>${s.voided ? tag(['Dibatalkan', 'tag-bad']) : ''}</li>`).join('')}</ul></details>`
     : '<p class="muted small">Belum ada scan di tanggal ini.</p>';
   return formDialog({
     title: `Koreksi presensi ${x.full_name || x.name}`,
     submitLabel: 'Simpan koreksi',
-    html: `<div class="stack-sm"><p class="h-small">Scan ${esc(dmy(date))}</p>${hist}</div>
-      <label class="field"><span>Yang dikoreksi</span><select name="what">
-        <option value="add">Tambah scan yang lupa</option>
-        ${live.map((s) => `<option value="${s.id}">Batalkan scan ${esc(dot(time(s.at)))} ${ACTION[s.action]}</option>`).join('')}</select></label>
-      <div class="form-grid" data-addonly>
-        <label class="field"><span>Scan</span><select name="action">${Object.entries(ACTION).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
-        <label class="field"><span>Jam <span class="hint is-req">wajib</span></span><input type="time" name="at"></label></div>
+    html: `<p class="muted small">${esc(dmy(date))}. Ubah jam yang salah, isi yang lupa, kosongkan yang tidak ada.</p>
+      <div class="stack-sm" data-list="kerja"><p class="h-small">Jam kerja</p>${work.map((p, i) => pairRow('kerja', p, i === 0)).join('')}</div>
+      <div class="stack-sm" data-list="istirahat"><p class="h-small">Istirahat</p>${brk.map((p) => pairRow('istirahat', p, false)).join('')}
+        <div><button class="btn btn-quiet" type="button" data-more="istirahat">Tambah istirahat</button></div></div>
       <label class="field"><span>Alasan <span class="hint is-req">wajib</span></span><input type="text" name="reason" placeholder="Contoh: lupa scan pulang" required></label>
-      <p class="muted small">Setiap koreksi tercatat dengan nama Anda dan alasannya.</p>`,
-    onOpen: (f) => { const sync = () => { $('[data-addonly]', f).hidden = f.elements.what.value !== 'add'; }; f.elements.what.addEventListener('change', sync); sync(); },
+      ${hist}
+      <p class="muted small">Koreksi tercatat dengan nama Anda dan alasannya. Jam yang tidak diubah tetap seperti scan aslinya.</p>`,
+    onOpen: (f) => {
+      f.addEventListener('click', (e) => {
+        const drop = e.target.closest('[data-drop]');
+        if (drop) { drop.closest('.dp-pair').remove(); return; }
+        const more = e.target.closest('[data-more]');
+        if (more) more.parentElement.insertAdjacentHTML('beforebegin', pairRow(more.dataset.more, {}, false));
+      });
+    },
     onSubmit: async (f) => {
-      const what = f.elements.what.value, reason = f.elements.reason.value;
-      if (what === 'add') {
-        if (!f.elements.at.value) throw new Error('Isi jamnya.');
-        await rpc('att_correct_add', { p_staff: x.id, p_action: f.elements.action.value, p_at: `${date}T${f.elements.at.value}:00+07:00`, p_reason: reason });
-      } else await rpc('att_correct_void', { p_event: Number(what), p_reason: reason });
-      toast('Koreksi tersimpan'); done();
+      const times = [];
+      for (const row of $$('.dp-pair', f)) {
+        const [a, b] = row.dataset.pair === 'kerja' ? ['masuk', 'pulang'] : ['istirahat', 'kembali'];
+        const s0 = $('[data-start]', row).value, e0 = $('[data-end]', row).value;
+        if (s0 && e0 && e0 <= s0) throw new Error(`${row.dataset.pair === 'kerja' ? 'Jam pulang' : 'Selesai istirahat'} harus sesudah ${row.dataset.pair === 'kerja' ? 'jam masuk' : 'mulai istirahat'}.`);
+        if (s0) times.push({ action: a, time: s0 });
+        if (e0) times.push({ action: b, time: e0 });
+      }
+      const reason = f.elements.reason.value;
+      let r;
+      try { r = await rpc('att_correct_day', { p_staff: x.id, p_date: date, p_times: times, p_reason: reason }); }
+      catch (err) {
+        // A database without att_correct_day yet: the same change scan by scan with the older calls.
+        if (!/att_correct_day|PGRST202|Could not find/i.test(err.message)) throw err;
+        if (reason.trim().length < 3) throw new Error('Tulis alasan koreksi.');
+        const want = times.slice(), drop = [];
+        for (const s of live) {
+          const i = want.findIndex((w) => w.action === s.action && w.time === hhmm(s.at));
+          if (i < 0) drop.push(s); else want.splice(i, 1);
+        }
+        if (!want.length && !drop.length) throw new Error('Tidak ada jam yang berubah.');
+        for (const s of drop) await rpc('att_correct_void', { p_event: s.id, p_reason: reason });
+        for (const w of want) await rpc('att_correct_add', { p_staff: x.id, p_action: w.action, p_at: `${date}T${w.time}:00+07:00`, p_reason: reason });
+        r = { added: want.length, voided: drop.length };
+      }
+      toast(`Koreksi tersimpan${r && (r.added || r.voided) ? `: ${[r.added ? `${r.added} jam diisi` : '', r.voided ? `${r.voided} scan dibatalkan` : ''].filter(Boolean).join(', ')}` : ''}`);
+      done();
     },
   });
 }
