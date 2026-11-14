@@ -236,16 +236,19 @@ begin
   return did;
 end $$;
 
+-- The member's card code only for the owner (14 Nov 2026), as in pos_member_search; staff and
+-- managers see the name.
 create or replace function public._rsv_json(p_id uuid) returns json
 language plpgsql stable security definer set search_path = public
 as $$
 declare r pos_reservations; bal int;
+  is_owner boolean := exists (select 1 from profiles where id = auth.uid() and role = 'owner' and deleted_at is null);
 begin
   select * into r from pos_reservations where id = p_id;
   if r.id is null then return null; end if;
   bal := public._rsv_balance(r.id);
   return json_build_object('id', r.id, 'no', r.no, 'status', r.status, 'customer_name', r.customer_name, 'whatsapp', r.whatsapp,
-    'member_id', r.member_id, 'member', (select json_build_object('id', p.id, 'name', p.full_name, 'card_code', p.card_code) from profiles p where p.id = r.member_id),
+    'member_id', r.member_id, 'member', (select json_build_object('id', p.id, 'name', p.full_name, 'card_code', case when is_owner then p.card_code end) from profiles p where p.id = r.member_id),
     'pickup_at', r.pickup_at, 'pickup_day', r.pickup_day, 'pickup_time', to_char(public._local(r.pickup_at), 'HH24:MI'),
     'note', r.note, 'free_bags', r.free_bags, 'subtotal', r.subtotal, 'total', r.total,
     -- deposit: an older DP balance (none since 13 Nov 2026); over: what is still to give back. due: the whole total.
@@ -720,10 +723,13 @@ create or replace function public.pos_stamp_history(p_from date, p_to date, p_me
 language plpgsql stable security definer set search_path = public
 as $$
 declare me uuid := public._require(array['manager', 'owner'], public._rsv_mgr_msg());
+  -- Card codes only for the owner (14 Nov 2026); managers see the name.
+  is_owner boolean := exists (select 1 from profiles where id = me and role = 'owner');
 begin
   perform public._rsv_range(p_from, p_to);
   return coalesce((select json_agg(x order by x.at desc, x.sale_id desc) from (
-    select s.id as sale_id, s.created_at as at, s.sale_day as day, s.member_id, m.full_name as member, m.card_code,
+    select s.id as sale_id, s.created_at as at, s.sale_day as day, s.member_id, m.full_name as member,
+      case when is_owner then m.card_code end as card_code,
       s.stamps as delta, s.total,
       case when 'koreksi_stempel' = any (s.flags) then 'koreksi' else 'penjualan' end as kind,
       coalesce((select o.receipt_no from pos_orders o where o.sale_id = s.id), s.receipt_no) as receipt_no,

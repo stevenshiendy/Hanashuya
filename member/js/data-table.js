@@ -51,7 +51,7 @@ function download(blob, name) {
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
-const csvCell = (v) => { const s = plain(v); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+const csvCell = (v) => { let s = plain(v); if (typeof v !== 'number' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`; return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 
 /* ------------------------------------------------------------------ dialogs */
 let dlgSeq = 0;

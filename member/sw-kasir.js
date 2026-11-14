@@ -1,4 +1,5 @@
-// Service worker for the till only (scope ./kasir), so kasir.html opens with no internet
+// Service worker for the till only (scope ./kasir, which covers /member/kasir and the old
+// /member/kasir.html), so the till opens with no internet
 // (POSDEVELOPMENT.md task 7). Same-site files are fetched from the network first and kept;
 // when the network fails the kept copy is used. Supabase calls are never touched: the till
 // queues offline sales itself (js/till-offline.js).
@@ -10,7 +11,10 @@
 // version) left the till stuck on its loading screen offline. When supabase-js is upgraded in
 // js/lib.js, list its imports again (open its +esm file and copy every "/npm/..." it names)
 // and bump CACHE.
-const CACHE = 'hs-kasir-v11';
+// Addresses have no .html (cleanUrls, 14 Nov 2026). The kept page is 'kasir' (a direct 200): a
+// redirected answer, such as kasir.html is now, cannot be used for a navigation. The offline
+// fallback below serves it for both addresses.
+const CACHE = 'hs-kasir-v12';
 const CDN = 'https://cdn.jsdelivr.net';
 const SB = `${CDN}/npm/@supabase`;
 const VENDOR = [
@@ -21,7 +25,7 @@ const VENDOR = [
   `${CDN}/npm/jspdf@2.5.1/dist/jspdf.umd.min.js`,
 ];
 const SHELL = [
-  'kasir.html', 'kasir.webmanifest', 'css/app.css', 'css/tokens.css', 'css/base.css', 'fonts/fonts.css',
+  'kasir', 'kasir.webmanifest', 'css/app.css', 'css/tokens.css', 'css/base.css', 'fonts/fonts.css',
   'js/till.js', 'js/till-offline.js', 'js/lib.js', 'js/config.js', 'js/receipt.js', 'js/receipt-fast.js', 'js/escpos.js',
   'js/printer.js', 'js/native.js', 'js/stock.js', 'js/approvals.js', 'js/receipt-rekap.js', 'js/pdf.js', 'js/print-samples.js', 'js/till-reservasi.js', 'js/data-table.js',
   'img/qris-hanashuya.jpg', 'img/receipt-logo-58.png', 'img/receipt-logo-80.png', 'img/receipt-logo-red.svg',
@@ -51,6 +55,6 @@ self.addEventListener('fetch', (e) => {
   }
   e.respondWith(fetch(req).then((res) => keep(req, res))
     .catch(() => caches.match(req, { ignoreSearch: true })
-      .then((hit) => hit || (req.mode === 'navigate' ? caches.match('kasir.html') : null))
+      .then((hit) => hit || (req.mode === 'navigate' ? caches.match('kasir') : null))
       .then((hit) => hit || Response.error())));
 });

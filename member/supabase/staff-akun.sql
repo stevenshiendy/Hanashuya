@@ -5,6 +5,8 @@
 -- so this file only saves re-running them all. Safe to run again.
 
 alter table public.profiles add column if not exists employer text;
+-- From schema.sql (14 Nov 2026): when the birth date was first saved, for _vouchers below.
+alter table public.profiles add column if not exists birth_date_set_at timestamptz;
 
 drop function if exists public.owner_add_staff(text, text, text, text);
 drop function if exists public.owner_add_staff(text, text, text, text, text);
@@ -28,7 +30,8 @@ returns table (kind text, period int, title text, label text, starts_on date, en
 language sql stable security definer set search_path = public
 as $$
   with me as (
-    select pr.id, public._local(pr.created_at)::date as joined, pr.birth_date, pr.welcome_voucher
+    select pr.id, public._local(pr.created_at)::date as joined, pr.birth_date, pr.welcome_voucher,
+           greatest(public._local(pr.created_at)::date, public._local(pr.birth_date_set_at)::date) as bday_from
     from profiles pr where pr.id = p and pr.role in ('member', 'staff', 'manager') and pr.deleted_at is null),
   t as (select public._local(now())::date as today),
   welcome as (
@@ -44,7 +47,7 @@ as $$
     from me, t, generate_series(extract(year from t.today)::int - 1, extract(year from t.today)::int + 1) y
     where me.birth_date is not null
       and public._birthday_in(me.birth_date, y) + 7 >= t.today
-      and me.joined <= public._birthday_in(me.birth_date, y) - 30
+      and me.bday_from <= public._birthday_in(me.birth_date, y) - 30
     order by y limit 1),
   codes as (
     -- The code is in the title so the cashier can match it with the paper voucher, which
@@ -120,6 +123,8 @@ begin
     raise exception 'Buat password baru, jangan pakai password awal.';
   end if;
   perform public._set_password(me, p_password);
+  -- Anyone else who signed in with the starting password is signed out; this device stays.
+  perform public._end_sessions(me, true);
   update profiles set must_set_password = false where id = me;
   perform public._log('buat_password_pertama', jsonb_build_object('member', me));
   return public.whoami();
@@ -154,6 +159,8 @@ begin
     raise exception 'Nomor ini punya stempel member. Akun pemilik perlu memakai nomor lain.';
   end if;
   update profiles set role = p_role where id = p.id;
+  -- A member card that becomes a work account: whoever is signed in on it is signed out (14 Nov 2026).
+  if p.role = 'member' and p_role <> 'member' then perform public._end_sessions(p.id); end if;
   perform public._log('ubah_peran', jsonb_build_object('whatsapp', p.whatsapp, 'role', p_role));
 end $$;
 
@@ -172,6 +179,7 @@ as $$
 begin
   update auth.users set encrypted_password = extensions.crypt('123456', extensions.gen_salt('bf')), updated_at = now()
   where id = p_user;
+  perform public._end_sessions(p_user);
   update profiles set must_set_password = true where id = p_user;
 end $$;
 
@@ -186,6 +194,7 @@ declare
   emp text := coalesce(nullif(trim(p_employer), ''), 'Hanashuya'); p profiles; uid uuid; was_member boolean := false;
 begin
   if coalesce(trim(p_name), '') = '' then raise exception 'Isi nama lengkap staf.'; end if;
+  if un ~ '^[0-9]+$' then raise exception 'Username tidak boleh hanya angka.'; end if;
   if un is null or un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf, angka, titik, atau garis bawah.'; end if;
   if wa is null or wa !~ '^628[0-9]{8,12}$' then raise exception 'Nomor WhatsApp tidak valid. Contoh: 0812 3456 7890.'; end if;
   if p_role not in ('staff', 'manager', 'owner') then raise exception 'Peran tidak dikenal.'; end if;
@@ -208,7 +217,9 @@ begin
     -- A staff card gets no new-member 50%; that voucher is for customers.
     update profiles set role = p_role, adult_confirmed = true, welcome_voucher = false, employer = emp where id = uid;
   end if;
-  if p_role = 'owner' then perform public._set_password(uid, p_password);
+  -- Both end every session on the account, so whoever registered a member card on this
+  -- number first is signed out once it becomes a work account (14 Nov 2026).
+  if p_role = 'owner' then perform public._set_password(uid, p_password); perform public._end_sessions(uid);
   else perform public._set_start_password(uid); end if;
   perform public._log('tambah_staf', jsonb_build_object('whatsapp', wa, 'username', un, 'role', p_role, 'employer', emp, 'dari_kartu_member', was_member));
   return json_build_object('id', uid, 'whatsapp', wa, 'username', un, 'start_password', case when p_role <> 'owner' then '123456' end,
@@ -224,7 +235,9 @@ begin
   if p.id is null or p.role not in ('member', 'staff', 'manager') then raise exception 'Akun member tidak ditemukan.'; end if;
   if p_birth_date is null then raise exception 'Isi tanggal lahir.'; end if;
   if age(current_date, p_birth_date) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
-  update profiles set birth_date = p_birth_date, age_range = public._age_range(p_birth_date) where id = p.id;
+  -- birth_date_set_at: set the first time only; a correction keeps it (14 Nov 2026).
+  update profiles set birth_date = p_birth_date, age_range = public._age_range(p_birth_date),
+    birth_date_set_at = coalesce(birth_date_set_at, now()) where id = p.id;
   perform public._log('ubah_tanggal_lahir', jsonb_build_object('member', p.id, 'dari', p.birth_date, 'jadi', p_birth_date));
 end $$;
 

@@ -20,7 +20,7 @@ const AGES = [['<17', 'Di bawah 17'], ['17-24', '17–24'], ['25-34', '25–34']
 async function start() {
   if (!configured) return setupMissing(app);
   // Old cashier page retired (switch in lib.js): signed out goes to the till's own sign-in.
-  if (RETIRE_STAF_PAGE && !(await session().catch(() => null))) return location.replace('kasir.html');
+  if (RETIRE_STAF_PAGE && !(await session().catch(() => null))) return location.replace('kasir');
   if (!(await session())) {
     return mountLogin(app, { staff: true, title: 'Masuk sebagai kasir', lead: 'Pakai username atau nomor WhatsApp dan password dari pemilik.', onDone: boot });
   }
@@ -31,7 +31,7 @@ async function boot() {
   $('#logout').hidden = false;
   let who;
   try { who = await rpc('whoami'); } catch (e) { app.innerHTML = `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`; return; }
-  if (RETIRE_STAF_PAGE && who && ['staff', 'manager', 'owner'].includes(who.role)) return location.replace('kasir.html');
+  if (RETIRE_STAF_PAGE && who && ['staff', 'manager', 'owner'].includes(who.role)) return location.replace('kasir');
   if (!who || !['staff', 'manager', 'owner'].includes(who.role)) {
     app.innerHTML = `<section class="panel stack"><h1>Belum terdaftar sebagai kasir</h1>
       <p>Nomor <strong class="num">${esc(prettyPhone(who?.whatsapp) || 'ini')}</strong> bukan akun kasir. Akun kasir dibuat pemilik di dasbor pemilik, bagian Staf.</p>

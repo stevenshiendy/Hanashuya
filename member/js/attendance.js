@@ -1100,7 +1100,7 @@ async function phone() {
   // The kasir tablet account shows the QR; it never scans one (Glenn, 13 Nov 2026).
   if (who?.kasir_tablet) {
     app.innerHTML = `<section class="panel stack"><h1>Ini akun kasir tablet</h1><p>Akun kasir tablet hanya untuk tablet kasir: menampilkan QR presensi dan mencatat penjualan. Untuk presensi, keluar lalu masuk dengan akun staf Anda sendiri di HP Anda.</p>
-      <div class="row"><a class="btn" href="/member/kasir.html">Buka kasir</a><button class="btn btn-quiet" type="button" id="out">Keluar</button></div></section>`;
+      <div class="row"><a class="btn" href="/member/kasir">Buka kasir</a><button class="btn btn-quiet" type="button" id="out">Keluar</button></div></section>`;
     $('#out').addEventListener('click', signOut);
     return;
   }

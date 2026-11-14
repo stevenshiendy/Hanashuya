@@ -93,6 +93,11 @@ alter table public.profiles drop constraint if exists profiles_role_check;
 alter table public.profiles add constraint profiles_role_check check (role in ('member', 'staff', 'manager', 'owner', 'kasir'));
 alter table public.profiles add column if not exists username text;
 alter table public.profiles add column if not exists birth_date date;
+-- When the birth date was first saved (14 Nov 2026). The birthday voucher needs it set 30+
+-- days before the birthday, so nobody can leave it empty and later pick today's date.
+-- Older rows count from sign-up.
+alter table public.profiles add column if not exists birth_date_set_at timestamptz;
+update public.profiles set birth_date_set_at = created_at where birth_date is not null and birth_date_set_at is null;
 create unique index if not exists profiles_username_once on public.profiles (username) where deleted_at is null;
 -- A card made by the cashier starts with the password 12345; the
 -- member must choose their own password on first sign-in (set_first_password).
@@ -501,13 +506,16 @@ $$;
 --                once a year, for members who joined at least 30 days before that birthday
 --                (syarat dan ketentuan 7.2). Only the next birthday that qualifies is listed.
 -- status: 'belum' (not open yet), 'tersedia', 'dipakai', 'kedaluwarsa'.
+-- The birth date must also have been saved 30+ days before that birthday (14 Nov 2026), so
+-- a member can't leave it empty at sign-up and set it to today later (bday_from).
 drop function if exists public._vouchers(uuid);
 create or replace function public._vouchers(p uuid)
 returns table (kind text, period int, title text, label text, starts_on date, ends_on date, status text, pos_code text)
 language sql stable security definer set search_path = public
 as $$
   with me as (
-    select pr.id, public._local(pr.created_at)::date as joined, pr.birth_date, pr.welcome_voucher
+    select pr.id, public._local(pr.created_at)::date as joined, pr.birth_date, pr.welcome_voucher,
+           greatest(public._local(pr.created_at)::date, public._local(pr.birth_date_set_at)::date) as bday_from
     from profiles pr where pr.id = p and pr.role in ('member', 'staff', 'manager') and pr.deleted_at is null),
   t as (select public._local(now())::date as today),
   welcome as (
@@ -523,7 +531,7 @@ as $$
     from me, t, generate_series(extract(year from t.today)::int - 1, extract(year from t.today)::int + 1) y
     where me.birth_date is not null
       and public._birthday_in(me.birth_date, y) + 7 >= t.today
-      and me.joined <= public._birthday_in(me.birth_date, y) - 30
+      and me.bday_from <= public._birthday_in(me.birth_date, y) - 30
     order by y limit 1),
   codes as (
     -- The code is in the title so the cashier can match it with the paper voucher, which
@@ -623,14 +631,16 @@ begin
   end if;
   if exists (select 1 from profiles where whatsapp = wa and deleted_at is null) then raise exception 'Nomor WhatsApp sudah terdaftar.'; end if;
   if un is not null then
+    -- Digits only could be someone else's WhatsApp number at login (14 Nov 2026).
+    if un ~ '^[0-9]+$' then raise exception 'Username tidak boleh hanya angka.'; end if;
     if un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username tidak valid.'; end if;
     if exists (select 1 from profiles where username = un and deleted_at is null) then raise exception 'Username sudah dipakai.'; end if;
   end if;
   begin bd := nullif(meta->>'birth_date', '')::date; exception when others then raise exception 'Tanggal lahir tidak valid.'; end;
   if bd is not null and age(current_date, bd) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
-  insert into profiles (id, email, whatsapp, username, full_name, birth_date, age_range, gender, adult_confirmed, marketing_opt_in, card_code,
+  insert into profiles (id, email, whatsapp, username, full_name, birth_date, birth_date_set_at, age_range, gender, adult_confirmed, marketing_opt_in, card_code,
                         welcome_voucher)
-  values (new.id, lower(new.email), wa, un, nm, bd, public._age_range(bd),
+  values (new.id, lower(new.email), wa, un, nm, bd, case when bd is not null then now() end, public._age_range(bd),
           nullif(meta->>'gender', ''), bd is not null,
           coalesce((meta->>'marketing')::boolean, false), public._new_card_code(),
           -- A number whose earlier account was deleted already had its welcome voucher.
@@ -651,6 +661,8 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function public._handle_new_user();
 
+-- A WhatsApp match wins over a username of the same digits (14 Nov 2026), so an older
+-- digits-only username can never take over another member's number login.
 create or replace function public._find_login(p_login text) returns profiles
 language sql stable security definer set search_path = public
 as $$
@@ -658,6 +670,7 @@ as $$
   where deleted_at is null
     and (username = public._clean_username(p_login)
       or (public._wa(p_login) ~ '^628[0-9]{8,12}$' and whatsapp = public._wa(p_login)))
+  order by (whatsapp = public._wa(p_login)) desc nulls last
   limit 1
 $$;
 
@@ -667,13 +680,17 @@ language sql stable security definer set search_path = public
 as $$ select (public._find_login(p_login)).email $$;
 
 -- Tells the sign-up form which fields are already taken, before the account is made.
+-- A username of digits only is refused here with the same message as at sign-up, so the
+-- form shows it before the account is made (14 Nov 2026).
 create or replace function public.signup_check(p_username text, p_phone text) returns json
-language sql stable security definer set search_path = public
+language plpgsql stable security definer set search_path = public
 as $$
-  select json_build_object(
+begin
+  if public._clean_username(p_username) ~ '^[0-9]+$' then raise exception 'Username tidak boleh hanya angka.'; end if;
+  return json_build_object(
     'username_taken', exists (select 1 from profiles where username = public._clean_username(p_username) and deleted_at is null),
-    'phone_taken', exists (select 1 from profiles where whatsapp = public._wa(p_phone) and deleted_at is null))
-$$;
+    'phone_taken', exists (select 1 from profiles where whatsapp = public._wa(p_phone) and deleted_at is null));
+end $$;
 
 -- Creates a login with a hidden address and the given password. Used for staff
 -- accounts, the first owner, and member cards the cashier makes on the tablet
@@ -706,6 +723,33 @@ begin
   if length(coalesce(p_password, '')) < 8 then raise exception 'Password minimal 8 karakter.'; end if;
   update auth.users set encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')), updated_at = now()
   where id = p_user;
+end $$;
+
+-- Signs an account out everywhere after its password changes (14 Nov 2026). Without it a
+-- refresh token (kept 400 days in the login cookie) outlives the old password, so whoever
+-- signed in with a starting password stays in after the real person sets their own.
+-- p_keep_current keeps the caller's own session (set_first_password, the owner changing
+-- their own password). Deleting a session deletes its refresh tokens (foreign key cascade);
+-- refresh tokens without a session are removed too. auth.refresh_tokens.user_id is varchar.
+-- An access token already issued stays valid until it expires (Supabase default: 1 hour).
+-- Skipped where auth has no sessions table (the PGlite tests).
+create or replace function public._end_sessions(p_user uuid, p_keep_current boolean default false) returns void
+language plpgsql volatile security definer set search_path = public
+as $$
+declare keep uuid;
+begin
+  if p_user is null or to_regclass('auth.sessions') is null then return; end if;
+  if p_keep_current then
+    -- The session id of the signed-in caller, as auth.jwt() reads it.
+    begin
+      keep := nullif(coalesce(nullif(current_setting('request.jwt.claim', true), ''),
+                              nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb->>'session_id', '')::uuid;
+    exception when others then keep := null; end;
+  end if;
+  delete from auth.sessions where user_id = p_user and (keep is null or id <> keep);
+  if to_regclass('auth.refresh_tokens') is not null then
+    delete from auth.refresh_tokens where user_id = p_user::text and (keep is null or session_id is distinct from keep);
+  end if;
 end $$;
 
 -- Run once in the SQL Editor to create the first owner account:
@@ -776,6 +820,8 @@ begin
     return null;
   end if;
   perform public._set_password(p.id, p_password);
+  -- Lupa password: whoever is still signed in on this account is signed out (14 Nov 2026).
+  perform public._end_sessions(p.id);
   update profiles set must_set_password = false where id = p.id;
   update password_resets set used_at = now() where user_id = p.id and used_at is null;
   insert into audit_log (actor, action, detail) values (p.id, 'reset_password', jsonb_build_object('reset', r.id));
@@ -815,6 +861,11 @@ begin
   if auth.uid() is null then raise exception 'Silakan masuk dulu.'; end if;
   if coalesce(trim(p_full_name), '') = '' then raise exception 'Isi nama lengkap.'; end if;
   -- Username is optional; left empty, the current one (or none) is kept.
+  -- Digits only could be someone else's WhatsApp number at login (14 Nov 2026). An older
+  -- account that already has such a username may keep it (login prefers the number).
+  if un ~ '^[0-9]+$' and un is distinct from (select username from profiles where id = auth.uid()) then
+    raise exception 'Username tidak boleh hanya angka.';
+  end if;
   if un is not null and un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'; end if;
   if un is not null and exists (select 1 from profiles where username = un and id <> auth.uid() and deleted_at is null) then raise exception 'Username sudah dipakai.'; end if;
   if p_birth_date is null then raise exception 'Isi tanggal lahir.'; end if;
@@ -833,6 +884,8 @@ begin
   end if;
   update profiles set
     full_name = trim(p_full_name), username = coalesce(un, username), birth_date = p_birth_date,
+    -- First time the birth date is saved: the birthday voucher counts 30 days from here.
+    birth_date_set_at = case when birth_date is null then now() else birth_date_set_at end,
     age_range = public._age_range(p_birth_date), gender = nullif(p_gender, ''), adult_confirmed = true,
     marketing_opt_in = coalesce(p_marketing, marketing_opt_in)
   where id = auth.uid() and deleted_at is null;
@@ -1201,6 +1254,8 @@ begin
     raise exception 'Buat password baru, jangan pakai password awal.';
   end if;
   perform public._set_password(me, p_password);
+  -- Anyone else who signed in with the starting password is signed out; this device stays.
+  perform public._end_sessions(me, true);
   update profiles set must_set_password = false where id = me;
   perform public._log('buat_password_pertama', jsonb_build_object('member', me));
   return public.whoami();
@@ -1706,6 +1761,8 @@ begin
     raise exception 'Nomor ini punya stempel member. Akun pemilik perlu memakai nomor lain.';
   end if;
   update profiles set role = p_role where id = p.id;
+  -- A member card that becomes a work account: whoever is signed in on it is signed out (14 Nov 2026).
+  if p.role = 'member' and p_role <> 'member' then perform public._end_sessions(p.id); end if;
   perform public._log('ubah_peran', jsonb_build_object('whatsapp', p.whatsapp, 'role', p_role));
 end $$;
 
@@ -1729,6 +1786,7 @@ as $$
 begin
   update auth.users set encrypted_password = extensions.crypt('123456', extensions.gen_salt('bf')), updated_at = now()
   where id = p_user;
+  perform public._end_sessions(p_user);
   update profiles set must_set_password = true where id = p_user;
 end $$;
 
@@ -1744,6 +1802,7 @@ declare
   emp text := coalesce(nullif(trim(p_employer), ''), 'Hanashuya'); p profiles; uid uuid; was_member boolean := false;
 begin
   if coalesce(trim(p_name), '') = '' then raise exception 'Isi nama lengkap staf.'; end if;
+  if un ~ '^[0-9]+$' then raise exception 'Username tidak boleh hanya angka.'; end if;
   if un is null or un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf, angka, titik, atau garis bawah.'; end if;
   if wa is null or wa !~ '^628[0-9]{8,12}$' then raise exception 'Nomor WhatsApp tidak valid. Contoh: 0812 3456 7890.'; end if;
   if p_role not in ('staff', 'manager', 'owner') then raise exception 'Peran tidak dikenal.'; end if;
@@ -1766,7 +1825,9 @@ begin
     -- A staff card gets no new-member 50%; that voucher is for customers.
     update profiles set role = p_role, adult_confirmed = true, welcome_voucher = false, employer = emp where id = uid;
   end if;
-  if p_role = 'owner' then perform public._set_password(uid, p_password);
+  -- Both end every session on the account, so whoever registered a member card on this
+  -- number first is signed out once it becomes a work account (14 Nov 2026).
+  if p_role = 'owner' then perform public._set_password(uid, p_password); perform public._end_sessions(uid);
   else perform public._set_start_password(uid); end if;
   perform public._log('tambah_staf', jsonb_build_object('whatsapp', wa, 'username', un, 'role', p_role, 'employer', emp, 'dari_kartu_member', was_member));
   return json_build_object('id', uid, 'whatsapp', wa, 'username', un, 'start_password', case when p_role <> 'owner' then '123456' end,
@@ -1785,6 +1846,7 @@ declare
   un text := public._clean_username(p_username); nm text := coalesce(nullif(trim(coalesce(p_name, '')), ''), 'Kasir tablet');
   p profiles; uid uuid;
 begin
+  if un ~ '^[0-9]+$' then raise exception 'Username tidak boleh hanya angka.'; end if;
   if un is null or un !~ '^[a-z0-9._]{3,20}$' then raise exception 'Username 3 sampai 20 karakter: huruf kecil, angka, titik, atau garis bawah.'; end if;
   if length(coalesce(p_password, '')) < 8 then raise exception 'Password minimal 8 karakter.'; end if;
   if exists (select 1 from profiles where role = 'kasir' and deleted_at is null) then
@@ -1796,6 +1858,7 @@ begin
     update profiles set deleted_at = null, full_name = nm where id = p.id;
     update auth.users set banned_until = null where id = p.id;
     perform public._set_password(p.id, p_password);
+    perform public._end_sessions(p.id);
     uid := p.id;
   else
     perform set_config('hanashuya.kasir_account', 'on', true);
@@ -1836,6 +1899,7 @@ begin
   select * into p from profiles where id = p_id and role = 'kasir' and deleted_at is null;
   if p.id is null then raise exception 'Akun kasir tablet tidak ditemukan.'; end if;
   perform public._set_password(p.id, p_password);
+  perform public._end_sessions(p.id);
   perform public._log('ganti_password_kasir_tablet', jsonb_build_object('username', p.username));
 end $$;
 
@@ -1864,6 +1928,8 @@ begin
   select * into p from profiles where whatsapp = public._wa(p_phone) and deleted_at is null and role in ('staff', 'manager', 'owner');
   if p.id is null then raise exception 'Akun staf dengan nomor itu tidak ditemukan.'; end if;
   perform public._set_password(p.id, p_password);
+  -- Signed out everywhere; on the owner's own number this device stays signed in.
+  perform public._end_sessions(p.id, p.id = me);
   perform public._log('ganti_password_staf', jsonb_build_object('whatsapp', p.whatsapp));
 end $$;
 
@@ -1892,7 +1958,9 @@ begin
   if p.id is null or p.role not in ('member', 'staff', 'manager') then raise exception 'Akun member tidak ditemukan.'; end if;
   if p_birth_date is null then raise exception 'Isi tanggal lahir.'; end if;
   if age(current_date, p_birth_date) < interval '17 years' then raise exception 'Kartu member hanya untuk usia 17 tahun ke atas.'; end if;
-  update profiles set birth_date = p_birth_date, age_range = public._age_range(p_birth_date) where id = p.id;
+  -- birth_date_set_at: set the first time only; a correction keeps it (14 Nov 2026).
+  update profiles set birth_date = p_birth_date, age_range = public._age_range(p_birth_date),
+    birth_date_set_at = coalesce(birth_date_set_at, now()) where id = p.id;
   perform public._log('ubah_tanggal_lahir', jsonb_build_object('member', p.id, 'dari', p.birth_date, 'jadi', p_birth_date));
 end $$;
 

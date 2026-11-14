@@ -1152,6 +1152,10 @@ begin
   -- Sale time: when it was paid on the tablet, if that is within the last 3 days (offline sales).
   begin cl := p_client_at::timestamptz; exception when others then cl := null; end;
   sold := case when cl between now() - interval '3 days' and now() + interval '2 minutes' then least(cl, now()) else now() end;
+  -- An order confirmed online (no L number, not marked offline) can't be paid before it was
+  -- confirmed (14 Nov 2026): the tablet time is never earlier than the order. Real offline
+  -- sales keep their tablet time.
+  if o.local_no is null and not ('offline' = any (coalesce(o.flags, '{}'))) then sold := greatest(sold, o.created_at); end if;
   if cl is not null and sold < now() - interval '15 minutes' then f := array_append(f, 'dikirim_terlambat'); end if;
   v_day := public._local(sold)::date;
 

@@ -123,7 +123,7 @@ async function boot() {
       app.innerHTML = `<div class="wrap page-pad"><section class="stack"><h1>${who.kasir_tablet ? 'Ini akun tablet kasir' : 'Ini akun pemilik'}</h1>
         ${location.hash === '#daftar' ? '<p class="notice notice-warn">Perangkat ini sedang masuk sebagai kasir, jadi formulir daftar member tidak bisa dibuka di sini. Minta pembeli scan QR di tab Daftar member dengan HP-nya, atau kirim link lewat WhatsApp dari tab itu.</p>' : ''}
         <p>${who.kasir_tablet ? 'Akun tablet kasir tidak punya kartu member. Staf membuka kartunya sendiri dengan akun staf di HP masing-masing.' : 'Akun pemilik tidak mengumpulkan stempel.'}</p>
-        <div class="row"><a class="btn" href="kasir.html">Buka halaman kasir</a>${who.role === 'owner' ? '<a class="btn btn-quiet" href="pemilik.html">Buka dasbor pemilik</a>' : ''}
+        <div class="row"><a class="btn" href="kasir">Buka halaman kasir</a>${who.role === 'owner' ? '<a class="btn btn-quiet" href="pemilik">Buka dasbor pemilik</a>' : ''}
         <button class="btn btn-text" type="button" id="out">Keluar</button></div></section></div>`;
       $('#out').addEventListener('click', logout);
       return;
@@ -401,7 +401,7 @@ function nextLine(c) {
 function viewCard(c, ready, fresh) {
   const first = (c.full_name || '').split(' ')[0];
   const miles = c.rewards.filter((r) => r.cycle === c.cycle).map((r) =>
-    `<span class="mile${c.position >= r.slot ? ' done' : ''}" style="left:${(r.slot / c.card_size) * 100}%"><span>${SHORT[r.slot] || r.label}</span></span>`).join('');
+    `<span class="mile${c.position >= r.slot ? ' done' : ''}" style="left:${(r.slot / c.card_size) * 100}%"><span>${esc(SHORT[r.slot] || r.label)}</span></span>`).join('');
   return `
   <div class="stage"><div class="wrap stage-inner">
     <h1 class="hello" id="h-kartu" tabindex="-1">Halo, ${esc(first)}</h1>

@@ -4,7 +4,7 @@
   "short_name": "Kasir",
   "description": "Kasir Hanashuya untuk tablet booth.",
   "lang": "id",
-  "start_url": "/member/kasir.html",
+  "start_url": "/member/kasir",
   "scope": "/member/kasir",
   "display": "fullscreen",
   "display_override": ["fullscreen", "standalone"],

@@ -414,7 +414,7 @@ export async function signOut() {
  * Signed out, staf.html goes to kasir.html, which has its own sign-in. */
 export const RETIRE_STAF_PAGE = true; // on since 13 Nov 2026 (Glenn): the new till is live
 export function staffHome(who) {
-  if (!who || who.kasir_tablet || who.role === 'owner') return 'kasir.html';
+  if (!who || who.kasir_tablet || who.role === 'owner') return 'kasir';
   if (who.role === 'staff' || who.role === 'manager') return '/staf/';
-  return 'kasir.html';
+  return 'kasir';
 }
