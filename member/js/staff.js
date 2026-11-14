@@ -59,7 +59,7 @@ function render() {
       <button role="tab" id="t-today" aria-controls="p-today" data-tab="hari-ini">Hari ini</button>
       <button role="tab" id="t-join" aria-controls="p-join" data-tab="daftar-member">Daftar member</button>
       <button role="tab" id="t-stock" aria-controls="p-stock" data-tab="stok">Stok</button>
-      <button role="tab" id="t-absen" aria-controls="p-absen" data-tab="absen">Absen</button>
+      <button role="tab" id="t-absen" aria-controls="p-absen" data-tab="absen">Presensi</button>
       ${myRole === 'manager' || myRole === 'owner' ? '<button role="tab" id="t-appr" aria-controls="p-appr" data-tab="persetujuan">Persetujuan</button>' : ''}
     </div>
     <section id="p-sale" role="tabpanel" aria-labelledby="t-sale" class="stack-lg"></section>

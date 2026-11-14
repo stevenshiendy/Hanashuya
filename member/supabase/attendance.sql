@@ -255,7 +255,7 @@ declare r text;
 begin
   select role into r from profiles where id = auth.uid() and deleted_at is null;
   if r = 'kasir' then
-    raise exception 'Akun kasir tablet tidak bisa absen. Masuk dengan akun staf Anda sendiri.' using errcode = '42501';
+    raise exception 'Akun kasir tablet tidak bisa presensi. Masuk dengan akun staf Anda sendiri.' using errcode = '42501';
   end if;
   if r is null or r not in ('staff', 'manager') then raise exception '%', msg using errcode = '42501'; end if;
   return auth.uid();
@@ -546,14 +546,14 @@ create or replace function public.att_qr_token(p_kind text default 'absen') retu
 language plpgsql stable security definer set search_path = public
 as $$
 declare
-  me uuid := public._require(array['staff', 'owner'], 'Masuk dengan akun kasir tablet untuk menampilkan QR absen.');
+  me uuid := public._require(array['staff', 'owner'], 'Masuk dengan akun kasir tablet untuk menampilkan QR presensi.');
   st settings := public._cfg();
   sec int := st.att_qr_seconds;
   win bigint := floor(extract(epoch from now()) / sec);
   brk boolean := p_kind = 'istirahat';
 begin
   if not exists (select 1 from profiles where id = me and role = 'kasir' and deleted_at is null) then
-    raise exception 'QR absen hanya tampil di akun kasir tablet. Keluar, lalu masuk dengan akun kasir tablet dari pemilik.' using errcode = '42501';
+    raise exception 'QR presensi hanya tampil di akun kasir tablet. Keluar, lalu masuk dengan akun kasir tablet dari pemilik.' using errcode = '42501';
   end if;
   if coalesce(p_kind, 'absen') not in ('absen', 'istirahat') then raise exception 'Jenis QR tidak dikenal.'; end if;
   return json_build_object('kind', coalesce(p_kind, 'absen'),
@@ -585,7 +585,7 @@ declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik ata
 begin
   if (p_lat is null) <> (p_lng is null) then raise exception 'Lokasi tidak lengkap.'; end if;
   if p_lat is not null and (p_lat not between -90 and 90 or p_lng not between -180 and 180) then raise exception 'Lokasi tidak terbaca.'; end if;
-  if r not between 50 and 2000 then raise exception 'Jarak absen antara 50 dan 2.000 meter.'; end if;
+  if r not between 50 and 2000 then raise exception 'Jarak presensi antara 50 dan 2.000 meter.'; end if;
   if p_acc is not null and p_acc > 500 then
     raise exception 'Lokasi tablet kurang akurat (± % m). Coba lagi di dekat jendela atau nyalakan Wi-Fi.', round(p_acc)::int;
   end if;
@@ -598,7 +598,7 @@ end $$;
 
 -- The booth location comes from the till tablet's own GPS (Glenn, 14 Nov 2026: the booth is in
 -- Papaya Fresh Gallery Bandung, Jl. Sukaasih No.1, Gegerkalong, Sukajadi). Each time the tablet
--- shows QR absen or QR istirahat it sends its position; staff phones are checked against it.
+-- shows QR presensi or QR istirahat it sends its position; staff phones are checked against it.
 -- Only the kasir tablet account; a reading worse than 200 m is ignored so a bad fix never moves it.
 create or replace function public.att_tablet_location(p_lat double precision, p_lng double precision,
   p_acc double precision default null) returns json
@@ -632,9 +632,9 @@ grant execute on function public.att_tablet_location(double precision, double pr
 create or replace function public.att_reset_device(p_staff uuid) returns json
 language plpgsql volatile security definer set search_path = public
 as $$
-declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer yang bisa reset HP absen.'); n int;
+declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer yang bisa reset HP presensi.'); n int;
 begin
-  if p_staff = me then raise exception 'HP absen Anda sendiri direset oleh pemilik atau manajer lain.'; end if;
+  if p_staff = me then raise exception 'HP presensi Anda sendiri direset oleh pemilik atau manajer lain.'; end if;
   perform public._att_staff(p_staff);
   delete from att_devices where staff_id = p_staff;
   get diagnostics n = row_count;
@@ -664,11 +664,14 @@ create or replace function public.att_status() returns json
 language plpgsql stable security definer set search_path = public
 as $$
 declare
-  me uuid := public._att_me('Halaman absen untuk akun staf. Masuk dengan akun staf Anda sendiri.');
+  me uuid := public._att_me('Halaman presensi untuk akun staf. Masuk dengan akun staf Anda sendiri.');
   p profiles := public._att_staff(me); today date := public._att_today(); last att_events := public._att_last(me, now());
+  st settings := public._cfg();
 begin
   return json_build_object(
     'name', public._first_name(p.full_name), 'full_name', p.full_name, 'role', p.role, 'today', today, 'server_time', now(),
+    -- For the confirmation after a scan (14 Nov 2026): the same thresholds _att_day uses.
+    'rules', json_build_object('late', st.att_late_minutes, 'out', st.att_out_minutes, 'overtime', st.att_overtime_after),
     'next', public._att_next(me, now()),
     'last', case when last.id is null then null else json_build_object('action', last.action, 'at', last.at) end,
     'today_scans', coalesce((select json_agg(json_build_object('action', e.action, 'at', e.at, 'via', e.via) order by e.at)
@@ -676,7 +679,7 @@ begin
     'today_report', public._att_day_json(me, today, now()),
     'week', (select json_agg(json_build_object('date', d::date, 'leave', public._att_on_leave(me, d::date),
         'blocks', coalesce((select json_agg(json_build_object('kind', b.kind, 'start', to_char(b.start_time, 'HH24:MI'),
-          'end', to_char(b.end_time, 'HH24:MI'), 'shift', b.shift, 'note', b.note)) from public._att_blocks(me, d::date) b), '[]'))
+          'end', to_char(b.end_time, 'HH24:MI'), 'shift', b.shift, 'note', b.note, 'break_minutes', b.break_minutes)) from public._att_blocks(me, d::date) b), '[]'))
         order by d)
       from generate_series(today, today + 13, interval '1 day') d),
     'leave', coalesce((select json_agg(json_build_object('id', l.id, 'start', l.start_date, 'end', l.end_date, 'reason', l.reason,
@@ -699,7 +702,7 @@ create or replace function public.att_scan(p_token text, p_action text default n
 language plpgsql volatile security definer set search_path = public
 as $$
 declare
-  me uuid := public._att_me('Halaman absen untuk akun staf. Masuk dengan akun staf Anda sendiri.');
+  me uuid := public._att_me('Halaman presensi untuk akun staf. Masuk dengan akun staf Anda sendiri.');
   p profiles := public._att_staff(me);
   st settings := public._cfg();
   sec int := st.att_qr_seconds;
@@ -714,38 +717,38 @@ begin
   -- HSA1 = attendance QR, HSB1 = break QR (12 Nov 2026); HST1 / HSU1 = their check-step tickets.
   if raw ~ '#t=' then raw := split_part(raw, '#t=', 2); end if;
   parts := string_to_array(raw, '.');
-  if coalesce(array_length(parts, 1), 0) <> 3 or parts[1] not in ('HSA1', 'HSB1', 'HST1', 'HSU1') then raise exception 'Ini bukan QR absen. Scan QR di tablet kasir.'; end if;
-  begin win := parts[2]::bigint; exception when others then raise exception 'Ini bukan QR absen. Scan QR di tablet kasir.'; end;
+  if coalesce(array_length(parts, 1), 0) <> 3 or parts[1] not in ('HSA1', 'HSB1', 'HST1', 'HSU1') then raise exception 'Ini bukan QR presensi. Scan QR di tablet kasir.'; end if;
+  begin win := parts[2]::bigint; exception when others then raise exception 'Ini bukan QR presensi. Scan QR di tablet kasir.'; end;
   brk := parts[1] in ('HSB1', 'HSU1');
   if parts[1] in ('HSA1', 'HSB1') then
     -- The current or previous window only, so a photo sent home stops working.
     if win < now_win - 1 or win > now_win then
-      raise exception 'QR absen sudah kedaluwarsa. Scan ulang QR yang tampil di tablet kasir sekarang.';
+      raise exception 'QR presensi sudah kedaluwarsa. Scan ulang QR yang tampil di tablet kasir sekarang.';
     end if;
-    if lower(parts[3]) <> public._att_sig(case when brk then -win else win end) then raise exception 'QR absen tidak valid.'; end if;
+    if lower(parts[3]) <> public._att_sig(case when brk then -win else win end) then raise exception 'QR presensi tidak valid.'; end if;
   else
     -- A ticket from the check step: this person, this phone, at most 2 minutes old.
-    if lower(parts[3]) <> public._att_tsig(me, h, case when brk then -win else win end) then raise exception 'QR absen tidak valid. Scan ulang QR di tablet kasir.'; end if;
+    if lower(parts[3]) <> public._att_tsig(me, h, case when brk then -win else win end) then raise exception 'QR presensi tidak valid. Scan ulang QR di tablet kasir.'; end if;
     if now_s - win > 120 or win > now_s + 5 then
-      raise exception 'QR absen sudah kedaluwarsa. Scan ulang QR yang tampil di tablet kasir sekarang.';
+      raise exception 'QR presensi sudah kedaluwarsa. Scan ulang QR yang tampil di tablet kasir sekarang.';
     end if;
   end if;
 
   -- One phone per account.
-  if h is null then raise exception 'HP ini belum bisa dikenali. Buka halaman absen di browser HP Anda (bukan mode samaran), lalu scan ulang.'; end if;
+  if h is null then raise exception 'HP ini belum bisa dikenali. Buka halaman presensi di browser HP Anda (bukan mode samaran), lalu scan ulang.'; end if;
   select * into dv from att_devices where staff_id = me;
   if dv.staff_id is not null and dv.device_hash <> h then
-    raise exception 'HP ini belum terdaftar untuk absen akun Anda. Minta manajer atau pemilik reset HP absen.';
+    raise exception 'HP ini belum terdaftar untuk presensi akun Anda. Minta manajer atau pemilik reset HP presensi.';
   end if;
   if exists (select 1 from att_devices where device_hash = h and staff_id <> me) then
-    raise exception 'HP ini sudah dipakai absen akun lain.';
+    raise exception 'HP ini sudah dipakai presensi akun lain.';
   end if;
 
   -- Location (Glenn, 14 Nov 2026): every scan needs the phone's location, so staff must turn it on.
   -- The distance to the booth is checked once the booth location is set; until then the scan is
   -- kept with its location and flagged lokasi_booth_belum_diatur for the owner.
   if p_lat is null or p_lng is null or p_lat not between -90 and 90 or p_lng not between -180 and 180 then
-    raise exception 'Lokasi HP tidak terbaca. Absen perlu lokasi untuk memastikan Anda ada di booth. Izinkan lokasi untuk browser ini (iPhone: Pengaturan > Privasi & Keamanan > Layanan Lokasi > Safari > Saat Menggunakan App; Android: ketuk ikon di samping alamat > Izin > Lokasi), nyalakan lokasi HP, lalu scan ulang.';
+    raise exception 'Lokasi HP tidak terbaca. Presensi perlu lokasi untuk memastikan Anda ada di booth. Izinkan lokasi untuk browser ini (iPhone: Pengaturan > Privasi & Keamanan > Layanan Lokasi > Safari > Saat Menggunakan App; Android: ketuk ikon di samping alamat > Izin > Lokasi), nyalakan lokasi HP, lalu scan ulang.';
   end if;
   if st.att_lat is null or st.att_lng is null then
     fl := fl || 'lokasi_booth_belum_diatur'::text;
@@ -753,7 +756,7 @@ begin
     acc := greatest(coalesce(p_acc, 0), 0);
     dist := public._att_distance(st.att_lat, st.att_lng, p_lat, p_lng);
     if dist - acc > st.att_radius_m then
-      raise exception 'Lokasi Anda terlalu jauh dari booth (± %). Absen hanya bisa di booth.',
+      raise exception 'Lokasi Anda terlalu jauh dari booth (± %). Presensi hanya bisa di booth.',
         case when dist >= 1000 then replace(to_char(dist / 1000, 'FM999990.0'), '.', ',') || ' km' else round(dist)::int || ' m' end;
     end if;
     if p_acc is null or acc > 300 then fl := fl || 'lokasi_kurang_akurat'::text; end if;
@@ -763,9 +766,9 @@ begin
   allowed := case when brk then array['istirahat', 'kembali'] else array['masuk', 'pulang'] end;
   nx := array(select a from unnest(public._att_next(me, now())) a where a = any (allowed));
   if coalesce(array_length(nx, 1), 0) = 0 then
-    if brk and public._att_next(me, now()) = array['masuk'] then raise exception 'Anda belum masuk. Scan QR absen dulu untuk masuk.'; end if;
+    if brk and public._att_next(me, now()) = array['masuk'] then raise exception 'Anda belum masuk. Scan QR presensi dulu untuk masuk.'; end if;
     if not brk and public._att_next(me, now()) = array['kembali'] then raise exception 'Anda sedang istirahat. Scan QR istirahat dulu untuk kembali.'; end if;
-    raise exception 'QR ini tidak bisa dipakai sekarang. Buka ulang halaman absen.';
+    raise exception 'QR ini tidak bisa dipakai sekarang. Buka ulang halaman presensi.';
   end if;
   if p_action is null then
     return json_build_object('ok', true, 'next', nx, 'name', public._first_name(p.full_name), 'kind', case when brk then 'istirahat' else 'absen' end,
@@ -774,7 +777,7 @@ begin
   end if;
   if not (p_action = any (nx)) then
     label := case p_action when 'masuk' then 'Masuk' when 'istirahat' then 'Istirahat' when 'kembali' then 'Kembali' when 'pulang' then 'Pulang' else p_action end;
-    raise exception 'Tidak bisa scan % sekarang. Buka ulang halaman absen.', label;
+    raise exception 'Tidak bisa scan % sekarang. Buka ulang halaman presensi.', label;
   end if;
   if dv.staff_id is null then
     insert into att_devices (staff_id, device_hash, label) values (me, h, nullif(left(trim(coalesce(p_label, '')), 60), ''));
@@ -795,7 +798,7 @@ end $$;
 create or replace function public.att_my_schedule() returns json
 language plpgsql stable security definer set search_path = public
 as $$
-declare me uuid := public._att_me('Halaman absen untuk akun staf. Masuk dengan akun staf Anda sendiri.');
+declare me uuid := public._att_me('Halaman presensi untuk akun staf. Masuk dengan akun staf Anda sendiri.');
   today date := public._att_today();
 begin
   perform public._att_staff(me);
@@ -994,13 +997,13 @@ create or replace function public._att_can_correct(me uuid, p_staff uuid) return
 language plpgsql stable security definer set search_path = public
 as $$
 begin
-  if p_staff = me then raise exception 'Absen Anda sendiri dikoreksi oleh pemilik atau manajer lain.' using errcode = '42501'; end if;
+  if p_staff = me then raise exception 'Presensi Anda sendiri dikoreksi oleh pemilik atau manajer lain.' using errcode = '42501'; end if;
 end $$;
 
 create or replace function public.att_correct_add(p_staff uuid, p_action text, p_at timestamptz, p_reason text) returns json
 language plpgsql volatile security definer set search_path = public
 as $$
-declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer yang bisa mengoreksi absen.');
+declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer yang bisa mengoreksi presensi.');
   p profiles; id bigint;
 begin
   perform public._att_can_correct(me, p_staff);
@@ -1018,7 +1021,7 @@ end $$;
 create or replace function public.att_correct_void(p_event bigint, p_reason text) returns void
 language plpgsql volatile security definer set search_path = public
 as $$
-declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer yang bisa mengoreksi absen.'); e att_events;
+declare me uuid := public._require(array['manager', 'owner'], 'Hanya pemilik atau manajer yang bisa mengoreksi presensi.'); e att_events;
 begin
   select * into e from att_events where id = p_event;
   if e.id is null then raise exception 'Scan tidak ditemukan.'; end if;
@@ -1291,7 +1294,7 @@ end $$;
 create or replace function public.att_my_days(p_from date, p_to date) returns json
 language plpgsql stable security definer set search_path = public
 as $$
-declare me uuid := public._att_me('Halaman absen untuk akun staf. Masuk dengan akun staf Anda sendiri.');
+declare me uuid := public._att_me('Halaman presensi untuk akun staf. Masuk dengan akun staf Anda sendiri.');
   today date := public._att_today();
 begin
   perform public._att_staff(me);

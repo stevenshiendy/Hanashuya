@@ -473,8 +473,8 @@ function homeRight(h) {
     ${tool('home-today', 'Pesanan hari ini', h ? `${h.orders} dibayar` : 'Semua pesanan')}
     ${tool('home-rsv', 'Pesanan di muka', 'Ambil, bayar penuh', !open)}
     ${tool('home-close', 'Tutup shift', 'Hitung laci, cetak rekap', !open)}
-    <span class="hm-sec">Absen staf</span>
-    <div class="hm-pair">${tool('qr-absen', 'QR absen', 'Masuk, pulang')}
+    <span class="hm-sec">Presensi staf</span>
+    <div class="hm-pair">${tool('qr-absen', 'QR presensi', 'Masuk, pulang')}
     ${tool('qr-istirahat', 'QR istirahat', 'Mulai, selesai')}</div>
     ${canCancel() ? tool('approve', 'Persetujuan', S.asks == null ? 'Batal dan refund' : S.asks ? `${S.asks} menunggu keputusan` : 'Tidak ada yang menunggu') : ''}
     ${canCancel() && h?.drawer != null ? `<p class="small muted num">Laci ${rupiah(h.drawer)}${h.drawer_low ? ' · di bawah modal standar' : ''}</p>` : ''}
@@ -525,7 +525,7 @@ function renderApprove() {
 }
 
 /* Stok: the till's stock chooser and forms from stock.js. */
-/* QR absen and QR istirahat (Glenn, 12 Nov 2026): the till shows one QR at a time, full size;
+/* QR presensi and QR istirahat (Glenn, 12 Nov 2026): the till shows one QR at a time, full size;
  * staff scan it with their own phone on /staf (staf/index.html). The absen QR does Masuk and Pulang, the
  * istirahat QR starts and ends a break (1 hour, late after 5 minutes over). Both rotate
  * (att_qr_token(kind)); a photo sent home stops working. */
@@ -567,8 +567,8 @@ async function renderQr() {
   if (S.me && !S.me.kasir_tablet) {
     app.innerHTML = `<section class="tl-qrpage" aria-labelledby="tl-qr-t">
       <div><button class="tl-link" type="button" data-act="back">← Dashboard</button></div>
-      <h1 id="tl-qr-t" class="tl-title">${brk ? 'QR istirahat' : 'QR absen'}</h1>
-      <p class="notice" role="status">QR absen dan QR istirahat hanya tampil di akun kasir tablet. Tablet ini sedang masuk dengan akun ${esc((S.me.full_name || 'staf').split(' ')[0])}. Keluar, lalu masuk dengan akun kasir tablet dari pemilik.</p>
+      <h1 id="tl-qr-t" class="tl-title">${brk ? 'QR istirahat' : 'QR presensi'}</h1>
+      <p class="notice" role="status">QR presensi dan QR istirahat hanya tampil di akun kasir tablet. Tablet ini sedang masuk dengan akun ${esc((S.me.full_name || 'staf').split(' ')[0])}. Keluar, lalu masuk dengan akun kasir tablet dari pemilik.</p>
       <p class="small muted">Akun staf pribadi dipakai untuk scan dari HP masing-masing (${esc(location.host)}/staf).</p>
     </section>`;
     return;
@@ -576,16 +576,16 @@ async function renderQr() {
   app.innerHTML = `<section class="tl-qrpage" aria-labelledby="tl-qr-t">
     <div><button class="tl-link" type="button" data-act="back">← Dashboard</button></div>
     <div class="tl-qrkind" role="group" aria-label="Pilih QR">
-      <button type="button" class="tl-chip${brk ? '' : ' is-on'}" aria-pressed="${!brk}" data-act="qr-absen">QR absen</button>
+      <button type="button" class="tl-chip${brk ? '' : ' is-on'}" aria-pressed="${!brk}" data-act="qr-absen">QR presensi</button>
       <button type="button" class="tl-chip${brk ? ' is-on' : ''}" aria-pressed="${brk}" data-act="qr-istirahat">QR istirahat</button></div>
-    <h1 id="tl-qr-t" class="tl-title">${brk ? 'QR istirahat' : 'QR absen'}</h1>
+    <h1 id="tl-qr-t" class="tl-title">${brk ? 'QR istirahat' : 'QR presensi'}</h1>
     <p class="muted">${brk ? 'Scan sebelum mulai istirahat dan sesudah kembali. Istirahat 1 jam, terlambat kalau lebih dari 5 menit.'
       : 'Scan saat masuk dan saat pulang. Jam kerja dihitung dari scan ini: 9 jam untuk full-time, 5 jam untuk Kevin.'}</p>
-    <div class="tl-qrbig" id="tl-qr" role="img" aria-label="${brk ? 'QR istirahat' : 'QR absen'}"></div>
+    <div class="tl-qrbig" id="tl-qr" role="img" aria-label="${brk ? 'QR istirahat' : 'QR presensi'}"></div>
     <p class="muted small num" id="tl-qr-count" aria-live="off"></p>
     <div class="notice" id="tl-qr-msg" hidden></div>
     <p class="small muted" id="tl-qr-loc" aria-live="polite"></p>
-    <p class="small muted">Buka halaman absen di HP masing-masing (${esc(location.host)}/staf), masuk dengan akun staf, lalu scan.</p>
+    <p class="small muted">Buka halaman presensi di HP masing-masing (${esc(location.host)}/staf), masuk dengan akun staf, lalu scan.</p>
   </section>`;
   const run = qrRun;
   const tick = async () => {
@@ -616,8 +616,8 @@ async function boothFromTablet(run) {
   let o = out(); if (!o) return;
   if (pos.error) {
     o.textContent = pos.error === 'denied'
-      ? 'Izinkan lokasi untuk aplikasi kasir di tablet ini (Pengaturan > Aplikasi > Chrome > Izin > Lokasi), supaya absen staf bisa dicek ke lokasi booth.'
-      : 'Lokasi tablet belum terbaca. Nyalakan lokasi tablet supaya absen staf bisa dicek ke lokasi booth.';
+      ? 'Izinkan lokasi untuk aplikasi kasir di tablet ini (Pengaturan > Aplikasi > Chrome > Izin > Lokasi), supaya presensi staf bisa dicek ke lokasi booth.'
+      : 'Lokasi tablet belum terbaca. Nyalakan lokasi tablet supaya presensi staf bisa dicek ke lokasi booth.';
     return;
   }
   try {

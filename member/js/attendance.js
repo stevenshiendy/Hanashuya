@@ -135,11 +135,11 @@ export async function mountKasirAbsen(panel) {
   const device = !!who?.kasir_tablet;
   panel.innerHTML = `
   <section class="panel stack join-inner" aria-labelledby="ab-title">
-    <h2 id="ab-title">Absen staf</h2>
+    <h2 id="ab-title">Presensi staf</h2>
     ${device || !who ? `<p class="muted" id="ab-lead">Scan QR ini dengan HP Anda sendiri, masuk dengan akun staf Anda.</p>
-    <div class="join-qr" id="ab-qr" style="width:min(80vw,24rem)" role="img" aria-label="QR absen"></div>
+    <div class="join-qr" id="ab-qr" style="width:min(80vw,24rem)" role="img" aria-label="QR presensi"></div>
     <p class="muted small num" id="ab-count" aria-hidden="true"></p>`
-    : `<p id="ab-lead">QR absen hanya tampil di akun kasir tablet. Keluar, lalu masuk dengan akun kasir tablet dari pemilik. Akun staf pribadi dipakai untuk scan dari HP masing-masing.</p>`}
+    : `<p id="ab-lead">QR presensi hanya tampil di akun kasir tablet. Keluar, lalu masuk dengan akun kasir tablet dari pemilik. Akun staf pribadi dipakai untuk scan dari HP masing-masing.</p>`}
     <div class="notice" id="ab-msg" hidden></div>
   </section>
   <section class="panel stack" aria-labelledby="ab-duty-title">
@@ -203,7 +203,7 @@ const LOC_ERR = {
 };
 
 // Owner or manager: save the booth location from the device in hand, at the booth
-// (att_set_location). Shown at the top of Absen harian (13 Nov 2026: the tablet now runs
+// (att_set_location). Shown at the top of Presensi harian (13 Nov 2026: the tablet now runs
 // on the kasir tablet account, which may not move the location).
 function locPanel(box, t) {
   const st = { set: t.location_set, radius: t.radius_m || 200, at: t.location_at };
@@ -211,9 +211,9 @@ function locPanel(box, t) {
     box.innerHTML = `
     <h2 id="ab-loc-title">Lokasi booth</h2>
     <p class="muted small">${st.set
-      ? `Tersimpan${st.at ? ' ' + esc(dmy(ymd(new Date(st.at)))) : ''}. Absen hanya diterima dari HP yang berada dalam ${st.radius} m dari titik ini.`
-      : 'Belum disimpan. Staf tetap wajib menyalakan lokasi saat absen, tapi jaraknya ke booth baru dicek setelah lokasi booth disimpan.'}</p>
-    <label class="field" style="max-width:14rem"><span>Jarak absen (meter)</span>
+      ? `Tersimpan${st.at ? ' ' + esc(dmy(ymd(new Date(st.at)))) : ''}. Presensi hanya diterima dari HP yang berada dalam ${st.radius} m dari titik ini.`
+      : 'Belum disimpan. Staf tetap wajib menyalakan lokasi saat presensi, tapi jaraknya ke booth baru dicek setelah lokasi booth disimpan.'}</p>
+    <label class="field" style="max-width:14rem"><span>Jarak presensi (meter)</span>
       <input type="number" id="ab-loc-r" min="50" max="2000" step="10" value="${st.radius}" inputmode="numeric"></label>
     ${found ? `<p>Lokasi perangkat terbaca, akurasi ± ${Math.round(found.acc)} m.${found.acc > 100 ? ' Kurang tepat: coba di dekat jendela atau tunggu sebentar.' : ''}</p>
       <div class="row"><button class="btn" type="button" id="ab-loc-save">Simpan lokasi ini</button>
@@ -265,8 +265,8 @@ function mountManage(root, { owner, compact = false }) {
   const parts = [['hari', 'Hari ini'], ['staf', 'Per staf'], ['setuju', 'Persetujuan'], ['jadwal', 'Jadwal'], ['rekap', 'Rekap'], ['profil', 'Profil staf']];
   root.innerHTML = `
   <div class="panel stack">
-    <div class="row-between"><h2>${compact ? 'Absensi (manajer)' : 'Absensi'}</h2></div>
-    <div class="rep-range" role="group" aria-label="Bagian absensi">
+    <div class="row-between"><h2>${compact ? 'Presensi (manajer)' : 'Presensi'}</h2></div>
+    <div class="rep-range" role="group" aria-label="Bagian presensi">
       ${parts.map(([k, l], i) => `<button class="btn btn-quiet" type="button" data-part="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}
     </div>
   </div>
@@ -287,7 +287,7 @@ async function dayPart(p, opts, date = ymd()) {
   try { d = await rpc('att_day_report', { p_date: date }); } catch (e) { return errBox(p, e); }
   p.innerHTML = `
   <section class="panel stack">
-    <div class="row-between"><${hx(p)}>Absen per hari</${hx(p)}>
+    <div class="row-between"><${hx(p)}>Presensi per hari</${hx(p)}>
       <label class="field"><span class="visually-hidden">Tanggal</span><input type="date" id="am-date" value="${esc(d.date)}" max="${ymd()}"></label></div>
     ${d.people.length ? `<ul class="list">${d.people.map((x) => `<li><div class="stack-sm" style="flex:1 1 100%;min-width:0">
       <div class="row-between"><strong>${nameBtn(x.id, x.full_name || x.name)}</strong>${date === ymd() ? tag([state(x.next), x.next[0] === 'masuk' ? 'tag' : 'tag-ok']) : ''}</div>
@@ -298,12 +298,12 @@ async function dayPart(p, opts, date = ymd()) {
           ${s.via === 'koreksi' ? `<span class="muted small">koreksi: ${esc(s.reason)}</span>` : ''}
           ${s.voided ? `<span class="tag tag-bad">Dibatalkan</span> <span class="muted small">${esc(s.void_reason)}</span>` : ''}</span>
           ${s.voided || x.is_me ? '' : `<button class="btn btn-text" type="button" data-void="${s.id}">Batalkan scan</button>`}</li>`).join('')}</ul>` : ''}
-      ${x.is_me ? '<p class="muted small">Absen Anda sendiri dikoreksi oleh pemilik atau manajer lain.</p>'
+      ${x.is_me ? '<p class="muted small">Presensi Anda sendiri dikoreksi oleh pemilik atau manajer lain.</p>'
         : `<button class="btn btn-text" type="button" data-add="${esc(x.id)}" data-name="${esc(x.name)}" style="justify-self:start">Tambah scan yang lupa</button>`}
     </div></li>`).join('')}</ul>` : '<p class="muted">Belum ada akun staf.</p>'}
   </section>
   <form class="panel stack" id="am-fix" hidden novalidate>
-    <h2 id="am-fix-title">Koreksi absen</h2>
+    <h2 id="am-fix-title">Koreksi presensi</h2>
     <div class="form-grid">
       <label class="field" id="am-fix-act"><span>Scan</span><select id="am-fix-action">${Object.entries(ACTION).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
       <label class="field" id="am-fix-time"><span>Jam <span class="hint is-req">wajib</span></span><input type="time" id="am-fix-at" required></label>
@@ -508,7 +508,7 @@ async function weekGrid(box) {
         <button class="btn btn-quiet" type="button" data-wk="-7">Sebelumnya</button>
         <button class="btn btn-quiet" type="button" data-wk="0"${thisWeek ? ' disabled' : ''}>Minggu ini</button>
         <button class="btn btn-quiet" type="button" data-wk="7">Berikutnya</button></div></div>
-    <p class="muted small">Sudah termasuk tanggal khusus dan izin yang disetujui. Ubah lewat Pola mingguan atau Tanggal khusus di bawah. Ketuk nama untuk rincian absennya.</p>
+    <p class="muted small">Sudah termasuk tanggal khusus dan izin yang disetujui. Ubah lewat Pola mingguan atau Tanggal khusus di bawah. Ketuk nama untuk rincian presensinya.</p>
     ${w.people.length ? `<div class="table-wrap"><table class="att-week">
       <thead><tr><th scope="col">Staf</th>${dates.map((d, i) => `<th scope="col"${d === w.today ? ' class="is-today" aria-current="date"' : ''}>${WEEKDAYS[i].slice(0, 3)}
         <span class="num">${esc(longDate(d))}</span></th>`).join('')}</tr></thead>
@@ -738,7 +738,7 @@ async function recapPart(p, opts) {
   const [from, to] = periodRange();
   p.innerHTML = `
   <section class="panel stack" aria-labelledby="am-rc">
-    <div class="stack-sm"><h2 id="am-rc">Rekap absen</h2><p class="muted" id="am-rc-range">${esc(longRange(from, to))}</p></div>
+    <div class="stack-sm"><h2 id="am-rc">Rekap presensi</h2><p class="muted" id="am-rc-range">${esc(longRange(from, to))}</p></div>
     ${periodBar()}
     <div id="am-rc-body" class="stack"><div class="skeleton"></div><div class="skeleton"></div></div>
   </section>`;
@@ -779,7 +779,7 @@ async function recapPart(p, opts) {
       X.utils.book_append_sheet(wb, det.length ? X.utils.json_to_sheet(det) : X.utils.aoa_to_sheet([['Kosong']]), 'Rincian');
       const lv = r.people.flatMap((x) => (x.leaves || []).map((l) => ({ Nama: x.full_name, Mulai: l.start, Sampai: l.end, Alasan: l.reason, Status: (LEAVE[l.status] || [l.status])[0] })));
       if (lv.length) X.utils.book_append_sheet(wb, X.utils.json_to_sheet(lv), 'Izin');
-      X.writeFile(wb, `absensi-${from}-sampai-${to}.xlsx`);
+      X.writeFile(wb, `presensi-${from}-sampai-${to}.xlsx`);
     } catch (err) { notice($('#am-rc-msg', p), err.message); }
     busy(b, false);
   });
@@ -812,14 +812,14 @@ async function staffPart(p, opts) {
     </div>
   </section>
   <section class="panel stack" aria-labelledby="am-ps-per">
-    <div class="stack-sm"><h2 id="am-ps-per">Absen</h2><p class="muted" id="am-ps-range">${esc(longRange(from, to))}</p></div>
+    <div class="stack-sm"><h2 id="am-ps-per">Presensi</h2><p class="muted" id="am-ps-range">${esc(longRange(from, to))}</p></div>
     ${periodBar()}
     <div id="am-ps-body" class="stack-lg"><div class="skeleton"></div><div class="skeleton"></div></div>
   </section>
   <div id="am-ps-izin" class="stack-lg"></div>
   <div id="am-ps-prof" class="stack-lg"></div>`;
   // Per staf covers every Tim function for one person (Glenn, 12 Nov 2026): izin (waiting,
-  // Catat izin, history) and the profile (WhatsApp, rekening, HP absen) sit under the absen.
+  // Catat izin, history) and the profile (WhatsApp, rekening, HP presensi) sit under the absen.
   approvePart($('#am-ps-izin', p), { ...opts, only: me.id }, 'izin');
   profilePart($('#am-ps-prof', p), { ...opts, only: me.id });
   const again = () => staffPart(p, opts);
@@ -840,7 +840,7 @@ async function staffPart(p, opts) {
       ${x.work_target_min != null ? stat(hm(x.short_min || 0), `Kurang dari target ${hm(x.work_target_min)}/hari`) : ''}
     </div>
     ${x.work_target_min != null ? `<form class="row" id="am-ps-target" novalidate>
-      <label class="field"><span>Jam kerja per hari <span class="hint">dari scan QR absen, di luar istirahat</span></span>
+      <label class="field"><span>Jam kerja per hari <span class="hint">dari scan QR presensi, di luar istirahat</span></span>
         <input type="number" inputmode="decimal" min="1" max="12" step="0.5" value="${x.work_target_min / 60}" style="width:7rem"></label>
       <button class="btn btn-quiet" type="submit" style="align-self:end">Simpan</button>
       <span class="small" role="status" data-st style="align-self:end"></span></form>` : ''}
@@ -886,11 +886,11 @@ async function profilePart(p, opts) {
   </section>`;
   p.innerHTML = `${reqHtml}<section class="panel stack">
     <h2>Profil staf</h2>
-    <p class="muted small">Staf mengisi profilnya sendiri di halaman absen (Profil saya), atau Anda isi di sini. Rekening hanya terlihat oleh staf itu, manajer dan pemilik.</p>
+    <p class="muted small">Staf mengisi profilnya sendiri di halaman presensi (Profil saya), atau Anda isi di sini. Rekening hanya terlihat oleh staf itu, manajer dan pemilik.</p>
     <ul class="list">${list.map((s, i) => `<li data-prof="${i}"><span class="grow"><strong>${nameBtn(s.id, s.full_name || s.name)}</strong> ${s.role === 'manager' ? tag(['Manajer', 'tag']) : ''}<br>
       <span class="muted small num">${esc(prettyPhone(s.whatsapp))}${s.bank_account ? `, ${esc(s.bank_name)} ${esc(s.bank_account)} a.n. ${esc(s.bank_holder)}` : ', rekening belum diisi'}</span>
-      <br><span class="muted small">${s.device_bound ? `HP absen: ${esc(s.device_label || 'terdaftar')}, terakhir scan ${esc(dmy(ymd(new Date(s.device_last_seen_at))))} ${esc(time(s.device_last_seen_at))}` : 'HP absen belum terdaftar (terdaftar saat scan pertama)'}</span></span>
-      ${s.device_bound && !s.is_me ? `<button class="btn btn-text" type="button" data-dev-reset="${i}" aria-label="Reset HP absen ${esc(s.full_name || s.name)}">Reset HP absen</button>` : ''}
+      <br><span class="muted small">${s.device_bound ? `HP presensi: ${esc(s.device_label || 'terdaftar')}, terakhir scan ${esc(dmy(ymd(new Date(s.device_last_seen_at))))} ${esc(time(s.device_last_seen_at))}` : 'HP presensi belum terdaftar (terdaftar saat scan pertama)'}</span></span>
+      ${s.device_bound && !s.is_me ? `<button class="btn btn-text" type="button" data-dev-reset="${i}" aria-label="Reset HP presensi ${esc(s.full_name || s.name)}">Reset HP presensi</button>` : ''}
       ${opts.owner || !s.full_name ? `<button class="btn btn-quiet" type="button" data-prof-edit="${i}" aria-label="Ubah profil ${esc(s.full_name || s.name)}">Ubah</button>` : ''}
       <div class="att-prof-form" hidden></div></li>`).join('')}</ul>
   </section>`;
@@ -922,9 +922,9 @@ async function profilePart(p, opts) {
   // One phone per account: after a reset, the person's next scan binds their new phone.
   $$('[data-dev-reset]', p).forEach((b) => b.addEventListener('click', async () => {
     const s = list[Number(b.dataset.devReset)];
-    if (!confirm(`Reset HP absen ${s.full_name || s.name}? Scan berikutnya dari HP baru akan mendaftarkan HP itu.`)) return;
+    if (!confirm(`Reset HP presensi ${s.full_name || s.name}? Scan berikutnya dari HP baru akan mendaftarkan HP itu.`)) return;
     busy(b, true, 'Mereset…');
-    try { await rpc('att_reset_device', { p_staff: s.id }); toast('HP absen direset'); profilePart(p, opts); }
+    try { await rpc('att_reset_device', { p_staff: s.id }); toast('HP presensi direset'); profilePart(p, opts); }
     catch (err) { toast(err.message); busy(b, false); }
   }));
 }
@@ -949,7 +949,7 @@ function deviceId() {
   try { document.cookie = `${DEV_COOKIE}=${id}; max-age=${400 * 86400}; path=/; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`; } catch { /* cookies blocked */ }
   return id;
 }
-// A short name for the phone, shown to the owner next to "Reset HP absen".
+// A short name for the phone, shown to the owner next to "Reset HP presensi".
 function deviceLabel() {
   const ua = navigator.userAgent;
   const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'HP';
@@ -978,10 +978,10 @@ function gate(app) {
       <img class="sg-logo" src="/member/img/logotype-cream.webp" width="600" height="96" alt="Hanashuya">
       <div class="sg-copy">
         <p class="sg-title">Ruang staf</p>
-        <p class="sg-lead">Absen, jadwal shift, izin dan profil kerja, dari HP Anda sendiri.</p>
+        <p class="sg-lead">Presensi, jadwal shift, izin dan profil kerja, dari HP Anda sendiri.</p>
       </div>
       <ul class="sg-list">
-        <li><b>Absen</b><span>Scan QR di tablet kasir untuk masuk, istirahat dan pulang.</span></li>
+        <li><b>Presensi</b><span>Scan QR di tablet kasir untuk masuk, istirahat dan pulang.</span></li>
         <li><b>Jadwal</b><span>Shift minggu ini dan dua minggu ke depan.</span></li>
         <li><b>Izin</b><span>Ajukan paling lambat 7 hari sebelumnya.</span></li>
       </ul>
@@ -1043,7 +1043,7 @@ async function phone() {
   try { who = await rpc('whoami'); } catch (e) { return errBox(app, e); }
   // The kasir tablet account shows the QR; it never scans one (Glenn, 13 Nov 2026).
   if (who?.kasir_tablet) {
-    app.innerHTML = `<section class="panel stack"><h1>Ini akun kasir tablet</h1><p>Akun kasir tablet hanya untuk tablet kasir: menampilkan QR absen dan mencatat penjualan. Untuk absen, keluar lalu masuk dengan akun staf Anda sendiri di HP Anda.</p>
+    app.innerHTML = `<section class="panel stack"><h1>Ini akun kasir tablet</h1><p>Akun kasir tablet hanya untuk tablet kasir: menampilkan QR presensi dan mencatat penjualan. Untuk presensi, keluar lalu masuk dengan akun staf Anda sendiri di HP Anda.</p>
       <div class="row"><a class="btn" href="/member/kasir.html">Buka kasir</a><button class="btn btn-quiet" type="button" id="out">Keluar</button></div></section>`;
     $('#out').addEventListener('click', signOut);
     return;
@@ -1058,8 +1058,8 @@ async function phone() {
   if ($('#to-card')) $('#to-card').hidden = false;
   app.innerHTML = `
   <div class="stack-lg">
-    <div class="tabs" role="tablist" aria-label="Absen">
-      <button role="tab" id="t-ab" aria-controls="p-ab" data-tab="absen">Absen</button>
+    <div class="tabs" role="tablist" aria-label="Presensi">
+      <button role="tab" id="t-ab" aria-controls="p-ab" data-tab="absen">Presensi</button>
       <button role="tab" id="t-me" aria-controls="p-me" data-tab="profil">Profil saya</button>
       <button role="tab" id="t-lv" aria-controls="p-lv" data-tab="izin">Izin</button>
     </div>
@@ -1090,16 +1090,15 @@ async function scanTab() {
   }
   const last = s.last ? `${ACTION[s.last.action]} ${time(s.last.at)}` : '';
   p.innerHTML = `
-  <section class="panel stack">
-    <h1>Halo ${esc(s.name)}</h1>
-    <div class="stat"><span>Shift hari ini</span><b>${esc(dayLine(s.week[0]))}</b></div>
-    <p>${esc(state(s.next))}${last ? `. Scan terakhir: ${esc(last)}` : ''}.</p>
-    ${check ? `<p class="muted small">QR absen terbaca. Ketuk satu tombol.</p>
-      <div class="stack-sm">${check.next.map((a, i) => `<button class="btn btn-block btn-big ${i ? 'btn-quiet' : ''}" type="button" data-act="${a}">${ACTION[a]}</button>`).join('')}</div>`
+  <section class="panel stack"${check ? ' aria-labelledby="ab-cf-t"' : ''}>
+    ${check ? '' : `<h1>Halo ${esc(s.name)}</h1>`}
+    ${check ? '' : `<div class="stat"><span>Shift hari ini</span><b>${esc(dayLine(s.week[0]))}</b></div>`}
+    ${check ? '' : `<p>${esc(state(s.next))}${last ? `. Scan terakhir: ${esc(last)}` : ''}.</p>`}
+    ${check ? confirmHtml(check, s)
     : `<button class="btn btn-block btn-big" type="button" id="ab-scan">Scan QR di tablet kasir</button>
       <div class="scan-view" id="cam" hidden><video id="video" playsinline muted></video><span class="frame" aria-hidden="true"></span></div>
       <button class="btn btn-quiet btn-block" type="button" id="cam-stop" hidden>Tutup kamera</button>
-      <p class="muted small">Berikutnya: ${s.next.map((a) => ACTION[a]).join(' atau ')}. Jam yang dicatat adalah jam server saat Anda menekan tombol. Absen hanya dari HP Anda sendiri, di booth, dengan lokasi HP menyala.</p>`}
+      <p class="muted small">Berikutnya: ${s.next.map((a) => ACTION[a]).join(' atau ')}. Jam yang dicatat adalah jam server saat Anda menekan tombol. Presensi hanya dari HP Anda sendiri, di booth, dengan lokasi HP menyala.</p>`}
     <div class="notice" id="ab-note" hidden></div>
   </section>
   <section class="panel stack">
@@ -1116,20 +1115,79 @@ async function scanTab() {
     try {
       const r = await rpc('att_scan', scanArgs({ p_token: token, p_action: b.dataset.act, p_label: deviceLabel() }));
       token = null; loc = null;
-      toast(`${ACTION[r.action]} tercatat pukul ${time(r.at)}${r.phone_bound ? '. HP ini sekarang HP absen Anda' : ''}`);
+      toast(`${ACTION[r.action]} tercatat pukul ${time(r.at)}${r.phone_bound ? '. HP ini sekarang HP presensi Anda' : ''}`);
       scanTab();
     } catch (e) { token = null; loc = null; notice($('#ab-note', p), e.message); busy(b, false); setTimeout(scanTab, 4000); }
   }));
+  $('#ab-cancel', p)?.addEventListener('click', () => { token = null; loc = null; toast('Presensi dibatalkan, tidak ada yang tercatat'); scanTab(); });
   $('#ab-scan', p)?.addEventListener('click', startCamera);
   $('#cam-stop', p)?.addEventListener('click', stopCamera);
+}
+
+// The confirmation after a scan (Glenn, 14 Nov 2026): nothing is recorded until the staff member
+// taps "Ya, catat …". Each QR offers exactly one action at a time, and the screen says up front
+// how the scan will be recorded when it falls outside the schedule (di luar jadwal, terlambat,
+// pulang lebih awal, lembur, istirahat lebih lama) or when the location could not be checked.
+// The rules mirror _att_day in attendance.sql; the thresholds come from att_status().rules
+// (defaults if the database is older).
+function confirmHtml(check, s) {
+  const a = check.next[0];
+  const warns = scanWarnings(a, s, check.flags || []);
+  return `<h1 id="ab-cf-t">Catat ${esc(ACTION[a])} sekarang?</h1>
+    <p>${esc(s.full_name || s.name)} · <span class="num">${esc(time(new Date()))}</span> · ${check.kind === 'istirahat' ? 'QR istirahat' : 'QR presensi'}</p>
+    <div class="stat"><span>Shift hari ini</span><b>${esc(dayLine(s.week[0]))}</b></div>
+    ${warns.length ? `<div class="notice notice-warn" role="alert"><ul class="stack-sm" style="margin:0;padding-left:1.1rem">${warns.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
+    <div class="stack-sm">
+      <button class="btn btn-block btn-big" type="button" data-act="${a}">Ya, catat ${esc(ACTION[a])}</button>
+      <button class="btn btn-quiet btn-block" type="button" id="ab-cancel">Batal</button>
+    </div>
+    <p class="muted small">Jam yang dicatat adalah jam saat Anda menekan tombol. Belum ada yang tercatat sebelum Anda menekan Ya.</p>`;
+}
+
+const nowMin = (d = new Date()) => { const [h, m] = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d).split(':').map(Number); return h * 60 + m; };
+const dur = (n) => n >= 60 ? `${Math.floor(n / 60)} jam${n % 60 ? ` ${n % 60} menit` : ''}` : `${n} menit`;
+const OFF = 'Anda akan tercatat melakukan presensi di luar jadwal.';
+
+function scanWarnings(action, s, fl) {
+  const rules = { late: 10, out: 10, overtime: 20, ...(s.rules || {}) };
+  const day = s.week?.[0], now = nowMin(), out = [];
+  const blocks = (day?.blocks || []).filter((b) => b.kind === 'kerja' && b.start && b.end).map((b) => ({ ...b, bs: toMin(b.start), be: toMin(b.end) }));
+  // The block a session belongs to: the one it overlaps, or one starting within 2 hours (as in _att_day).
+  const blockFor = (start) => blocks.find((b) => start < b.be && start >= b.bs - 120) || blocks.find((b) => Math.abs(start - b.bs) <= 120);
+  if (action === 'masuk') {
+    if (day?.leave) out.push(`Hari ini Anda sedang izin. ${OFF}`);
+    else if (!blocks.length) out.push(`Hari ini Anda tidak ada jadwal kerja. ${OFF}`);
+    else {
+      const b = blockFor(now);
+      if (!b) out.push(`Sekarang di luar jam shift Anda. ${OFF}`);
+      else if (now > b.bs + rules.late) out.push(`Anda akan tercatat terlambat ${dur(now - b.bs)} (jadwal masuk ${dot(b.start)}).`);
+    }
+  } else {
+    const ins = (s.today_scans || []).filter((e) => e.action === 'masuk');
+    const since = ins.length ? nowMin(new Date(ins.at(-1).at)) : null;
+    const b = since == null ? null : blockFor(since);
+    if (action === 'pulang' && b) {
+      if (now < b.be) out.push(`Anda akan tercatat pulang lebih awal ${dur(b.be - now)} (jadwal pulang ${dot(b.end)}).`);
+      else if (now >= b.be + rules.overtime) out.push(`Anda akan tercatat lembur ${dur(now - b.be)} setelah jadwal pulang ${dot(b.end)}. Lembur perlu disetujui manajer atau pemilik.`);
+      else if (now > b.be + rules.out) out.push(`Anda akan tercatat pulang lewat ${dur(now - b.be)} dari jadwal (${dot(b.end)}).`);
+    }
+    if (action === 'kembali' && s.last?.action === 'istirahat') {
+      const took = Math.max(0, Math.round((Date.now() - new Date(s.last.at)) / 60000));
+      const limit = b?.break_minutes ?? rules.break ?? 60;
+      if (took > limit + 5) out.push(`Istirahat Anda ${dur(took)}, lebih dari ${dur(limit)}. Anda akan tercatat istirahat lebih lama.`);
+    }
+  }
+  if (fl.includes('lokasi_booth_belum_diatur')) out.push('Lokasi booth belum tersimpan, jadi jarak Anda ke booth belum dicek. Presensi tetap tercatat dan ditandai untuk pemilik.');
+  if (fl.includes('lokasi_kurang_akurat')) out.push('Lokasi HP kurang akurat. Presensi tetap tercatat dan ditandai untuk pemilik.');
+  return out;
 }
 
 // Before the browser's own location prompt: say why, in one sentence.
 function askLocation(p) {
   p.innerHTML = `
   <section class="panel stack" aria-labelledby="ab-loc-ask">
-    <h1 id="ab-loc-ask">Izinkan lokasi untuk absen</h1>
-    <p>Absen memakai lokasi HP Anda sekali saat scan, untuk memastikan Anda ada di booth. Lokasi tidak dilacak di luar itu.</p>
+    <h1 id="ab-loc-ask">Izinkan lokasi untuk presensi</h1>
+    <p>Presensi memakai lokasi HP Anda sekali saat scan, untuk memastikan Anda ada di booth. Lokasi tidak dilacak di luar itu.</p>
     <button class="btn btn-block btn-big" type="button" id="ab-loc-ok">Izinkan lokasi dan lanjut</button>
     <button class="btn btn-quiet btn-block" type="button" id="ab-loc-no">Batal</button>
     <div class="notice" id="ab-loc-note" hidden></div>
@@ -1230,7 +1288,7 @@ async function startCamera() {
         const m = hit.data.match(/HS[AB]1\.[0-9]+\.[0-9a-f]+/i);
         stopCamera();
         if (navigator.vibrate) navigator.vibrate(60);
-        if (!m) { notice($('#ab-note'), 'Ini bukan QR absen. Scan QR di tab Absen pada tablet kasir.'); $('#ab-scan').hidden = false; return; }
+        if (!m) { notice($('#ab-note'), 'Ini bukan QR presensi. Scan QR di tab Presensi pada tablet kasir.'); $('#ab-scan').hidden = false; return; }
         token = m[0];
         scanTab();
         return;

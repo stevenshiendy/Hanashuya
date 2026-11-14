@@ -38,7 +38,7 @@ const MENU = [
   ['member', 'person', 'Member', [['t-mem', 'member', 'Daftar member'], ['t-help', 'bantuan', 'Bantuan akun'], ['t-rules', 'aturan-kartu', 'Aturan kartu'],
     ['t-boost', 'bonus-stempel', 'Bonus stempel'], ['t-wa', 'template-wa', 'Template WhatsApp'], ['t-join', 'qr-daftar', 'QR pendaftaran']]],
   // Per staf holds izin, rekap and profil for one person (Glenn, 12 Nov 2026); only these keep their own item.
-  ['tim', 'team', 'Tim', [['t-staff', 'staf', 'Staf'], ['t-att', 'absensi', 'Absen harian'], ['t-att-one', 'absen-staf', 'Per staf'],
+  ['tim', 'team', 'Tim', [['t-staff', 'staf', 'Staf'], ['t-att', 'absensi', 'Presensi harian'], ['t-att-one', 'absen-staf', 'Per staf'],
     ['t-att-ot', 'lembur', 'Lembur'], ['t-att-plan', 'jadwal', 'Jadwal'], ['t-komisi', 'komisi', 'Komisi']]],
   // Transaksi (Glenn, 12 Nov 2026, like VireoPOS): purchase orders, stock in and out, adjustments, commission payouts, voids.
   ['transaksi', 'swap', 'Transaksi', [['t-po', 'purchase-order', 'Purchase Order'], ['t-recv', 'penerimaan-barang', 'Penerimaan barang'],
@@ -555,7 +555,7 @@ async function staff() {
   p.innerHTML = `
   <div class="panel stack">
     <div class="row-between"><h1>Staf</h1><span class="muted small">${people.length} akun aktif</span></div>
-    <p class="muted small">Akun pribadi staf: untuk absen di ${esc(location.host)}/staf dari HP masing-masing, dipilih sebagai yang melayani di kasir, dan sekaligus kartu member staf itu.</p>
+    <p class="muted small">Akun pribadi staf: untuk presensi di ${esc(location.host)}/staf dari HP masing-masing, dipilih sebagai yang melayani di kasir, dan sekaligus kartu member staf itu.</p>
     <ul class="list">${people.map((x) => `<li>
       <span class="grow"><strong>${esc(x.full_name || 'Tanpa nama')}</strong>${x.is_me ? ' <span class="muted small">(Anda)</span>' : ''}<br><span class="muted small num">${x.username ? esc(x.username) + ', ' : ''}${esc(prettyPhone(x.whatsapp))}${x.employer ? ', ' + esc(x.employer) : ''}</span></span>
       ${x.start_password && x.role !== 'owner' ? '<span class="tag tag-warn">Belum ganti password awal</span>' : ''}
@@ -582,7 +582,7 @@ async function staff() {
   </div>
   <section class="panel stack" id="kt" aria-labelledby="kt-title">
     <h2 id="kt-title">Akun kasir tablet</h2>
-    <p class="muted small">Akun khusus tablet kasir di booth. Dipakai untuk mencatat penjualan, mendaftarkan member, dan menampilkan QR absen. Akun ini tidak bisa absen, tidak masuk daftar staf, dan tidak bisa menyetujui apa pun. Setiap pesanan tetap mencatat staf yang melayani.</p>
+    <p class="muted small">Akun khusus tablet kasir di booth. Dipakai untuk mencatat penjualan, mendaftarkan member, dan menampilkan QR presensi. Akun ini tidak bisa presensi, tidak masuk daftar staf, dan tidak bisa menyetujui apa pun. Setiap pesanan tetap mencatat staf yang melayani.</p>
     ${tablet ? `<ul class="list"><li>
       <span class="grow"><strong>${esc(tablet.full_name || 'Kasir tablet')}</strong><br><span class="muted small num">@${esc(tablet.username)}</span></span>
       <span class="tag">Kasir tablet</span>
