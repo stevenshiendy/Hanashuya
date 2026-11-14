@@ -52,7 +52,7 @@ const MENU = [
     ['t-stamp', 'koreksi-stempel', 'Koreksi stempel']]],
   // Akunting (Glenn, 12 Nov 2026, like VireoPOS): chart of accounts, journals (automatic from sales, purchases, cash and stock; manual), reports.
   ['akunting', 'book', 'Akunting', [['t-acc', 'akun-buku-besar', 'Bagan akun'], ['t-jurnal', 'buat-jurnal', 'Jurnal umum'], ['t-lacc', 'laporan-akunting', 'Laporan keuangan']]],
-  ['pengaturan', 'gear', 'Pengaturan', [['t-set', 'cadangan', 'Cadangan data'], ['t-queue', 'nota-antrian', 'Nota antrian']]],
+  ['pengaturan', 'gear', 'Pengaturan', [['t-set', 'cadangan', 'Cadangan data'], ['t-queue', 'nota-antrian', 'Nota antrian'], ['t-tax', 'pajak-service', 'Pajak dan service']]],
 ];
 // Hashes that no longer name a view. Every other old hash (produk, stok, staf, absensi,
 // member, promo, laporan-pos, ...) is still the first view of its feature.
@@ -100,7 +100,7 @@ async function boot() {
   $('#logout').hidden = false;
   const who = await rpc('whoami').catch(() => null);
   if (!who || (who.role !== 'owner' && who.role !== 'manager')) {
-    app.innerHTML = `<section class="panel stack"><h1>Khusus pemilik dan manajer</h1><p>Nomor ${esc(prettyPhone(who?.whatsapp) || 'ini')} bukan akun pemilik atau manajer. Akun pemilik pertama diatur sekali lewat SQL, lihat README.</p></section>`;
+    app.innerHTML = `<section class="panel stack"><h1>Tidak ada akses</h1></section>`;
     return;
   }
   READ_ONLY = who.role === 'manager';
@@ -169,7 +169,7 @@ async function boot() {
     jadwal: () => mountOwnerAbsensi(P('p-att-plan'), { part: 'jadwal' }),
     'bonus-stempel': () => mountStampBoosts(P('p-boost'), { rpc }), 'template-wa': () => mountWaTemplates(P('p-wa'), { rpc }),
     komisi: () => mountCommission(P('p-komisi'), { rpc }),
-    cadangan: backupView, 'nota-antrian': queueSlipView,
+    cadangan: backupView, 'nota-antrian': queueSlipView, 'pajak-service': chargesView,
   };
   // Laporan hubs (13 Nov 2026): each Laporan item lists its sub-reports; the old views are its last item.
   for (const [h, hub, id] of [['stok-laporan', 'stok', 'p-stock-rep'], ['laporan-pembelian', 'pembelian', 'p-lbuy'], ['laporan-pos', 'penjualan', 'p-rep'],
@@ -914,6 +914,47 @@ async function queueSlipView() {
       notice($('#queue-msg'), v ? 'Nota antrian aktif di kasir.' : 'Nota antrian dimatikan.', 'ok');
     } catch (err) { box.checked = !box.checked; notice($('#queue-msg'), err.message); }
     finally { box.disabled = false; }
+  });
+}
+
+// Service charge and PBJT (Glenn, 14 Nov 2026). Both off until switched on here; pos.sql (_pos_charges) does the maths.
+async function chargesView() {
+  const p = $('#p-tax');
+  p.innerHTML = '<div class="panel" aria-busy="true"><div class="skeleton"></div></div>';
+  let c;
+  try { c = await rpc('owner_charges'); } catch (e) { p.innerHTML = `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`; return; }
+  const pct = (v) => String(Number(v)).replace('.', ',');
+  p.innerHTML = `
+  <form class="panel stack" id="tax-form" novalidate aria-labelledby="tax-title">
+    <h1 id="tax-title">Pajak dan service</h1>
+    <p>Berlaku untuk pesanan baru di kasir. Pesanan yang sudah ada tetap memakai angka saat dijual.</p>
+    <fieldset class="stack-sm"><legend><b>Service charge</b></legend>
+      <label class="check"><input type="checkbox" name="service_on"${c.service_on ? ' checked' : ''}><span>Tambahkan service charge di booth</span></label>
+      <label class="field" style="max-width:12rem"><span>Persen</span><input name="service_pct" inputmode="decimal" value="${pct(c.service_pct)}"></label>
+      <p class="muted small">Dihitung dari harga setelah diskon. Tidak berlaku untuk pesanan platform pesan-antar. Uang service dibukukan sebagai utang kepada karyawan (Utang uang service), bukan pendapatan.</p>
+    </fieldset>
+    <fieldset class="stack-sm"><legend><b>PBJT makanan dan minuman</b></legend>
+      <label class="check"><input type="checkbox" name="pbjt_on"${c.pbjt_on ? ' checked' : ''}><span>Pungut PBJT</span></label>
+      <label class="field" style="max-width:12rem"><span>Tarif (paling tinggi 10%)</span><input name="pbjt_pct" inputmode="decimal" value="${pct(c.pbjt_pct)}"></label>
+      <label class="check"><input type="radio" name="pbjt_included" value="false"${c.pbjt_included ? '' : ' checked'}><span>Ditambahkan di atas harga (harga Rp20.000 jadi Rp22.000)</span></label>
+      <label class="check"><input type="radio" name="pbjt_included" value="true"${c.pbjt_included ? ' checked' : ''}><span>Sudah termasuk dalam harga (harga tetap, struk menulis "termasuk PBJT")</span></label>
+      <p class="muted small">PBJT adalah pajak daerah (UU 1/2022 tentang HKPD, Perda Kota Bandung), dihitung dari harga setelah diskon ditambah service charge. Makanan dan minuman dari restoran tidak dikenai PPN. Aktifkan hanya setelah usaha terdaftar sebagai wajib pajak PBJT di Bapenda Kota Bandung. PBJT yang dipungut masuk ke akun Utang PBJT dan disetor ke Bapenda.</p>
+    </fieldset>
+    <div class="notice" id="tax-msg" hidden></div>
+    <button class="btn" type="submit" style="justify-self:start">Simpan</button>
+  </form>`;
+  $('#tax-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, btn = $('button[type="submit"]', f);
+    const num = (n) => f.elements[n].value.trim().replace(',', '.');
+    busy(btn, true, 'Menyimpan…');
+    try {
+      const r = await rpc('owner_set_charges', { p: { service_on: f.elements.service_on.checked, service_pct: num('service_pct'),
+        pbjt_on: f.elements.pbjt_on.checked, pbjt_pct: num('pbjt_pct'), pbjt_included: f.elements.pbjt_included.value === 'true' } });
+      f.elements.service_pct.value = pct(r.service_pct); f.elements.pbjt_pct.value = pct(r.pbjt_pct);
+      notice($('#tax-msg'), 'Tersimpan. Kasir memakai angka baru setelah katalognya dimuat ulang.', 'ok');
+    } catch (err) { notice($('#tax-msg'), err.message); }
+    busy(btn, false);
   });
 }
 

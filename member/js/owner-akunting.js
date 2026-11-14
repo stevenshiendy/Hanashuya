@@ -5,6 +5,7 @@
 import { $, $$, esc, notice, busy, toast } from './lib.js';
 import { dataTable, formDialog, confirmDialog, infoDialog, loadSheetJS } from './data-table.js';
 import { accExtraView } from './owner-laporan2.js';
+import * as FS from './fin-statement.js';
 import { rangeHtml, wireRange as wireShared, presetRange as sharedRange } from './owner-range.js';
 
 const TZ = 'Asia/Jakarta';
@@ -55,7 +56,7 @@ function accountsView(panel, rpc) {
   const form = (a) => {
     const used = a && a.used > 0, locked = a && (a.system || used);
     return `<div class="dt-fields">
-      <label class="field"><span>Kode</span><input name="code" value="${esc(a?.code || '')}" maxlength="6" placeholder="6-2500" ${a && locked ? 'readonly' : ''} required><span class="hint">Satu angka, minus, empat angka. Angka pertama: 1 aset, 2 liabilitas, 3 ekuitas, 4 pendapatan, 5 beban pokok penjualan, 6 beban usaha.</span></label>
+      <label class="field"><span>Kode</span><input name="code" value="${esc(a?.code || '')}" maxlength="6" placeholder="6-2500" ${a && locked ? 'readonly' : ''} required><span class="hint">Satu angka, minus, empat angka. Angka pertama: 1 aset, 2 liabilitas, 3 ekuitas, 4 pendapatan, 5 beban pokok penjualan, 6 beban usaha, 8 beban pajak penghasilan.</span></label>
       <label class="field"><span>Nama akun</span><input name="name" value="${esc(a?.name || '')}" maxlength="80" required><span class="hint">Istilah SAK, contoh: Beban sewa, Utang usaha.</span></label>
       <label class="field"><span>Nama internasional (IFRS)</span><input name="name_en" lang="en" value="${esc(a?.name_en || '')}" maxlength="80" placeholder="Rent expense"></label>
       <label class="field"><span>Jenis</span><select name="type" ${a && locked ? 'disabled' : ''}>${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${a?.type === k ? 'selected' : ''}>${v} (${TYPES_EN[k]})</option>`).join('')}</select></label>
@@ -202,8 +203,6 @@ function journalView(panel, rpc) {
 /* ---------------------------------------------------------------- Laporan akunting */
 const TABS = [['buku', 'Buku besar'], ['saldo', 'Neraca saldo'], ['laba', 'Laba rugi'], ['neraca', 'Posisi keuangan'], ['bulanan', 'Posisi keuangan bulanan'], ['jurnal', 'Laporan jurnal']];
 const TABS_EN = { buku: 'General ledger', saldo: 'Trial balance', laba: 'Statement of profit or loss', neraca: 'Statement of financial position', bulanan: 'Monthly financial position', jurnal: 'Journal report' };
-const tbl = (head, rows, foot = '') => `<div class="table-wrap"><table><thead><tr>${head.map((h, i) => `<th${h.num ? ' class="num"' : ''}>${esc(h.t)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}${foot}</tbody></table></div>`;
-const trow = (cells, bold) => `<tr>${cells.map((c) => { const t = bold ? 'th' : 'td'; return `<${t}${c.num ? ' class="num"' : ''}>${c.h ? c.t : esc(c.t)}</${t}>`; }).join('')}</tr>`;
 
 function reportView(panel, rpc) {
   const st = { tab: 'buku', from: presetRange('bulan')[0], to: ymdToday(), account: null, data: null, accounts: [] };
@@ -213,46 +212,49 @@ function reportView(panel, rpc) {
     <div class="dt-tabs" role="group" aria-label="Jenis laporan">${TABS.map(([k, l]) => `<button class="btn btn-quiet" type="button" data-tab="${k}" aria-pressed="${k === st.tab}" title="${TABS_EN[k]}">${l}</button>`).join('')}</div>
     ${rangeBar(st)}
     <div class="dt-range" data-acc-row><label class="field"><span>Akun</span><select data-account></select></label></div>
-    <div class="row"><button class="btn" type="button" data-xlsx>Unduh .xlsx</button></div>
+    <div class="row"><button class="btn" type="button" data-xlsx>Unduh .xlsx</button><button class="btn btn-quiet" type="button" data-print>Cetak atau simpan PDF</button></div>
     <div class="notice" data-msg role="status" hidden></div></div>
-    <div class="panel stack" data-body aria-live="off"></div>`;
+    <div class="panel stack fs-sheet" data-body aria-live="off"></div>`;
   const msg = $('[data-msg]', panel), body = $('[data-body]', panel);
 
   const render = () => {
     const d = st.data; if (!d) return;
     const dr = `${dmy(st.from)} sampai ${dmy(st.to)}`;
     const en = Object.fromEntries(st.accounts.map((a) => [a.code, a.name_en]));
-    const acc = (r) => ({ t: accHtml(r, en), h: 1 });
-    const lbl = (id, e) => ({ t: bi(id, e), h: 1 });
+    // Formal statements (14 Nov 2026): js/fin-statement.js draws the heading block, sections, subtotals and totals.
+    const f = FS.fmt;
     if (st.tab === 'buku') {
-      body.innerHTML = `<h2>Buku besar: ${esc(d.account.code)} ${esc(d.account.name)}${en[d.account.code] ? ` <span class="muted small" lang="en">${esc(en[d.account.code])}</span>` : ''}</h2><p class="muted small">${esc(dr)}. Saldo dihitung di sisi ${d.account.normal === 'debit' ? 'debit' : 'kredit'}.</p>
-        ${tbl([{ t: 'Tanggal' }, { t: 'No' }, { t: 'Keterangan' }, { t: 'Debit', num: 1 }, { t: 'Kredit', num: 1 }, { t: 'Saldo', num: 1 }],
-          [trow([{ t: '' }, { t: '' }, { t: 'Saldo awal' }, { t: '' }, { t: '' }, { t: money(d.opening), num: 1 }]),
-           ...d.rows.map((r) => trow([{ t: dmy(r.day) }, { t: r.no }, { t: r.description + (r.memo ? ' (' + r.memo + ')' : '') }, { t: Number(r.debit) ? money(r.debit) : '', num: 1 }, { t: Number(r.credit) ? money(r.credit) : '', num: 1 }, { t: money(r.balance), num: 1 }]))],
-          trow([{ t: '' }, { t: '' }, { t: 'Jumlah dan saldo akhir' }, { t: money(d.debit_total), num: 1 }, { t: money(d.credit_total), num: 1 }, { t: money(d.closing), num: 1 }], true))}
-        ${d.rows.length ? '' : '<p class="muted">Tidak ada transaksi di rentang ini.</p>'}`;
+      const accRow = st.accounts.find((x) => x.code === d.account.code) || d.account;
+      const sd = d.account.normal === 'debit' ? 'Debit' : 'Kredit';
+      body.innerHTML = FS.headHtml(FS.glHead(accRow, st.from, st.to)) + `<div class="table-wrap"><table class="fs-table fs-grid">
+        <thead><tr><th scope="col">Tanggal</th><th scope="col">No. bukti</th><th scope="col">Keterangan</th><th scope="col" class="num">Debit</th><th scope="col" class="num">Kredit</th><th scope="col" class="num">Saldo (${sd})</th></tr></thead>
+        <tbody><tr class="fs-i"><td>${esc(FS.shortDate(st.from))}</td><td></td><td>Saldo awal</td><td class="num"></td><td class="num"></td><td class="num">${f(d.opening)}</td></tr>
+        ${d.rows.map((r) => `<tr class="fs-i"><td>${esc(FS.shortDate(r.day))}</td><td>${esc(r.no)}</td><td>${esc(r.description)}${r.memo ? `<span class="fs-en">${esc(r.memo)}</span>` : ''}</td>
+          <td class="num">${Number(r.debit) ? f(r.debit) : ''}</td><td class="num">${Number(r.credit) ? f(r.credit) : ''}</td><td class="num">${f(r.balance)}</td></tr>`).join('')}
+        <tr class="fs-t"><th scope="row" colspan="3">Jumlah mutasi dan saldo akhir</th><td class="num">${f(d.debit_total)}</td><td class="num">${f(d.credit_total)}</td><td class="num">${f(d.closing)}</td></tr></tbody></table></div>
+        ${d.rows.length ? '' : '<p class="muted small">Tidak ada transaksi di rentang ini.</p>'}`;
     } else if (st.tab === 'saldo') {
-      body.innerHTML = `<h2>Neraca saldo <span class="muted small" lang="en">Trial balance</span></h2><p class="muted small">${esc(dr)}. Saldo awal sebelum ${esc(dmy(st.from))}.</p>
-        ${d.rows.length ? tbl([{ t: 'Akun' }, { t: 'Saldo awal', num: 1 }, { t: 'Mutasi debit', num: 1 }, { t: 'Mutasi kredit', num: 1 }, { t: 'Saldo debit', num: 1 }, { t: 'Saldo kredit', num: 1 }],
-          d.rows.map((r) => trow([acc(r), { t: money(r.opening), num: 1 }, { t: money(r.debit), num: 1 }, { t: money(r.credit), num: 1 }, { t: Number(r.closing_debit) ? money(r.closing_debit) : '', num: 1 }, { t: Number(r.closing_credit) ? money(r.closing_credit) : '', num: 1 }])),
-          trow([{ t: 'Jumlah' }, { t: '' }, { t: money(d.total_debit), num: 1 }, { t: money(d.total_credit), num: 1 }, { t: money(d.closing_debit), num: 1 }, { t: money(d.closing_credit), num: 1 }], true)) : '<p class="muted">Belum ada jurnal.</p>'}
-        <p class="${d.balanced ? 'muted small' : 'notice notice-error'}">${d.balanced ? 'Seimbang: total debit sama dengan total kredit.' : 'Tidak seimbang. Hubungi pengembang.'}</p>`;
+      const lab = (r) => `${esc(r.name)}${en[r.code] ? `<span class="fs-en" lang="en">${esc(en[r.code])}</span>` : ''}`;
+      body.innerHTML = FS.headHtml(FS.tbHead(st.from, st.to)) + (d.rows.length ? `<div class="table-wrap"><table class="fs-table fs-grid">
+        <thead><tr><th scope="col" rowspan="2">Kode</th><th scope="col" rowspan="2">Nama akun<span class="fs-en" lang="en">Account</span></th><th scope="colgroup" colspan="2" class="num">Saldo awal</th><th scope="colgroup" colspan="2" class="num">Mutasi</th><th scope="colgroup" colspan="2" class="num">Saldo akhir</th></tr>
+          <tr>${['Debit', 'Kredit', 'Debit', 'Kredit', 'Debit', 'Kredit'].map((x) => `<th scope="col" class="num">${x}</th>`).join('')}</tr></thead>
+        <tbody>${d.rows.map((r) => `<tr class="fs-i"><td class="num-code">${esc(r.code)}</td><td>${lab(r)}</td>
+          <td class="num">${Number(r.opening) > 0 ? f(r.opening) : ''}</td><td class="num">${Number(r.opening) < 0 ? f(-r.opening) : ''}</td>
+          <td class="num">${Number(r.debit) ? f(r.debit) : ''}</td><td class="num">${Number(r.credit) ? f(r.credit) : ''}</td>
+          <td class="num">${Number(r.closing_debit) ? f(r.closing_debit) : ''}</td><td class="num">${Number(r.closing_credit) ? f(r.closing_credit) : ''}</td></tr>`).join('')}
+        <tr class="fs-t"><th scope="row" colspan="2">Jumlah</th>
+          <td class="num">${f(d.rows.reduce((t, r) => t + Math.max(Number(r.opening), 0), 0))}</td><td class="num">${f(d.rows.reduce((t, r) => t + Math.max(-Number(r.opening), 0), 0))}</td>
+          <td class="num">${f(d.total_debit)}</td><td class="num">${f(d.total_credit)}</td><td class="num">${f(d.closing_debit)}</td><td class="num">${f(d.closing_credit)}</td></tr></tbody></table></div>` : '<p class="muted">Belum ada jurnal.</p>')
+        + `<p class="${d.balanced ? 'muted small' : 'notice notice-error'}">${d.balanced ? 'Seimbang: jumlah debit sama dengan jumlah kredit.' : 'Tidak seimbang. Hubungi pengembang.'}</p>`;
     } else if (st.tab === 'laba') {
-      const sec = (title, e, list) => list.length ? [trow([lbl(title, e), { t: '' }], true), ...list.map((r) => trow([acc(r), { t: money(r.amount), num: 1 }]))] : [];
-      body.innerHTML = `<h2>Laporan laba rugi <span class="muted small" lang="en">Statement of profit or loss</span></h2><p class="muted small">${esc(dr)}.</p>
-        ${d.pendapatan.length || d.hpp.length || d.beban.length ? tbl([{ t: 'Keterangan' }, { t: 'Jumlah', num: 1 }], [
-          ...sec('Pendapatan', 'Revenue', d.pendapatan), trow([lbl('Pendapatan neto', 'Net revenue'), { t: money(d.revenue), num: 1 }], true),
-          ...sec('Beban pokok penjualan', 'Cost of goods sold', d.hpp), trow([lbl('Laba bruto', 'Gross profit'), { t: money(d.gross_profit), num: 1 }], true),
-          ...sec('Beban usaha', 'Operating expenses', d.beban), trow([lbl('Laba (rugi) periode berjalan', 'Profit (loss) for the period'), { t: money(d.net_profit), num: 1 }], true)]) : '<p class="muted">Belum ada pendapatan atau beban di rentang ini.</p>'}`;
+      const [pf, pt] = FS.priorRange(st.from, st.to);
+      st.rows = FS.profitLossRows(d, st.prev, en); st.cols = [FS.rangeCol(st.from, st.to), FS.rangeCol(pf, pt)];
+      body.innerHTML = FS.headHtml(FS.plHead(st.from, st.to)) + FS.tableHtml(st.rows, st.cols)
+        + '<p class="muted small fs-note">Kolom kedua adalah periode sebelumnya dengan jumlah hari yang sama, sebagai pembanding. Angka dalam kurung adalah pengurang.</p>';
     } else {
-      const sec = (title, e, list, total) => [trow([lbl(title, e), { t: '' }], true), ...list.map((r) => trow([acc(r), { t: money(r.amount), num: 1 }])), trow([lbl('Jumlah ' + title.toLowerCase(), 'Total ' + e.toLowerCase()), { t: money(total), num: 1 }], true)];
-      body.innerHTML = `<h2>Laporan posisi keuangan (neraca) per ${esc(dmy(st.to))} <span class="muted small" lang="en">Statement of financial position</span></h2>
-        ${tbl([{ t: 'Keterangan' }, { t: 'Jumlah', num: 1 }], [
-          ...sec('Aset', 'Assets', d.aset, d.total_aset), ...sec('Liabilitas', 'Liabilities', d.kewajiban, d.total_kewajiban),
-          trow([lbl('Ekuitas', 'Equity'), { t: '' }], true), ...d.ekuitas.map((r) => trow([acc(r), { t: money(r.amount), num: 1 }])),
-          trow([lbl('Laba (rugi) periode berjalan', 'Profit (loss) for the period'), { t: money(d.profit), num: 1 }]), trow([lbl('Jumlah ekuitas', 'Total equity'), { t: money(d.total_ekuitas), num: 1 }], true),
-          trow([lbl('Jumlah liabilitas dan ekuitas', 'Total liabilities and equity'), { t: money(d.total_kewajiban + d.total_ekuitas), num: 1 }], true)])}
-        <p class="${d.balanced ? 'muted small' : 'notice notice-error'}">${d.balanced ? 'Seimbang: aset sama dengan liabilitas ditambah ekuitas.' : 'Tidak seimbang. Hubungi pengembang.'}</p>`;
+      st.rows = FS.balanceSheetRows(d, st.prev, en); st.cols = [FS.dateCol(st.to), FS.dateCol(FS.priorYearEnd(st.to))];
+      body.innerHTML = FS.headHtml(FS.bsHead(st.to)) + FS.tableHtml(st.rows, st.cols)
+        + `<p class="${d.balanced ? 'muted small fs-note' : 'notice notice-error'}">${d.balanced ? 'Seimbang: jumlah aset sama dengan jumlah liabilitas dan ekuitas. Kolom kedua adalah posisi akhir tahun lalu, sebagai pembanding. Belum ada jurnal penutup: laba tahun-tahun sebelumnya tampil sebagai saldo laba.' : 'Tidak seimbang. Hubungi pengembang.'}</p>`;
     }
   };
 
@@ -268,8 +270,12 @@ function reportView(panel, rpc) {
         if (!st.account) { body.innerHTML = '<p class="muted">Pilih akun.</p>'; return; }
         st.data = await rpc('acc_ledger', { p_account: Number(st.account), p_from: st.from, p_to: st.to });
       } else if (st.tab === 'saldo') st.data = await rpc('acc_trial', { p_from: st.from, p_to: st.to });
-      else if (st.tab === 'laba') st.data = await rpc('acc_pnl', { p_from: st.from, p_to: st.to });
-      else st.data = await rpc('acc_balance_sheet', { p_at: st.to });
+      else if (st.tab === 'laba') {
+        const [pf, pt] = FS.priorRange(st.from, st.to);
+        [st.data, st.prev] = await Promise.all([rpc('acc_pnl', { p_from: st.from, p_to: st.to }), rpc('acc_pnl', { p_from: pf, p_to: pt })]);
+      } else {
+        [st.data, st.prev] = await Promise.all([rpc('acc_balance_sheet', { p_at: st.to }), rpc('acc_balance_sheet', { p_at: FS.priorYearEnd(st.to) })]);
+      }
       render();
     } catch (e) { notice(msg, e.message); }
   };
@@ -280,17 +286,11 @@ function reportView(panel, rpc) {
       d.rows.forEach((r) => a.push([r.day, r.no, r.description, r.debit, r.credit, r.balance])); a.push(['', '', 'Saldo akhir', d.debit_total, d.credit_total, d.closing]);
     } else if (st.tab === 'saldo') { a.push(['Kode', 'Akun', 'Account', 'Saldo awal', 'Mutasi debit', 'Mutasi kredit', 'Saldo debit', 'Saldo kredit']);
       d.rows.forEach((r) => a.push([r.code, r.name, en[r.code], r.opening, r.debit, r.credit, r.closing_debit, r.closing_credit])); a.push(['', 'Jumlah', 'Total', '', d.total_debit, d.total_credit, d.closing_debit, d.closing_credit]);
-    } else if (st.tab === 'laba') { a.push(['Kode', 'Keterangan', 'Description', 'Jumlah']);
-      const put = (list) => list.forEach((r) => a.push([r.code, r.name, en[r.code], r.amount]));
-      put(d.pendapatan); a.push(['', 'Pendapatan neto', 'Net revenue', d.revenue]);
-      put(d.hpp); a.push(['', 'Laba bruto', 'Gross profit', d.gross_profit]);
-      put(d.beban); a.push(['', 'Laba (rugi) periode berjalan', 'Profit (loss) for the period', d.net_profit]);
-    } else { a.push(['Kode', 'Keterangan', 'Description', 'Jumlah']);
-      const put = (list) => list.forEach((r) => a.push([r.code, r.name, en[r.code], r.amount]));
-      put(d.aset); a.push(['', 'Jumlah aset', 'Total assets', d.total_aset]);
-      put(d.kewajiban); a.push(['', 'Jumlah liabilitas', 'Total liabilities', d.total_kewajiban]);
-      put(d.ekuitas); a.push(['', 'Laba (rugi) periode berjalan', 'Profit (loss) for the period', d.profit], ['', 'Jumlah ekuitas', 'Total equity', d.total_ekuitas],
-        ['', 'Jumlah liabilitas dan ekuitas', 'Total liabilities and equity', d.total_kewajiban + d.total_ekuitas]); }
+    } else {
+      // Laba rugi and Posisi keuangan: the same rows as on screen, with the heading block on top.
+      const h = st.tab === 'laba' ? FS.plHead(st.from, st.to) : FS.bsHead(st.to);
+      return FS.rowsAoa(st.rows, st.cols, [FS.ENTITY.toUpperCase(), `${h.title.toUpperCase()} / ${h.titleEn}`, h.period, '(Dinyatakan dalam Rupiah)']);
+    }
     return a;
   };
 
@@ -299,6 +299,13 @@ function reportView(panel, rpc) {
   }));
   wireRange(panel, st, load);
   $('[data-account]', panel).addEventListener('change', (e) => { st.account = e.target.value; load(); });
+  // Cetak: only the statement goes to paper (A4 portrait; css .fs-printing). Chrome's print dialog also saves a PDF.
+  $('[data-print]', panel).addEventListener('click', () => {
+    if (!st.data && !['bulanan', 'jurnal'].includes(st.tab)) { notice(msg, 'Tampilkan laporan dulu.'); return; }
+    body.classList.add('fs-print-me'); document.body.classList.add('fs-printing');
+    const done = () => { body.classList.remove('fs-print-me'); document.body.classList.remove('fs-printing'); window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done); window.print();
+  });
   $('[data-xlsx]', panel).addEventListener('click', async (e) => {
     if (!st.data) { notice(msg, 'Tampilkan laporan dulu.'); return; }
     const btn = e.currentTarget; // currentTarget is null after the first await

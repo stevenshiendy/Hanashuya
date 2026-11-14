@@ -315,9 +315,12 @@ begin
   rno := public._pos_receipt_no(v_day);
 
   insert into pos_orders (id, channel_id, receipt_no, sale_day, status, cashier_id, served_by, member_id, via,
-    subtotal, discount, total, promo_kind, promo_label, payment_method, gender, age_range, flags, sold_at)
+    subtotal, discount, total, service_charge, tax, tax_included, service_pct, tax_pct,
+    promo_kind, promo_label, payment_method, gender, age_range, flags, sold_at)
   values (oid, q->>'channel', rno, v_day, 'menunggu', staff, srv.id, m.id, tk.via,
-    (q->>'subtotal')::int, (q->>'discount')::int, (q->>'total')::int, q#>>'{promo,kind}', q#>>'{promo,label}', null, g, a, f, now());
+    (q->>'subtotal')::int, (q->>'discount')::int, (q->>'total')::int, coalesce((q->>'service_charge')::int, 0), coalesce((q->>'tax')::int, 0),
+    coalesce((q->>'tax_included')::boolean, false), (q->>'service_pct')::numeric, (q->>'tax_pct')::numeric,
+    q#>>'{promo,kind}', q#>>'{promo,label}', null, g, a, f, now());
   if q#>>'{promo,kind}' = 'promo' then update pos_orders set promo_id = (q#>>'{promo,cycle}')::int where id = oid; end if;
   update pos_orders set note = nt where id = oid and nt is not null;
   update pos_orders set customer_name = cn where id = oid and cn is not null;

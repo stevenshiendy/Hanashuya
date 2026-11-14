@@ -175,6 +175,18 @@ class Sheet {
 
 function lineLabel(l) { return `${l.qty} ${l.name}`; }
 
+// Service charge and PBJT rows (14 Nov 2026), shared by every receipt and the till screens. PBJT added on top is a
+// row before the total; PBJT already in the price is a note after it ("Termasuk PBJT 10%"). [label, amount, after]
+const pctText = (v) => String(Number(v)).replace('.', ',') + '%';
+export function chargeRows(r) {
+  const out = [];
+  if (r.service_charge > 0) out.push([`Service charge ${pctText(r.service_pct)}`, r.service_charge, false]);
+  if (r.tax > 0) out.push([`${r.tax_included ? 'Termasuk ' : ''}PBJT ${pctText(r.tax_pct)}`, r.tax, !!r.tax_included]);
+  return out;
+}
+// What the stamps count: the goods after discount, never service charge or PBJT.
+export const goodsTotal = (r) => (r.net != null ? r.net : (r.subtotal || 0) - (r.discount || 0));
+
 // The payment block as [label, amount] rows, shared with the fast receipt (receipt-fast.js).
 // Tunai: received and change. QRIS: the total and the GoPay reference. Bayar 2 cara (13 Nov 2026):
 // the QRIS part, the Tunai part, then what was handed over for the Tunai part and the change.
@@ -293,8 +305,10 @@ export async function receiptCanvas(r, { mode = 'print', dots = 384, headerOnly 
     s.row(r.promo_label || 'Diskon', '-' + rupiah(r.discount));
     if (r.promo_product) s.text(r.promo_product, st.muted);
   }
+  for (const [label, amt, after] of chargeRows(r)) if (!after) s.row(label, rupiah(amt));
   s.solid();
   s.row('TOTAL', 'Rp' + rupiah(r.total), { size: [st.totL, st.totV[1]], lw: 700, lspacing: 2, rsize: st.totV, rw: 800, rcolor: st.accent });
+  for (const [label, amt, after] of chargeRows(r)) if (after) s.row(label, rupiah(amt));
   s.solid();
 
   // Payment. Bayar 2 cara (13 Nov 2026): both parts, then the cash for the Tunai part.

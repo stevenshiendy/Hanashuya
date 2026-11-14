@@ -145,8 +145,8 @@ revoke all on public.pos_reservations, public.pos_reservation_items, public.pos_
 do $$
 begin
   if to_regclass('public.acc_accounts') is not null then
-    insert into public.acc_accounts (code, name, type, normal, system)
-    values ('2-1400', 'Uang muka pelanggan (DP pesanan)', 'kewajiban', 'kredit', true)
+    insert into public.acc_accounts (code, name, name_en, type, normal, system)
+    values ('2-1400', 'Uang muka pelanggan', 'Customer deposits', 'kewajiban', 'kredit', true)
     on conflict (code) do nothing;
   end if;
 end $$;
@@ -608,7 +608,7 @@ as $$
 declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); d record; n int := 0;
 begin
   if to_regproc('public._acc_restate') is null then raise exception 'Akunting belum dipasang. Jalankan akunting.sql dulu.'; end if;
-  insert into acc_accounts (code, name, type, normal, system) values ('2-1400', 'Uang muka pelanggan (DP pesanan)', 'kewajiban', 'kredit', true)
+  insert into acc_accounts (code, name, name_en, type, normal, system) values ('2-1400', 'Uang muka pelanggan', 'Customer deposits', 'kewajiban', 'kredit', true)
   on conflict (code) do nothing;
   for d in select id from pos_deposits where day between coalesce(p_from, date '2000-01-01') and coalesce(p_to, public._local(now())::date) order by id loop
     perform public._rsv_book(d.id); n := n + 1;

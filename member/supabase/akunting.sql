@@ -94,6 +94,11 @@ create constraint trigger acc_lines_balance after insert on public.acc_lines
 -- ---------------------------------------------------------------- chart of accounts
 -- System accounts are the ones the automatic journals use: the owner can rename them but not
 -- switch them off or change their code or type.
+-- Samples under marketing (Glenn, 14 Nov 2026: "samples become marketing expenses but track them separately ...
+-- it has its own account but is under marketing"). Beban sampel moves from 6-1200 to 6-2410, a sub-account of
+-- 6-2400 Beban pemasaran. Journal lines point at the account id, so every earlier sample journal moves with it.
+update public.acc_accounts set code = '6-2410'
+ where code = '6-1200' and system and not exists (select 1 from public.acc_accounts where code = '6-2410');
 insert into public.acc_accounts (code, name, name_en, type, normal, system) values
   ('1-1100', 'Kas di tangan', 'Cash on hand', 'aset', 'debit', true),
   ('1-1200', 'Kas di dompet digital (QRIS GoPay Merchant)', 'Cash in e-wallet (QRIS GoPay Merchant)', 'aset', 'debit', true),
@@ -111,15 +116,44 @@ insert into public.acc_accounts (code, name, name_en, type, normal, system) valu
   ('4-2000', 'Potongan penjualan', 'Sales discounts', 'pendapatan', 'debit', true),
   ('5-1100', 'Beban pokok penjualan', 'Cost of goods sold', 'beban', 'debit', true),
   ('6-1100', 'Beban komisi penjualan', 'Sales commission expense', 'beban', 'debit', true),
-  ('6-1200', 'Beban sampel produk', 'Product sample expense', 'beban', 'debit', true),
-  ('6-1300', 'Beban promosi', 'Promotion expense', 'beban', 'debit', true),
+    ('6-1300', 'Beban promosi', 'Promotion expense', 'beban', 'debit', true),
   ('6-1400', 'Beban penghapusan persediaan', 'Inventory write-off expense', 'beban', 'debit', true),
   ('6-1500', 'Selisih kas', 'Cash over and short', 'beban', 'debit', true),
   ('6-2100', 'Beban sewa', 'Rent expense', 'beban', 'debit', false),
   ('6-2200', 'Beban gaji dan upah', 'Salaries and wages expense', 'beban', 'debit', false),
   ('6-2300', 'Beban listrik dan air', 'Utilities expense', 'beban', 'debit', false),
-  ('6-2400', 'Beban pemasaran', 'Marketing expense', 'beban', 'debit', false),
-  ('6-9000', 'Beban lain-lain', 'Other expenses', 'beban', 'debit', true)
+  ('6-2400', 'Beban pemasaran', 'Marketing expense', 'beban', 'debit', true),
+  ('6-2410', 'Beban sampel produk', 'Product sample expense', 'beban', 'debit', true),
+  ('6-9000', 'Beban lain-lain', 'Other expenses', 'beban', 'debit', true),
+  -- Taxes regulated in Indonesia (Glenn, 14 Nov 2026). PPN (UU HPP): masukan and keluaran, used once the business is a
+  -- PKP; until then PPN paid to suppliers is part of the cost. PPh 21 (employees), 23 (services), 4 ayat 2 (final: rent
+  -- of a place, and PPh final UMKM 0,5% of PP 55/2022), 22/23/25 paid in advance, 25/29. PBJT makanan dan minuman
+  -- (UU 1/2022 HKPD, Perda Kota Bandung) and service charge are posted by the till when switched on. Uang service is
+  -- owed to the staff (Permenaker 7/2016), so it is a liability, not revenue. Codes 8-xxxx are taxes on income,
+  -- shown below Laba (rugi) sebelum pajak.
+  ('1-1600', 'PPN masukan', 'VAT input', 'aset', 'debit', false),
+  ('1-1710', 'PPh Pasal 22 dibayar di muka', 'Prepaid income tax, Article 22', 'aset', 'debit', false),
+  ('1-1720', 'PPh Pasal 23 dibayar di muka', 'Prepaid income tax, Article 23', 'aset', 'debit', false),
+  ('1-1730', 'PPh Pasal 25 dibayar di muka', 'Prepaid income tax, Article 25', 'aset', 'debit', false),
+  ('2-1400', 'Uang muka pelanggan', 'Customer deposits', 'kewajiban', 'kredit', true),
+  ('2-2100', 'PPN keluaran', 'VAT output', 'kewajiban', 'kredit', false),
+  ('2-2200', 'Utang PBJT makanan dan minuman', 'Regional food and beverage tax payable (PBJT)', 'kewajiban', 'kredit', true),
+  ('2-2300', 'Utang PPh Pasal 21', 'Employee income tax payable, Article 21', 'kewajiban', 'kredit', false),
+  ('2-2400', 'Utang PPh Pasal 23', 'Withholding tax payable, Article 23', 'kewajiban', 'kredit', false),
+  ('2-2500', 'Utang PPh Pasal 4 ayat (2)', 'Final income tax payable, Article 4(2)', 'kewajiban', 'kredit', false),
+  ('2-2600', 'Utang PPh Pasal 25/29', 'Income tax payable, Article 25/29', 'kewajiban', 'kredit', false),
+  ('2-2700', 'Utang uang service', 'Service charge payable to employees', 'kewajiban', 'kredit', true),
+  ('6-7100', 'Beban pajak daerah dan perizinan', 'Local taxes and licences expense', 'beban', 'debit', false),
+  ('8-1100', 'Beban PPh final', 'Final income tax expense', 'beban', 'debit', false),
+  ('8-1200', 'Beban pajak penghasilan', 'Income tax expense', 'beban', 'debit', false),
+  -- Formal statements (Glenn, 14 Nov 2026): the code tells the section. 1-1xxx aset lancar, 1-2xxx aset tidak lancar,
+  -- 2-1xxx and 2-2xxx liabilitas jangka pendek, 2-3xxx liabilitas jangka panjang, 4-13xx pendapatan lain-lain,
+  -- 6-9xxx beban lain-lain. An accumulated depreciation account is an asset with normal side kredit.
+  ('1-2100', 'Peralatan', 'Equipment', 'aset', 'debit', false),
+  ('1-2190', 'Akumulasi penyusutan peralatan', 'Accumulated depreciation, equipment', 'aset', 'kredit', false),
+  ('2-3100', 'Utang bank jangka panjang', 'Long-term bank loans', 'kewajiban', 'kredit', false),
+  ('3-1300', 'Saldo laba', 'Retained earnings', 'ekuitas', 'kredit', false),
+  ('6-3100', 'Beban penyusutan', 'Depreciation expense', 'beban', 'debit', false)
 on conflict (code) do nothing;
 
 -- Standard names (Glenn, 14 Nov 2026: "industry standard naming for both international and bahasa indonesia").
@@ -142,9 +176,10 @@ update public.acc_accounts a set name = v.new_name
     ('4-2000', 'Diskon penjualan', 'Potongan penjualan'),
     ('5-1100', 'Harga pokok penjualan (HPP)', 'Beban pokok penjualan'),
     ('6-1100', 'Beban komisi', 'Beban komisi penjualan'),
-    ('6-1200', 'Beban sampel', 'Beban sampel produk'),
+    ('6-2410', 'Beban sampel', 'Beban sampel produk'),
     ('6-1400', 'Beban barang rusak / dibuang', 'Beban penghapusan persediaan'),
     ('6-2200', 'Beban gaji', 'Beban gaji dan upah')
+    ,('2-1400', 'Uang muka pelanggan (DP pesanan)', 'Uang muka pelanggan')
   ) v(code, old_name, new_name)
  where a.code = v.code and a.name = v.old_name
    and not exists (select 1 from public.acc_accounts b where lower(b.name) = lower(v.new_name) and b.id <> a.id);
@@ -166,7 +201,7 @@ update public.acc_accounts a set name_en = v.en
     ('4-2000', 'Sales discounts'),
     ('5-1100', 'Cost of goods sold'),
     ('6-1100', 'Sales commission expense'),
-    ('6-1200', 'Product sample expense'),
+    ('6-2410', 'Product sample expense'),
     ('6-1300', 'Promotion expense'),
     ('6-1400', 'Inventory write-off expense'),
     ('6-1500', 'Cash over and short'),
@@ -175,8 +210,15 @@ update public.acc_accounts a set name_en = v.en
     ('6-2300', 'Utilities expense'),
     ('6-2400', 'Marketing expense'),
     ('6-9000', 'Other expenses')
+    ,('2-1400', 'Customer deposits')
   ) v(code, en)
  where a.code = v.code and a.name_en is null;
+
+-- Beban pemasaran is the group for marketing; Beban sampel produk sits under it with its own balance, so the
+-- laba rugi shows samples on their own line inside the marketing subtotal. Both are system accounts now.
+update public.acc_accounts set system = true where code in ('6-2400', '6-2410') and not system;
+update public.acc_accounts c set parent_id = m.id
+  from public.acc_accounts m where m.code = '6-2400' and c.code = '6-2410' and c.parent_id is distinct from m.id;
 
 -- ---------------------------------------------------------------- posting helpers
 create or replace function public._acc_next_no(p_day date) returns text
@@ -293,7 +335,7 @@ end $$;
 create or replace function public._acc_order_lines(p_order uuid) returns jsonb
 language plpgsql stable security definer set search_path = public
 as $$
-declare o pos_orders; rev text; cost bigint; r jsonb := '[]'; pay jsonb;
+declare o pos_orders; rev text; cost bigint; r jsonb := '[]'; pay jsonb; sales bigint;
 begin
   select * into o from pos_orders where id = p_order;
   if o.id is null then return '[]'; end if;
@@ -306,7 +348,11 @@ begin
     end if;
   end loop;
   if o.discount > 0 then r := r || jsonb_build_array(jsonb_build_object('code', '4-2000', 'debit', o.discount)); end if;
-  if o.subtotal > 0 then r := r || jsonb_build_array(jsonb_build_object('code', rev, 'credit', o.subtotal)); end if;
+  -- PBJT already inside the price comes out of the sales line (14 Nov 2026); PBJT added on top is extra cash.
+  sales := o.subtotal - (case when o.tax_included then o.tax else 0 end);
+  if sales > 0 then r := r || jsonb_build_array(jsonb_build_object('code', rev, 'credit', sales)); end if;
+  if o.service_charge > 0 then r := r || jsonb_build_array(jsonb_build_object('code', '2-2700', 'credit', o.service_charge, 'memo', 'Service charge')); end if;
+  if o.tax > 0 then r := r || jsonb_build_array(jsonb_build_object('code', '2-2200', 'credit', o.tax, 'memo', 'PBJT ' || trim(to_char(o.tax_pct, 'FM990.99')) || '%')); end if;
   if cost > 0 then
     r := r || jsonb_build_array(jsonb_build_object('code', '5-1100', 'debit', cost), jsonb_build_object('code', '1-1500', 'credit', cost));
   end if;
@@ -337,7 +383,13 @@ begin
   rev := case when exists (select 1 from pos_channels c where c.id = o.channel_id and c.delivery) then '4-1200' else '4-1100' end;
   f := case when o.total > 0 then p_amount::numeric / o.total else 0 end;
   disc := round(o.discount * f);
-  r := jsonb_build_array(jsonb_build_object('code', rev, 'debit', p_amount + disc));
+  -- The refunded share of service charge and PBJT leaves those liabilities, not revenue (14 Nov 2026).
+  declare svc bigint := round(o.service_charge * f); tx bigint := round(o.tax * f);
+  begin
+    r := jsonb_build_array(jsonb_build_object('code', rev, 'debit', p_amount + disc - svc - tx));
+    if svc > 0 then r := r || jsonb_build_array(jsonb_build_object('code', '2-2700', 'debit', svc)); end if;
+    if tx > 0 then r := r || jsonb_build_array(jsonb_build_object('code', '2-2200', 'debit', tx)); end if;
+  end;
   if disc > 0 then r := r || jsonb_build_array(jsonb_build_object('code', '4-2000', 'credit', disc)); end if;
   if p_lines is not null and jsonb_typeof(p_lines) = 'array' then
     select coalesce(round(sum(coalesce(it.cost, round(it.qty * public._stock_unit_cost(it.product_id, it.flavour_id)))
@@ -446,7 +498,7 @@ begin
   -- Stock out at harga pokok: one journal per day and kind.
   for r in select m.day, m.kind, round(sum(-m.qty * i.unit_cost))::bigint as cost from stock_moves m join stock_items i on i.id = m.item_id
             where m.day between f and t and m.kind in ('sampel', 'promo', 'buang', 'rusak') group by m.day, m.kind order by m.day, m.kind loop
-    acct := case r.kind when 'sampel' then '6-1200' when 'promo' then '6-1300' else '6-1400' end;
+    acct := case r.kind when 'sampel' then '6-2410' when 'promo' then '6-1300' else '6-1400' end;
     lines := case when r.cost > 0 then jsonb_build_array(jsonb_build_object('code', acct, 'debit', r.cost), jsonb_build_object('code', '1-1500', 'credit', r.cost)) end;
     res := public._acc_restate('stok', r.day::text || '|' || r.kind, r.day, (case r.kind when 'sampel' then 'Sampel' when 'promo' then 'Barang promo' when 'buang' then 'Barang dibuang' else 'Barang rusak' end) || ' (harga pokok)', lines);
     c := public._acc_tally(res, c);
@@ -535,6 +587,8 @@ begin
   if nr is not null and nr <> a.normal and (a.system or used) then raise exception 'Sisi normal akun yang dipakai jurnal atau sistem tidak bisa diganti.'; end if;
   if not act and a.system then raise exception 'Akun sistem dipakai jurnal otomatis, jadi tidak bisa dimatikan.'; end if;
   if par = a.id then raise exception 'Akun tidak bisa menjadi induk dirinya sendiri.'; end if;
+  if a.system and a.parent_id is not null and par is distinct from a.parent_id then raise exception 'Induk akun sistem tidak bisa diganti.'; end if;
+  if par is not null and exists (select 1 from acc_accounts where id = par and parent_id is not null) then raise exception 'Induk akun harus akun utama, bukan sub-akun.'; end if;
   update acc_accounts set code = cd, name = nm, name_en = case when p ? 'name_en' then en else name_en end, type = coalesce(tp, type), normal = coalesce(nr, normal), parent_id = par, active = act where id = a.id;
   perform public._log('akun_ubah', jsonb_build_object('akun', a.id, 'kode', cd, 'nama', nm, 'aktif', act));
   return json_build_object('id', a.id);
@@ -672,19 +726,27 @@ declare me uuid := public._rep_reader();
 begin
   perform public._acc_range(p_from, p_to);
   return (with r as (
-      select a.id, a.code, a.name,
-             case when a.type = 'pendapatan' then 'pendapatan' when left(a.code, 1) = '5' then 'hpp' else 'beban' end as grp,
+      select a.id, a.code, a.name, pa.code as parent_code, pa.name as parent_name,
+             case when a.type = 'pendapatan' then 'pendapatan' when left(a.code, 1) = '5' then 'hpp'
+                  when left(a.code, 1) = '8' then 'pajak' else 'beban' end as grp,
              (case when a.type = 'pendapatan' then coalesce(sum(l.credit - l.debit), 0) else coalesce(sum(l.debit - l.credit), 0) end)::bigint as amount
         from acc_accounts a join acc_lines l on l.account_id = a.id join acc_journals j on j.id = l.journal_id
-       where a.type in ('pendapatan', 'beban') and j.day between p_from and p_to group by a.id),
+        left join acc_accounts pa on pa.id = a.parent_id
+       where a.type in ('pendapatan', 'beban') and j.day between p_from and p_to group by a.id, pa.id),
     f as (select * from r where amount <> 0),
     t as (select coalesce(sum(amount) filter (where grp = 'pendapatan'), 0) as rev, coalesce(sum(amount) filter (where grp = 'hpp'), 0) as hpp,
-                 coalesce(sum(amount) filter (where grp = 'beban'), 0) as exp from f)
+                 coalesce(sum(amount) filter (where grp = 'beban'), 0) as exp,
+                 coalesce(sum(amount) filter (where grp = 'pajak'), 0) as tax from f)
     select json_build_object('from', p_from, 'to', p_to,
       'pendapatan', coalesce((select json_agg(json_build_object('id', id, 'code', code, 'name', name, 'amount', amount) order by code) from f where grp = 'pendapatan'), '[]'),
       'hpp', coalesce((select json_agg(json_build_object('id', id, 'code', code, 'name', name, 'amount', amount) order by code) from f where grp = 'hpp'), '[]'),
-      'beban', coalesce((select json_agg(json_build_object('id', id, 'code', code, 'name', name, 'amount', amount) order by code) from f where grp = 'beban'), '[]'),
-      'revenue', t.rev, 'hpp_total', t.hpp, 'gross_profit', t.rev - t.hpp, 'expenses', t.exp, 'net_profit', t.rev - t.hpp - t.exp) from t);
+      -- A sub-account carries its parent (parent_code, parent_name) and sorts right after it, so the page can
+      -- show a group such as Beban pemasaran with its own subtotal.
+      'beban', coalesce((select json_agg(json_build_object('id', id, 'code', code, 'name', name, 'amount', amount,
+                 'parent_code', parent_code, 'parent_name', parent_name) order by coalesce(parent_code, code), parent_code nulls first, code) from f where grp = 'beban'), '[]'),
+      'pajak', coalesce((select json_agg(json_build_object('id', id, 'code', code, 'name', name, 'amount', amount) order by code) from f where grp = 'pajak'), '[]'),
+      'revenue', t.rev, 'hpp_total', t.hpp, 'gross_profit', t.rev - t.hpp, 'expenses', t.exp,
+      'profit_before_tax', t.rev - t.hpp - t.exp, 'income_tax', t.tax, 'net_profit', t.rev - t.hpp - t.exp - t.tax) from t);
 end $$;
 
 -- Neraca at a date: aset, kewajiban, ekuitas, and the profit so far (no year-end closing entries are made).
@@ -700,7 +762,10 @@ begin
         from acc_accounts a join acc_lines l on l.account_id = a.id join acc_journals j on j.id = l.journal_id
        where j.day <= p_at and a.type in ('aset', 'kewajiban', 'ekuitas') group by a.id),
     f as (select * from r where amount <> 0),
-    pl as (select coalesce(sum(case when a.type = 'pendapatan' then l.credit - l.debit else l.debit * -1 + l.credit end), 0)::bigint as profit
+    -- No closing entries are made, so the profit of earlier years is shown as Saldo laba and this year's as
+    -- Laba (rugi) tahun berjalan (formal statements, 14 Nov 2026). profit stays the sum of both.
+    pl as (select coalesce(sum(l.credit - l.debit), 0)::bigint as profit,
+                  coalesce(sum(l.credit - l.debit) filter (where j.day < date_trunc('year', p_at)::date), 0)::bigint as retained
              from acc_lines l join acc_accounts a on a.id = l.account_id join acc_journals j on j.id = l.journal_id
             where j.day <= p_at and a.type in ('pendapatan', 'beban')),
     t as (select coalesce(sum(amount) filter (where type = 'aset'), 0) as aset, coalesce(sum(amount) filter (where type = 'kewajiban'), 0) as kew,
@@ -709,7 +774,7 @@ begin
       'aset', coalesce((select json_agg(json_build_object('id', id, 'code', code, 'name', name, 'amount', amount) order by code) from f where type = 'aset'), '[]'),
       'kewajiban', coalesce((select json_agg(json_build_object('id', id, 'code', code, 'name', name, 'amount', amount) order by code) from f where type = 'kewajiban'), '[]'),
       'ekuitas', coalesce((select json_agg(json_build_object('id', id, 'code', code, 'name', name, 'amount', amount) order by code) from f where type = 'ekuitas'), '[]'),
-      'profit', pl.profit, 'total_aset', t.aset, 'total_kewajiban', t.kew, 'total_ekuitas', t.eku + pl.profit,
+      'profit', pl.profit, 'retained_earnings', pl.retained, 'profit_year', pl.profit - pl.retained, 'total_aset', t.aset, 'total_kewajiban', t.kew, 'total_ekuitas', t.eku + pl.profit,
       'balanced', t.aset = t.kew + t.eku + pl.profit) from t, pl);
 end $$;
 

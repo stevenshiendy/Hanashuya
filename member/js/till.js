@@ -15,7 +15,7 @@
 // instruksi (any time, names the manager or owner who said so). No DP on pre-orders.
 import { configured, $, esc, rpc, busy, notice, toast, rupiah, time, mountLogin, setupMissing, session, signOut, prettyPhone, toPhone, qrSvg, setRpcTimeout, maxBirth17 } from './lib.js';
 import { fastReceipt, queueSlipBytes } from './receipt-fast.js';
-import { receiptBlob } from './receipt.js';
+import { receiptBlob, chargeRows, goodsTotal } from './receipt.js';
 import * as printer from './printer.js';
 import { isNative, shareNative } from './native.js';
 import { SAMPLES } from './print-samples.js';
@@ -923,6 +923,8 @@ const promoRow = (x, cur) => `<div class="tl-vch${cur === x.key ? ' is-on' : ''}
 
 // SOP Bab 5, teknik stamp: when the total is at most Rp20.000 short of the next Rp50.000,
 // one more Signature earns one more stamp. Only a hint; staff offer it once.
+// Service charge and PBJT under the total (14 Nov 2026): "Service charge 5% Rp1.000", "PBJT 10% Rp2.100" or "Termasuk PBJT 10%".
+const chargesHtml = (r) => chargeRows(r).map(([label, amt]) => `<br><span class="muted small num" style="white-space:nowrap">${esc(label)} ${rupiah(amt)}</span>`).join('');
 // Stamps this order earns, with the running bonus period (stamp_boost in pos_catalog, 12 Nov 2026).
 function earnText(total, per) {
   const base = Math.floor(total / per), b = S.cat.stamp_boost;
@@ -1006,7 +1008,7 @@ function renderRight() {
   if (S.sample) return renderSampleRight(el);
   const q = !S.quoting && S.quote ? S.quote : null;
   const estimate = S.items.reduce((t, it) => t + unitPrice(product(it.product), flavour(it.flavour)) * it.qty, 0);
-  const total = q ? q.total : estimate;
+  const total = q ? q.total : off.localCharges(S.cat.charges, estimate, false).total;
   const per = S.cat.rupiah_per_stamp || 50000;
   const liveOnly = !S.online && (S.member || S.promo);
   const why = liveOnly ? 'Tidak ada internet. Kartu member dan promo butuh internet. Hapus kartu atau promo untuk menjual tanpa kartu.'
@@ -1031,7 +1033,8 @@ function renderRight() {
       ${needsLine() ? '<p class="notice notice-warn" role="status">Ketuk produk yang mendapat promo.</p>'
         : S.quoteErr ? `<p class="notice notice-error" role="alert">${esc(S.quoteErr)}</p>` : ''}
       <div class="tl-tot"><span><span class="tl-h">Total</span>${q?.discount ? `<br><span class="muted small num">Diskon −${rupiah(q.discount)}</span>` : ''}
-        ${S.member && q ? `<br><span class="tl-earn">Dapat ${earnText(q.total, per)}</span>${stampTip(q.total, per)}` : ''}</span>
+        ${q ? chargesHtml(q) : ''}
+        ${S.member && q ? `<br><span class="tl-earn">Dapat ${earnText(goodsTotal(q), per)}</span>${stampTip(goodsTotal(q), per)}` : ''}</span>
         <span class="tl-big num${q ? '' : ' is-stale'}">${rupiah(total)}</span></div>
       ${why ? `<p class="small muted" role="status">${esc(why)}</p>` : ''}
       <button class="btn tl-btn" type="button" data-act="confirm" ${blocked ? 'disabled' : ''}${S.confirming ? ' aria-busy="true"' : ''}>${S.confirming ? 'Mengonfirmasi…' : 'Konfirmasi pesanan'}</button>
@@ -1057,7 +1060,7 @@ function summaryHtml(r) {
     <div class="tl-lines">${r.lines.map((l) => `<div class="tl-line"><b>${esc(l.name)}</b><b class="num">${l.free_bag ? 'Gratis' : rupiah(l.line_total - (l.discount || 0))}</b>
       <span class="tl-sub"><span>${esc([l.flavour, l.discount > 0 ? (r.promo_label || 'promo') : ''].filter(Boolean).join(' · '))}</span><span class="num">${l.qty}×</span></span></div>`).join('')}</div>
     ${r.note ? `<p class="tl-onote"><span class="tl-h">Catatan</span> ${esc(r.note)}</p>` : ''}
-    <div class="tl-tot"><span><span class="tl-h">Total</span>${r.member ? `<br><span class="tl-earn">Dapat ${r.status === 'dibayar' ? `${r.stamps} stempel` : earnText(r.total, per)}</span>` : ''}</span>
+    <div class="tl-tot"><span><span class="tl-h">Total</span>${chargesHtml(r)}${r.member ? `<br><span class="tl-earn">Dapat ${r.status === 'dibayar' ? `${r.stamps} stempel` : earnText(goodsTotal(r), per)}</span>` : ''}</span>
       <span class="tl-big num">${rupiah(r.total)}</span></div>`;
 }
 

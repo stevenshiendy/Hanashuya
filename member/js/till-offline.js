@@ -72,7 +72,18 @@ export function localQuote(cat, items, freeBags) {
     lines.push({ line: lines.length + 1, code: 'bag', name: bag?.name || 'Paper bag', flavour: null, flavour_label: null,
       qty: freeBags, unit_price: 0, line_total: 0, discount: 0, free_bag: true });
   }
-  return { offline: true, lines, subtotal, discount: 0, total: subtotal, promo: null };
+  return { offline: true, lines, subtotal, discount: 0, promo: null, ...localCharges(cat.charges, subtotal, false) };
+}
+
+// Service charge and PBJT exactly as _pos_charges in pos.sql (rounded half up to the rupiah). Offline sales are
+// booth sales, so service charge applies when it is on.
+export function localCharges(c, net, delivery) {
+  const sOn = !!c?.service_on && !delivery, tOn = !!c?.pbjt_on, inc = tOn && !!c?.pbjt_included;
+  const svc = sOn && net > 0 ? Math.round(net * Number(c.service_pct) / 100) : 0;
+  const base = Math.max(net, 0) + svc, p = Number(c?.pbjt_pct || 0);
+  const tax = tOn && base > 0 ? Math.round(inc ? base * p / (100 + p) : base * p / 100) : 0;
+  return { net: Math.max(net, 0), service_charge: svc, service_pct: sOn ? Number(c.service_pct) : null, tax, tax_pct: tOn ? p : null,
+    tax_included: inc, total: base + (tOn && !inc ? tax : 0) };
 }
 
 // A receipt in the shape of _pos_receipt, so the same screens, printer and WhatsApp code work.
@@ -88,6 +99,7 @@ export function localReceipt({ id, localNo, quote, servedBy, payment, soldAt = n
     lines: quote.lines.map((l) => ({ name: l.name, flavour: l.flavour_label, qty: l.qty, unit_price: l.unit_price,
       line_total: l.line_total, discount: 0, free_bag: l.free_bag })),
     subtotal: quote.subtotal, discount: 0, promo_label: null, promo_product: null, total: quote.total,
+    service_charge: quote.service_charge || 0, service_pct: quote.service_pct, tax: quote.tax || 0, tax_pct: quote.tax_pct, tax_included: !!quote.tax_included,
     payment_method: payment ? (quote.total === 0 ? 'gratis' : payment.method) : null,
     cash_received: cash, change: cash == null ? null : cash - quote.total,
     stamps: 0, card: null, new_rewards: null, rewards_ready: null,

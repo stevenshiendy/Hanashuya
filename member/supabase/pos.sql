@@ -250,6 +250,30 @@ alter table public.redemptions drop constraint if exists redemptions_kind_check;
 alter table public.redemptions add constraint redemptions_kind_check
   check (kind in ('stempel', 'welcome', 'ulang_tahun', 'kode', 'tebus_murah'));
 
+
+-- Service charge and PBJT (Glenn, 14 Nov 2026: "for restaurants to enable or disable service charge and PBJT 10%").
+-- PBJT makanan dan minuman is the regional tax of UU 1/2022 (HKPD), at most 10%, set by Perda Kota Bandung; food
+-- served by a restaurant is not subject to PPN. Both are off until the owner turns them on (Pengaturan > Pajak dan
+-- service, owner_set_charges). Service charge applies at the booth only, never to delivery-platform orders. PBJT is
+-- worked out on the price after discount plus the service charge, either added on top of the price or already
+-- inside it (pbjt_included). Each order keeps the amounts and rates it was sold with.
+alter table public.settings add column if not exists service_on boolean not null default false;
+alter table public.settings add column if not exists service_pct numeric(4,2) not null default 5;
+alter table public.settings add column if not exists pbjt_on boolean not null default false;
+alter table public.settings add column if not exists pbjt_pct numeric(4,2) not null default 10;
+alter table public.settings add column if not exists pbjt_included boolean not null default false;
+alter table public.settings drop constraint if exists settings_charges_check;
+alter table public.settings add constraint settings_charges_check check (service_pct between 0 and 20 and pbjt_pct between 0 and 10);
+alter table public.pos_orders add column if not exists service_charge int not null default 0 check (service_charge >= 0);
+alter table public.pos_orders add column if not exists tax int not null default 0 check (tax >= 0);
+alter table public.pos_orders add column if not exists tax_included boolean not null default false;
+alter table public.pos_orders add column if not exists service_pct numeric(4,2);
+alter table public.pos_orders add column if not exists tax_pct numeric(4,2);
+alter table public.pos_orders drop constraint if exists pos_orders_check;
+alter table public.pos_orders drop constraint if exists pos_orders_total_check;
+alter table public.pos_orders add constraint pos_orders_total_check
+  check (total = subtotal - discount + service_charge + case when tax_included then 0 else tax end);
+
 -- BOGO Deals (SOP Bab 6 C): from 19.00, or earlier on a day a manager or the owner starts it.
 alter table public.settings add column if not exists bogo_from time not null default '19:00';
 create table if not exists public.pos_bogo_days (
@@ -627,6 +651,52 @@ end $$;
 -- Prices an order without saving it. p: {channel, items: [{product, flavour, qty}],
 -- free_bags, promo: {kind, cycle, slot, period, line}}. m: the member, or null.
 -- Returns {lines, subtotal, discount, total, promo, boxes, free_bags}.
+-- Service charge and PBJT for an order whose price after discount is p_net (see the settings above).
+create or replace function public._pos_charges(p_net int, p_delivery boolean) returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+declare s settings := public._cfg(); sv int := 0; tx int := 0; base int; svc_on boolean; tax_add boolean;
+begin
+  svc_on := coalesce(s.service_on, false) and not coalesce(p_delivery, false);
+  if svc_on and p_net > 0 then sv := round(p_net * s.service_pct / 100); end if;
+  base := greatest(p_net, 0) + sv;
+  tax_add := coalesce(s.pbjt_on, false) and not coalesce(s.pbjt_included, false);
+  if coalesce(s.pbjt_on, false) and base > 0 then
+    tx := case when tax_add then round(base * s.pbjt_pct / 100) else round(base * s.pbjt_pct / (100 + s.pbjt_pct)) end;
+  end if;
+  return jsonb_build_object('net', greatest(p_net, 0), 'service_charge', sv, 'service_pct', case when svc_on then s.service_pct end,
+    'tax', tx, 'tax_pct', case when coalesce(s.pbjt_on, false) then s.pbjt_pct end,
+    'tax_included', coalesce(s.pbjt_on, false) and coalesce(s.pbjt_included, false),
+    'total', base + case when tax_add then tx else 0 end);
+end $$;
+
+-- Owner: read and change the service charge and PBJT settings.
+create or replace function public.owner_charges() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Hanya pemilik yang bisa membuka pengaturan ini.'); s settings := public._cfg();
+begin
+  return json_build_object('service_on', s.service_on, 'service_pct', s.service_pct,
+    'pbjt_on', s.pbjt_on, 'pbjt_pct', s.pbjt_pct, 'pbjt_included', s.pbjt_included);
+end $$;
+
+create or replace function public.owner_set_charges(p jsonb) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Hanya pemilik yang bisa mengubah pengaturan ini.');
+  s settings := public._cfg(); sp numeric; tp numeric;
+begin
+  begin sp := coalesce(nullif(p->>'service_pct', '')::numeric, s.service_pct); tp := coalesce(nullif(p->>'pbjt_pct', '')::numeric, s.pbjt_pct);
+  exception when others then raise exception 'Isi persen dengan angka, contoh 5 atau 10.'; end;
+  if sp < 0 or sp > 20 then raise exception 'Service charge 0 sampai 20 persen.'; end if;
+  if tp < 0 or tp > 10 then raise exception 'PBJT paling tinggi 10 persen (UU 1/2022).'; end if;
+  update settings set service_on = coalesce((p->>'service_on')::boolean, service_on), service_pct = round(sp, 2),
+    pbjt_on = coalesce((p->>'pbjt_on')::boolean, pbjt_on), pbjt_pct = round(tp, 2),
+    pbjt_included = coalesce((p->>'pbjt_included')::boolean, pbjt_included) where id = 1;
+  perform public._log('pajak_service', p);
+  return public.owner_charges();
+end $$;
+
 create or replace function public._pos_price(p jsonb, m uuid) returns jsonb
 language plpgsql stable security definer set search_path = public
 as $$
@@ -843,9 +913,11 @@ begin
     promo := null;
   end if;
 
+  -- total = subtotal - discount + service charge (+ PBJT when it is added on top), from _pos_charges.
   return jsonb_build_object('channel', ch.id, 'delivery', ch.delivery, 'lines', lines, 'subtotal', subtotal,
-    'discount', disc, 'total', subtotal - disc, 'promo', promo, 'boxes', boxes,
-    'free_bags', bags, 'free_bags_max', case when ch.delivery then greatest(1, boxes) else boxes / 2 end);
+    'discount', disc, 'promo', promo, 'boxes', boxes,
+    'free_bags', bags, 'free_bags_max', case when ch.delivery then greatest(1, boxes) else boxes / 2 end)
+    || public._pos_charges(subtotal - disc, ch.delivery);
 end $$;
 
 -- The open member ticket for this cashier, or nothing. Raises when it has run out.
@@ -889,6 +961,7 @@ begin
     'subtotal', o.subtotal, 'discount', o.discount, 'promo_label', o.promo_label,
     'promo_product', (select i.name from pos_order_items i where i.order_id = o.id and i.discount > 0 and o.promo_label is not null
                        and (select count(*) from pos_order_items j where j.order_id = o.id and j.discount > 0) = 1 limit 1),
+    'service_charge', o.service_charge, 'service_pct', o.service_pct, 'tax', o.tax, 'tax_pct', o.tax_pct, 'tax_included', o.tax_included,
     'total', o.total, 'payment_method', o.payment_method, 'cash_received', o.cash_received, 'change', o.change_given,
     'payment_ref', o.payment_ref,
     -- Till v2 (13 Nov 2026): the split per method, the order note, Diskon 50% instruksi and refunds.
@@ -941,6 +1014,9 @@ begin
           'opening_cash', case when public._pos_cash_full() then sh.opening_cash end)
         from pos_shifts sh where sh.outlet_id = 'papaya-bdg' and sh.closed_at is null),
     'rupiah_per_stamp', (select rupiah_per_stamp from settings where id = 1),
+    -- Service charge and PBJT (14 Nov 2026), so an offline sale is priced the same way.
+    'charges', (select json_build_object('service_on', s.service_on, 'service_pct', s.service_pct, 'pbjt_on', s.pbjt_on,
+        'pbjt_pct', s.pbjt_pct, 'pbjt_included', s.pbjt_included) from settings s where s.id = 1),
     -- The stamp bonus period running now, if any (12 Nov 2026).
     'stamp_boost', (select json_build_object('name', b.name, 'multiplier', b.multiplier, 'ends_on', b.ends_on)
         from public._stamp_boost_at(now()) b where b.id is not null),
@@ -1051,9 +1127,12 @@ begin
   rno := public._pos_receipt_no(v_day);
 
   insert into pos_orders (id, channel_id, receipt_no, sale_day, status, cashier_id, served_by, member_id, via,
-    subtotal, discount, total, promo_kind, promo_label, payment_method, gender, age_range, flags, sold_at)
+    subtotal, discount, total, service_charge, tax, tax_included, service_pct, tax_pct,
+    promo_kind, promo_label, payment_method, gender, age_range, flags, sold_at)
   values (oid, q->>'channel', rno, v_day, 'menunggu', staff, srv.id, m.id, tk.via,
-    (q->>'subtotal')::int, (q->>'discount')::int, (q->>'total')::int, q#>>'{promo,kind}', q#>>'{promo,label}', null, g, a, f, now());
+    (q->>'subtotal')::int, (q->>'discount')::int, (q->>'total')::int, coalesce((q->>'service_charge')::int, 0), coalesce((q->>'tax')::int, 0),
+    coalesce((q->>'tax_included')::boolean, false), (q->>'service_pct')::numeric, (q->>'tax_pct')::numeric,
+    q#>>'{promo,kind}', q#>>'{promo,label}', null, g, a, f, now());
   if q#>>'{promo,kind}' = 'promo' then update pos_orders set promo_id = (q#>>'{promo,cycle}')::int where id = oid; end if;
   update pos_orders set note = nt where id = oid and nt is not null;
   update pos_orders set customer_name = cn where id = oid and cn is not null;
@@ -1164,14 +1243,14 @@ begin
 
   if o.member_id is not null then
     if public._local(sold)::time between s.open_time and s.close_time then
-      v_stamps := o.total / s.rupiah_per_stamp;
+      v_stamps := (o.subtotal - o.discount) / s.rupiah_per_stamp;  -- goods only, never service charge or PBJT
       -- Stamp bonus period (12 Nov 2026): the stamps are multiplied while one runs.
       boost := public._stamp_boost_at(sold);
       if boost.id is not null and v_stamps > 0 then
         v_stamps := v_stamps * boost.multiplier;
         f := array_append(f, 'bonus_stempel');
       end if;
-    elsif o.total >= s.rupiah_per_stamp then
+    elsif o.subtotal - o.discount >= s.rupiah_per_stamp then
       f := array_append(f, 'di_luar_jam');
     end if;
     select coalesce(sum(x.stamps), 0) into today from sales x
@@ -1888,14 +1967,26 @@ begin
   return out_;
 end $$;
 
--- The price paid for these pieces: per line, net * (done + q) / qty - net * done / qty.
+-- The price paid for these pieces: per line, net * (done + q) / qty - net * done / qty, plus their share of the
+-- service charge and of PBJT added on top (14 Nov 2026). Refunding everything still left returns exactly what is left.
+drop function if exists public._pos_refund_amount(uuid, jsonb);
 create or replace function public._pos_refund_amount(p_order uuid, p_lines jsonb) returns int
-language sql stable security definer set search_path = public
+language plpgsql stable security definer set search_path = public
 as $$
+declare o pos_orders; net int; extra int; rest boolean;
+begin
+  select * into o from pos_orders where id = p_order;
   select coalesce(sum(((i.line_total - i.discount) * (i.refunded_qty + (e->>'qty')::int)) / i.qty
-                      - ((i.line_total - i.discount) * i.refunded_qty) / i.qty), 0)::int
-    from jsonb_array_elements(coalesce(p_lines, '[]')) e join pos_order_items i on i.order_id = p_order and i.line = (e->>'line')::int
-$$;
+                      - ((i.line_total - i.discount) * i.refunded_qty) / i.qty), 0)::int into net
+    from jsonb_array_elements(coalesce(p_lines, '[]')) e join pos_order_items i on i.order_id = p_order and i.line = (e->>'line')::int;
+  extra := o.service_charge + case when o.tax_included then 0 else o.tax end;
+  if extra = 0 or o.subtotal - o.discount <= 0 then return net; end if;
+  select not exists (select 1 from pos_order_items i left join (select (e->>'line')::int as line, (e->>'qty')::int as qty
+           from jsonb_array_elements(coalesce(p_lines, '[]')) e) x on x.line = i.line
+          where i.order_id = p_order and i.qty - i.refunded_qty - coalesce(x.qty, 0) > 0) into rest;
+  if rest then return o.total - o.refunded; end if;
+  return net + round(net::numeric * extra / (o.subtotal - o.discount))::int;
+end $$;
 
 create or replace function public.pos_request_void(p_order uuid, p_kind text, p_reason text,
   p_lines jsonb default null, p_refund_method text default null) returns json
@@ -2037,7 +2128,7 @@ begin
         -- Stamps from what is still paid: never more than the order gave, never below 0.
         per := greatest(1, (select rupiah_per_stamp from settings where id = 1));
         mult := coalesce((select b.multiplier from stamp_boosts b where b.id = o.stamp_boost_id), 1);
-        st := greatest(0, least(o.stamps, (left_ / per) * mult));
+        st := greatest(0, least(o.stamps, ((left_::bigint * (o.subtotal - o.discount) / nullif(o.total, 0)) / per) * mult));
         update pos_orders set stamps = st where id = o.id;
         update sales set total = left_, stamps = st where id = o.sale_id and reversed_at is null;
       else
@@ -2143,7 +2234,7 @@ begin
     select p.oid::regprocedure as sig, p.proname from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.prokind = 'f' and (p.proname like 'pos\_%' or p.proname like '\_pos\_%'
-      or p.proname in ('_rp', 'owner_save_pos_product', 'owner_stamp_boosts', 'owner_save_stamp_boost', '_stamp_boost_at',
+      or p.proname in ('_rp', 'owner_charges', 'owner_set_charges', 'owner_save_pos_product', 'owner_stamp_boosts', 'owner_save_stamp_boost', '_stamp_boost_at',
         'owner_commission_rules', 'owner_save_commission_rule'))
   loop
     execute format('revoke all on function %s from public, anon', f.sig);

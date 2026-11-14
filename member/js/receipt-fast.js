@@ -3,7 +3,7 @@
 // This prints the header (logo, address, channels) as a small picture and everything
 // below in the printer's own font, about 15 KB in all, in the same order as the
 // approved receipt (B revision 1). Same input as receipt.js: pos_checkout / pos_receipt output.
-import { receiptCanvas, cardCanvas, receiptDate, rupiah, paymentRows } from './receipt.js';
+import { receiptCanvas, cardCanvas, receiptDate, rupiah, paymentRows, chargeRows } from './receipt.js';
 import { Receipt } from './escpos.js';
 
 const WA_NUMBER = '0858-9012-0577';
@@ -44,8 +44,10 @@ export function fastReceiptBytes(r, header, card, { dots = 384, cut = true, draw
     p.text(r.promo_label || 'Diskon');
     p.row('  ' + (r.promo_product || ''), '-' + rupiah(r.discount));
   }
+  for (const [label, amt, after] of chargeRows(r)) if (!after) p.row(label, rupiah(amt));
   p.rule('=');
   p.bold(true).size(1, 2).row('TOTAL', 'Rp' + rupiah(r.total)).size(1, 1).bold(false);
+  for (const [label, amt, after] of chargeRows(r)) if (after) p.row(label, rupiah(amt));
   p.rule('=');
 
   // Payment rows as on the picture receipt; Bayar 2 cara lists both parts (13 Nov 2026).
