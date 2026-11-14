@@ -1016,3 +1016,31 @@ body.is-gate main#app { max-width: none; padding: 0; }
 .tl-pay.is-qris .tl-qrlay { gap: var(--space-lg); }
 .tl-pay.is-qris .tl-qrside { gap: var(--space-sm); }
 .tl-pay.is-qris .tl-pr { padding: var(--space-md); }
+
+/* owner: Analitik member (14 Nov 2026, draft C3; js/owner-member-insights.js) */
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: var(--space-lg); align-items: start; }
+.stat em { font-style: normal; font-size: var(--text-sm); color: var(--color-muted); }
+.bar-row .track i.red { background: var(--color-accent); }
+.seg-strip { display: flex; height: 14px; gap: var(--space-3xs); border-radius: 4px; overflow: hidden; }
+.seg-strip i { display: block; background: color-mix(in oklab, var(--color-accent) calc(var(--v) * 100%), var(--color-paper-3)); }
+.segs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: var(--space-md); }
+.seg-card { display: grid; gap: var(--space-2xs); align-content: start; padding: var(--space-md); background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); }
+.seg-card h3 { margin: 0; }
+.seg-card .n { font-size: var(--text-2xl); font-weight: 500; color: var(--color-ink); }
+.seg-card p { margin: 0; font-size: var(--text-sm); color: var(--color-muted); }
+table.move td.num { background: color-mix(in oklab, var(--color-accent) calc(var(--v) * 70%), transparent); padding-left: var(--space-sm); }
+table.move td.hot { color: var(--color-accent-ink); }
+.wk { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: var(--space-xs); }
+.wk .yax { display: grid; align-content: space-between; height: 160px; font-size: var(--text-xs); color: var(--color-muted); text-align: right; font-variant-numeric: tabular-nums; }
+.wk .plot { height: 160px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--space-xs); align-items: end; border-bottom: var(--rule-hair) solid var(--color-line);
+  background: repeating-linear-gradient(to top, transparent 0 calc(50% - 1px), var(--color-rule) calc(50% - 1px) 50%); }
+.wk .plot i { display: block; background: var(--color-accent); border-radius: 4px 4px 0 0; min-height: 2px; }
+.wk .xax { grid-column: 2; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--space-xs); font-size: var(--text-xs); color: var(--color-muted); text-align: center; }
+.vs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: var(--space-md); }
+.vs > div { display: grid; gap: var(--space-2xs); padding: var(--space-md); background: var(--color-paper-3); border-radius: var(--radius-card); }
+.vs .big { font-size: var(--text-2xl); font-weight: 500; color: var(--color-ink); line-height: 1.15; }
+.months { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--space-2xs); }
+.months > div { display: grid; gap: var(--space-2xs); text-align: center; font-size: var(--text-xs); color: var(--color-muted); }
+.months .c { aspect-ratio: 1; border-radius: 3px; display: grid; place-items: center; font-size: var(--text-sm); color: var(--color-ink); font-variant-numeric: tabular-nums;
+  background: color-mix(in oklab, var(--color-accent) calc(var(--v) * 100%), var(--color-paper-3)); }
+.months .c.hot { color: var(--color-accent-ink); }

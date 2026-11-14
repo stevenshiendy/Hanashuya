@@ -7,6 +7,7 @@ import { mountOrders, mountMembers, mountPromos } from './owner-backoffice.js';
 import { mountCashRekap } from './owner-cash.js';
 import { mountStampBoosts, mountCommission } from './owner-loyalty.js';
 import { mountWaTemplates } from './owner-wa.js';
+import { mountMemberInsights } from './owner-member-insights.js';
 import { mountLaporan } from './owner-laporan.js';
 import { mountTransaksi } from './owner-transaksi.js';
 import { mountAkunting } from './owner-akunting.js';
@@ -35,7 +36,7 @@ const MENU = [
   ['stok', 'stack', 'Stok', [['t-stock', 'stok', 'Stok sekarang'], ['t-stock-in', 'stok-masuk', 'Stok masuk', 't-in'],
     ['t-stock-op', 'opname-transaksi', 'Stok opname', 't-op2'], ['t-stock-req', 'permintaan', 'Permintaan barang'],
     ['t-recipe', 'resep', 'Resep produk'], ['t-items', 'barang', 'Barang dan harga pokok'], ['t-supp', 'pemasok', 'Pemasok']]],
-  ['member', 'person', 'Member', [['t-mem', 'member', 'Daftar member'], ['t-help', 'bantuan', 'Bantuan akun'], ['t-rules', 'aturan-kartu', 'Aturan kartu'],
+  ['member', 'person', 'Member', [['t-mem-an', 'analitik-member', 'Analitik member'], ['t-mem', 'member', 'Daftar member'], ['t-help', 'bantuan', 'Bantuan akun'], ['t-rules', 'aturan-kartu', 'Aturan kartu'],
     ['t-boost', 'bonus-stempel', 'Bonus stempel'], ['t-wa', 'template-wa', 'Template WhatsApp'], ['t-join', 'qr-daftar', 'QR pendaftaran']]],
   // Per staf holds izin, rekap and profil for one person (Glenn, 12 Nov 2026); only these keep their own item.
   ['tim', 'team', 'Tim', [['t-staff', 'staf', 'Staf'], ['t-att', 'absensi', 'Presensi harian'], ['t-att-one', 'absen-staf', 'Per staf'],
@@ -161,6 +162,7 @@ async function boot() {
     resep: () => ownerStock(P('p-recipe'), { part: 'recipe' }),
     barang: () => ownerStock(P('p-items'), { part: 'items' }),
     pemasok: () => ownerStock(P('p-supp'), { part: 'pemasok' }),
+    'analitik-member': () => mountMemberInsights(P('p-mem-an'), { rpc }),
     member: () => mountMembers(P('p-mem'), { rpc }), bantuan: help, 'aturan-kartu': cardRules, 'qr-daftar': joinQr,
     staf: staff, absensi: () => mountOwnerAbsensi(P('p-att'), { part: 'hari' }),
     lembur: () => mountOwnerAbsensi(P('p-att-ot'), { part: 'lembur' }), 'absen-staf': () => mountOwnerAbsensi(P('p-att-one'), { part: 'staf' }),
