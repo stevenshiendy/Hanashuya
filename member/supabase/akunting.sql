@@ -73,8 +73,10 @@ alter table public.acc_counters enable row level security;
 revoke all on public.acc_accounts, public.acc_journals, public.acc_lines, public.acc_counters from anon, authenticated;
 
 -- Backup guard: debit = kredit per journal, checked at the end of the statement.
+-- security definer: the trigger is deferred, so it runs at commit as the signed-in user (the till),
+-- who has no access to acc_lines. Without this every paid order failed with "permission denied".
 create or replace function public._acc_check_balance() returns trigger
-language plpgsql
+language plpgsql security definer set search_path = public
 as $$
 declare d bigint; k bigint;
 begin

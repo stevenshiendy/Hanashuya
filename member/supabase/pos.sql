@@ -1275,6 +1275,35 @@ begin
   return public._pos_receipt(o.id);
 end $$;
 
+-- Ubah pesanan (Glenn, 14 Nov 2026): from the payment screens the cashier may go back and change an
+-- order that is not paid yet. The confirmed order is closed as batal (kept, with the reason
+-- "Diubah sebelum dibayar" in the log), its held promo goes back to the member, and the till
+-- confirms the changed order again under a new invoice number. Only the cashier who confirmed it,
+-- only while it is waiting, and never once a Minta batal is pending.
+create or replace function public.pos_edit_order(p_id uuid) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  me uuid := public._require(array['staff', 'owner'], public._pos_staff_msg());
+  o pos_orders;
+begin
+  select * into o from pos_orders where id = p_id for update;
+  if o.id is null then raise exception 'Pesanan tidak ditemukan.'; end if;
+  if o.status <> 'menunggu' then raise exception 'Pesanan % sudah dibayar, jadi tidak bisa diubah.', o.receipt_no; end if;
+  if o.cashier_id is distinct from me
+     and not exists (select 1 from profiles where id = me and role in ('manager', 'owner')) then
+    raise exception 'Pesanan ini dikonfirmasi kasir lain.';
+  end if;
+  if exists (select 1 from pos_void_requests v where v.order_id = o.id and v.status = 'menunggu') then
+    raise exception 'Pesanan ini sedang menunggu keputusan batal dari manajer.';
+  end if;
+  update pos_orders set status = 'batal' where id = o.id;
+  update redemptions set reversed_at = now(), reversed_by = me where order_id = o.id and reversed_at is null;
+  if o.member_id is not null then perform public._sync_cycles(o.member_id); end if;
+  perform public._log('pos_ubah_pesanan', jsonb_build_object('order', o.id, 'receipt', o.receipt_no, 'reason', 'Diubah sebelum dibayar'));
+  return json_build_object('ok', true, 'receipt_no', o.receipt_no);
+end $$;
+
 -- A split payment whose parts no longer add up to the server total (a price changed while the
 -- tablet was offline): the difference goes on the Tunai part and the cash handed over, so the
 -- change the cashier really gave stays and the drawer selisih shows it (13 Nov 2026).

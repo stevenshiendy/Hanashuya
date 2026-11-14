@@ -32,11 +32,11 @@ const full = (id) => (typeof id === 'number' ? `0000${id.toString(16).padStart(4
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 let nat = (() => { try { return JSON.parse(localStorage.getItem(NATIVE_KEY) || 'null'); } catch { return null; } })();
 let natOn = false;  // connected right now
+const natHeard = new Set(); // disconnect listeners already added (one per printer)
 let natReady = null; // initialize() once per app start (asks for Nearby devices permission)
 const natInit = (ble) => natReady || (natReady = (async () => {
   await ble.initialize({ androidNeverForLocation: true });
   try { await ble.setDisplayStrings({ scanning: 'Mencari printer...', cancel: 'Batal', availableDevices: 'Pilih printer', noDeviceFound: 'Printer tidak ditemukan' }); } catch { /* older plugin */ }
-  ble.addListener('onEnabledChanged', () => {}).catch(() => {});
 })().catch((e) => { natReady = null; throw e; }));
 
 export const supported = () => Boolean(BLE() || navigator.bluetooth);
@@ -82,7 +82,10 @@ async function connectNative(ble, onStatus) {
     try {
       onStatus(`Menyambung ke ${name} (percobaan ${attempt} dari 3)...`);
       const key = `disconnected|${id}`;
-      await ble.addListener(key, () => { natOn = false; printer = null; });
+      if (!natHeard.has(key)) {
+        natHeard.add(key);
+        try { await ble.addListener(key, () => { natOn = false; printer = null; }); } catch { /* listener is optional */ }
+      }
       await ble.connect({ deviceId: id, timeout: 10000 });
       natOn = true;
       const { services = [] } = await ble.getServices({ deviceId: id });

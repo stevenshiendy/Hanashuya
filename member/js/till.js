@@ -1074,25 +1074,28 @@ function renderPay() {
   const r = S.placed;
   const inv = `<div class="tl-inv"><span><span class="tl-h">No. invoice</span><br><span class="tl-no num">${esc(r.receipt_no)}</span></span>
     <span class="muted">${esc(r.time || '')} · ${esc(r.channel_label || 'Di booth')}</span></div>`;
-  const lock = r.offline ? `<div class="tl-lock"><span>Tidak ada internet. Pesanan ini tersimpan di tablet setelah dibayar.</span>
-    <button class="tl-use" type="button" data-act="offline-edit">Ubah pesanan</button></div>`
+  const lock = r.offline ? '<p class="small muted">Tidak ada internet. Pesanan ini tersimpan di tablet setelah dibayar.</p>'
     // Once confirmed, staff can't cancel or ask to cancel here (Glenn, 14 Nov 2026); only a manager
     // or the owner signed in on the till sees Batalkan pesanan.
     : canCancel() ? `<div class="tl-lock"><span>Pesanan sudah dikonfirmasi. Hanya manajer atau pemilik yang bisa membatalkan.</span>
     <button class="tl-use" type="button" data-act="cancel-order">Batalkan pesanan</button></div>`
-    : '<p class="small muted">Pesanan sudah dikonfirmasi dan tidak bisa dibatalkan.</p>';
+    : '';
   let left = '';
   if (S.screen === 'method') {
     left = r.total === 0 ? `${inv}
       <p class="tl-h is-lead">Pesanan ini gratis dengan promo</p>
-      <button class="btn tl-btn" type="button" data-act="pay-free">Selesai</button>${lock}`
+      <button class="btn tl-btn" type="button" data-act="pay-free">Selesai</button>
+      <div class="notice" id="tl-pay-msg" hidden></div>
+      <button class="btn btn-quiet tl-btn" type="button" data-act="edit-order">Kembali ke pesanan</button>${lock}`
       : `${inv}
       <p class="tl-h is-lead">Pilih cara bayar</p>
       <div class="tl-methods">
         <button class="tl-mth" type="button" data-act="to-cash"><span class="tl-ic" aria-hidden="true">Rp</span>Tunai<small>Hitung kembalian</small></button>
         <button class="tl-mth" type="button" data-act="to-qris"><span class="tl-ic" aria-hidden="true">QR</span>QRIS<small>Tampilkan QRIS Hanashuya</small></button>
       </div>
-      ${r.offline ? '' : '<button class="tl-mini" type="button" data-act="to-split">Split payment: sebagian Tunai, sisanya QRIS</button>'}${lock}`;
+      ${r.offline ? '' : '<button class="tl-mini" type="button" data-act="to-split">Split payment: sebagian Tunai, sisanya QRIS</button>'}
+      <div class="notice" id="tl-pay-msg" hidden></div>
+      <button class="btn btn-quiet tl-btn" type="button" data-act="edit-order">Kembali ke pesanan</button>${lock}`;
   } else if (S.screen === 'split') {
     // Bayar 2 cara (Glenn, 13 Nov 2026): the Tunai part first, the rest by QRIS. The change comes
     // only from the Tunai part.
@@ -1130,6 +1133,7 @@ function renderPay() {
           <button class="btn tl-btn" type="button" data-act="pay-qris">Pembayaran sudah masuk</button>
           ${sp ? '<button class="btn btn-quiet tl-btn" type="button" data-act="to-split">Ubah pembagian</button>'
             : '<button class="btn btn-quiet tl-btn" type="button" data-act="to-cash">Ganti ke Tunai</button>'}
+          <button class="btn btn-quiet tl-btn" type="button" data-act="edit-order">Kembali ke pesanan</button>
         </div>
       </div>`;
   } else {
@@ -1225,6 +1229,24 @@ async function placeOrder(btn) {
     if (off.isNetError(e) && !S.member && !S.promo) { S.online = true; markOffline(); return placeOffline(); }
     renderRight();
     notice($('#tl-confirm-msg') || msg, e.message);
+  }
+}
+// Ubah pesanan before payment (Glenn, 14 Nov 2026): the confirmed, unpaid order is closed on the
+// server (pos_edit_order, logged) and the cart comes back as it was, under a new order id so the
+// changed order gets its own invoice number when it is confirmed again. Offline orders were never
+// sent, so they just go back.
+async function editOrder(btn) {
+  if (!S.placed) return;
+  if (S.placed.offline) { S.placed = null; S.split = null; S.screen = 'order'; render(); return; }
+  busy(btn, true, 'Membuka pesanan…');
+  try {
+    await rpc('pos_edit_order', { p_id: S.placed.id });
+    S.orderId = newId(); S.placed = null; S.split = null; S.cash = null;
+    S.screen = 'order'; render(); requote();
+  } catch (e) {
+    busy(btn, false);
+    const m = $('#tl-pay-msg');
+    if (m) notice(m, e.message, 'error'); else toast(e.message);
   }
 }
 function placeOffline() {
@@ -2048,6 +2070,7 @@ async function onTap(e) {
     case 'share': shareReceipt(S.paid, b); return;
     case 'new': resetOrder(); return;
     case 'offline-edit': S.placed = null; S.screen = 'order'; render(); return;
+    case 'edit-order': editOrder(b); return;
     case 'paper': store.set('hs-till-paper', b.dataset.v); if (S.screen === 'printer') renderPrinter(); else renderDone(); return;
     case 'printer-forget': printer.forget(); if (S.screen === 'printer') { renderPrinter(); notice($('#tl-print-msg'), 'Printer dilupakan. Tekan Sambungkan printer untuk memilih lagi.', 'ok'); return; } notice($('#tl-print-msg'), 'Printer dilupakan. Tekan Cetak struk untuk memilih lagi.', 'ok'); return;
     case 'printer-connect': {
