@@ -1,3 +1,4 @@
+import { shareNative } from './native.js';
 // Small PDF builder for reports that staff send to the WhatsApp group (Glenn, 11 Nov 2026):
 // the shift rekap and the stock request (permintaan barang). Text and tables only, A4 portrait.
 // jsPDF loads from jsDelivr on first use (allowed by the CSP), so pages that never export
@@ -93,6 +94,8 @@ export async function pdfBlob({ title, subtitle = '', blocks = [], footer = 'Han
 // 12 Nov 2026: the Mac share sheet popped up instead of a download). Returns 'shared',
 // 'downloaded' or 'cancelled'.
 export async function sharePdf(blob, filename, text = '', { download = false } = {}) {
+  const viaApp = await shareNative(blob, filename, text || filename);
+  if (viaApp) return viaApp;
   const file = new File([blob], filename, { type: 'application/pdf' });
   if (!download && navigator.canShare?.({ files: [file] })) {
     try { await navigator.share({ files: [file], title: filename, text }); return 'shared'; }

@@ -17,6 +17,7 @@ import { configured, $, esc, rpc, busy, notice, toast, rupiah, time, mountLogin,
 import { fastReceipt, queueSlipBytes } from './receipt-fast.js';
 import { receiptBlob } from './receipt.js';
 import * as printer from './printer.js';
+import { isNative, shareNative } from './native.js';
 import { SAMPLES } from './print-samples.js';
 import { staffStock } from './stock.js';
 import { mountApprovals } from './approvals.js';
@@ -539,7 +540,7 @@ function renderPrinter() {
   app.innerHTML = `<section class="tl-solo tl-printer stack" aria-labelledby="tl-pr-t">
     <div><button class="tl-link" type="button" data-act="back">← Dashboard</button></div>
     <h1 id="tl-pr-t" class="tl-title">Printer struk</h1>
-    ${!ok ? '<p class="notice notice-warn">Browser ini tidak bisa memakai Bluetooth. Buka kasir di Chrome pada tablet Android.</p>' : ''}
+    ${!ok ? '<p class="notice notice-warn">Browser ini tidak bisa memakai Bluetooth. Buka kasir dari aplikasi Kasir Hanashuya di tablet.</p>' : ''}
     <div class="tl-paper"><span class="tl-h">Status</span><strong id="tl-pr-state">${on ? `Tersambung ke ${esc(name || 'printer')}` : printer.hasDevice() ? 'Printer dipilih, belum tersambung' : 'Belum ada printer'}</strong></div>
     <div class="tl-paper">
       <span class="tl-h">Kertas printer</span>
@@ -616,7 +617,7 @@ async function boothFromTablet(run) {
   let o = out(); if (!o) return;
   if (pos.error) {
     o.textContent = pos.error === 'denied'
-      ? 'Izinkan lokasi untuk aplikasi kasir di tablet ini (Pengaturan > Aplikasi > Chrome > Izin > Lokasi), supaya presensi staf bisa dicek ke lokasi booth.'
+      ? `Izinkan lokasi untuk aplikasi kasir di tablet ini (Pengaturan > Aplikasi > ${isNative() ? 'Kasir Hanashuya' : 'Chrome'} > Izin > Lokasi), supaya presensi staf bisa dicek ke lokasi booth.`
       : 'Lokasi tablet belum terbaca. Nyalakan lokasi tablet supaya presensi staf bisa dicek ke lokasi booth.';
     return;
   }
@@ -1343,7 +1344,8 @@ async function shareReceipt(r, btn) {
   try {
     const blob = await receiptBlob(r);
     const file = new File([blob], `struk-${r.receipt_no}.png`, { type: 'image/png' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    if (await shareNative(blob, file.name, `Struk ${r.receipt_no}`)) { /* shared from the Android app */ }
+    else if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], title: `Struk ${r.receipt_no}` });
     } else {
       const a = document.createElement('a');
@@ -2052,7 +2054,8 @@ async function onTap(e) {
       const msg = $('#tl-print-msg'); busy(b, true, 'Menyambungkan…');
       // Chrome's printer list sometimes never opens inside the installed app (TWA). Say so
       // after 10 s instead of leaving the cashier staring at "Menyambungkan…" (14 Nov 2026).
-      const fresh = !printer.hasDevice();
+      // The app's own list (Capacitor) always opens, so the hint is for the browser only.
+      const fresh = !isNative() && !printer.hasDevice();
       const stuck = setTimeout(() => { if (fresh && !printer.hasDevice()) { busy(b, false); notice(msg, 'Jendela pilih printer tidak muncul. Pastikan Bluetooth tablet menyala dan Chrome boleh memakai Perangkat di sekitar (Pengaturan Android > Aplikasi > Chrome > Izin). Kalau tetap tidak muncul, buka kasir di aplikasi Chrome biasa dan sambungkan dari sana.', 'warn'); } }, 10000);
       try { const pr = await printer.connect((t) => notice(msg, t, 'ok')); clearTimeout(stuck); renderPrinter(); notice($('#tl-print-msg'), `Tersambung ke ${pr.name}.`, 'ok'); }
       catch (e) { clearTimeout(stuck); busy(b, false); notice(msg, e && e.name === 'NotFoundError' ? 'Tidak ada printer yang dipilih.' : (e.message || String(e)), e && e.name === 'NotFoundError' ? 'warn' : 'error'); }

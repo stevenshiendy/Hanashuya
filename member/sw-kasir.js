@@ -10,7 +10,7 @@
 // version) left the till stuck on its loading screen offline. When supabase-js is upgraded in
 // js/lib.js, list its imports again (open its +esm file and copy every "/npm/..." it names)
 // and bump CACHE.
-const CACHE = 'hs-kasir-v8';
+const CACHE = 'hs-kasir-v9';
 const CDN = 'https://cdn.jsdelivr.net';
 const SB = `${CDN}/npm/@supabase`;
 const VENDOR = [
@@ -23,7 +23,7 @@ const VENDOR = [
 const SHELL = [
   'kasir.html', 'kasir.webmanifest', 'css/app.css', 'css/tokens.css', 'css/base.css', 'fonts/fonts.css',
   'js/till.js', 'js/till-offline.js', 'js/lib.js', 'js/config.js', 'js/receipt.js', 'js/receipt-fast.js', 'js/escpos.js',
-  'js/printer.js', 'js/stock.js', 'js/approvals.js', 'js/receipt-rekap.js', 'js/pdf.js', 'js/print-samples.js', 'js/till-reservasi.js', 'js/data-table.js',
+  'js/printer.js', 'js/native.js', 'js/stock.js', 'js/approvals.js', 'js/receipt-rekap.js', 'js/pdf.js', 'js/print-samples.js', 'js/till-reservasi.js', 'js/data-table.js',
   'img/qris-hanashuya.jpg', 'img/receipt-logo-58.png', 'img/receipt-logo-80.png', 'img/receipt-logo-red.svg',
   'fonts/dmsans.woff2', 'fonts/cinzel.woff2',
   ...VENDOR,
