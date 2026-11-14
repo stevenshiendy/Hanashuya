@@ -1321,11 +1321,9 @@ function renderDone() {
     <div class="tl-acts">
       ${queueOn() ? '<button class="btn btn-quiet tl-btn" type="button" data-act="print-queue">Cetak nota antrian</button>' : ''}
       <button class="btn btn-quiet tl-btn" type="button" data-act="print">Cetak struk</button>
-      <button class="btn btn-quiet tl-btn" type="button" data-act="share">Kirim struk WhatsApp</button>
       <button class="btn tl-btn" type="button" data-act="new">Pesanan baru</button>
     </div>
     <div class="notice" id="tl-print-msg" hidden></div>
-    <div class="tl-wa" id="tl-wa" hidden></div>
     <div class="tl-paper">
       <span class="tl-h">Kertas printer</span>
       ${['58', '80'].map((w) => `<button type="button" class="tl-chip is-sm${paper() === w ? ' is-on' : ''}" aria-pressed="${paper() === w}" data-act="paper" data-v="${w}">${w} mm</button>`).join('')}
@@ -1360,8 +1358,9 @@ async function printReceipt(r, btn, msg) {
   } finally { busy(btn, false); }
 }
 
-async function shareReceipt(r, btn) {
-  const box = $('#tl-wa');
+// Kirim struk WhatsApp lives in Riwayat transaksi only (Glenn, 14 Nov 2026: not needed after
+// every sale). box shows the fallback (image saved, then attach it in WhatsApp); msg shows errors.
+async function shareReceipt(r, btn, box, msg) {
   busy(btn, true, 'Menyiapkan…');
   try {
     const blob = await receiptBlob(r);
@@ -1374,14 +1373,11 @@ async function shareReceipt(r, btn) {
       a.href = URL.createObjectURL(blob); a.download = file.name;
       document.body.append(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-      const ph = S.memberPhone ? S.memberPhone.replace(/\D/g, '') : '';
-      box.hidden = false;
-      box.innerHTML = `<p class="small">Gambar struk tersimpan di tablet. Lampirkan di WhatsApp.</p>
-        ${ph ? `<a class="btn btn-quiet" href="https://wa.me/${esc(ph)}?text=${encodeURIComponent(`Halo Kak ${r.member || ''}, ini struk Hanashuya ${r.receipt_no}. Terima kasih Kak.`)}" target="_blank" rel="noopener">Buka WhatsApp ${esc(prettyPhone(ph))}</a>` : ''}`;
+      notice(box, `Gambar struk ${r.receipt_no} tersimpan di tablet. Lampirkan di WhatsApp.`, 'ok');
     }
   } catch (e) {
     if (e && e.name === 'AbortError') return;
-    notice($('#tl-print-msg'), e.message || 'Struk gagal dibuat. Coba lagi.');
+    notice(msg, e.message || 'Struk gagal dibuat. Coba lagi.');
   } finally { busy(btn, false); }
 }
 
@@ -1941,7 +1937,10 @@ function drawToday() {
       if (!o.void_pending) acts.push(`<button class="tl-use" type="button" data-act="resume" data-id="${esc(o.id)}">Lanjutkan bayar</button>`);
       if (canCancel()) acts.push(`<button class="tl-use" type="button" data-act="cancel" data-id="${esc(o.id)}">Batalkan</button>`);
     }
-    if (o.status === 'dibayar') acts.push(`<button class="tl-use" type="button" data-act="reprint" data-id="${esc(o.id)}">Cetak ulang</button>`);
+    if (o.status === 'dibayar') {
+      acts.push(`<button class="tl-use" type="button" data-act="reprint" data-id="${esc(o.id)}">Cetak ulang</button>`);
+      acts.push(`<button class="tl-use" type="button" data-act="share" data-id="${esc(o.id)}">Kirim struk WhatsApp</button>`);
+    }
     if ((o.status === 'dibayar' || (o.status === 'menunggu' && isStaffOnly())) && !o.void_pending) {
       acts.push(`<button class="tl-use" type="button" data-act="void" data-id="${esc(o.id)}">${o.status === 'dibayar' ? (o.refunded ? 'Minta refund' : 'Minta batal / refund') : 'Minta batal'}</button>`);
     }
@@ -1963,6 +1962,7 @@ async function todayAction(act, id, btn) {
   try {
     const r = await rpc('pos_receipt', { p_id: id });
     if (act === 'reprint') { busy(btn, false); await printReceipt(r, btn, msg); return; }
+    if (act === 'share') { busy(btn, false); await shareReceipt(r, btn, msg, msg); return; }
     if (act === 'resume') {
       if (S.items.length && !window.confirm('Pesanan yang sedang diisi akan dikosongkan. Lanjutkan?')) { busy(btn, false); return; }
       resetOrder();
@@ -2067,7 +2067,6 @@ async function onTap(e) {
     case 'print': printReceipt(S.paid, b, $('#tl-print-msg')); return;
     case 'print-queue': printQueue(S.paid, b, $('#tl-print-msg')); return;
     case 'queue-device': store.set('hs-till-queue-slip', b.dataset.v); renderPrinter(); return;
-    case 'share': shareReceipt(S.paid, b); return;
     case 'new': resetOrder(); return;
     case 'offline-edit': S.placed = null; S.screen = 'order'; render(); return;
     case 'edit-order': editOrder(b); return;
@@ -2119,7 +2118,7 @@ async function onTap(e) {
     case 'paper-rekap': store.set('hs-till-paper', b.dataset.v); renderClosed(); return;
     case 'last-rekap': lastRekap(b, 'print'); return;
     case 'last-rekap-pdf': lastRekap(b, 'pdf'); return;
-    case 'resume': case 'reprint': case 'void': case 'cancel': todayAction(act, b.dataset.id, b); return;
+    case 'resume': case 'reprint': case 'share': case 'void': case 'cancel': todayAction(act, b.dataset.id, b); return;
     case 'today-tab': S.todayTab = b.dataset.v; app.querySelectorAll('[data-act="today-tab"]').forEach((x) => { x.classList.toggle('is-on', x === b); x.setAttribute('aria-pressed', String(x === b)); }); drawToday(); return;
     default:
   }

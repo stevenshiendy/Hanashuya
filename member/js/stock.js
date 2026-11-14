@@ -62,6 +62,19 @@ const needStaff = 'Pilih staf yang bertanggung jawab.';
 const rp = (n) => 'Rp' + Math.round(Number(n || 0)).toLocaleString('id-ID');
 const supplierOptions = (list) => `<option value="">Tanpa pemasok</option>${(list || []).map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}`;
 const supplierField = (list) => `<label class="field"><span>Pemasok</span><select data-supplier>${supplierOptions(list)}</select></label>`;
+// Barang masuk (Glenn, 14 Nov 2026): Hanashuya's own kitchen is the default pemasok.
+const goodsSupplierField = (list) => {
+  const own = (list || []).find((x) => x.name.trim().toLowerCase() === 'hanashuya');
+  const opts = (list || []).map((x) => `<option value="${x.id}"${x === own ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+  return `<label class="field"><span>Pemasok</span><select data-supplier>${own ? '' : '<option value="">Tanpa pemasok</option>'}${opts}</select></label>`;
+};
+// Barang masuk: staff never see harga beli; the server costs the delivery at the item's harga
+// pokok (COGS). A manager or the owner may type the total paid instead (Glenn, 14 Nov 2026).
+const goodsCostField = () => `<fieldset class="field" data-cost><legend>Total harga beli <span class="hint">boleh dikosongkan</span></legend>
+    <input type="radio" value="total" checked hidden>
+    <input type="text" inputmode="numeric" autocomplete="off" data-cost-amount placeholder="Rp" aria-label="Total harga beli dalam rupiah">
+    <p class="muted small">Kosongkan: otomatis harga pokok (COGS) x jumlah. Diisi: harga pokok barang ini ikut dihitung ulang.</p>
+  </fieldset>`;
 // Harga beli: one amount, Total or Per satuan (optional).
 let costSeq = 0;
 function costField(prefix = '') {
@@ -213,7 +226,7 @@ function waButton(root) {
 }
 
 /* ---------------------------------------------------------------- forms */
-function goodsInForm(box, { items, cat, open }, done) {
+function goodsInForm(box, { items, cat, open, lead }, done) {
   const form = document.createElement('form');
   form.className = 'stack'; form.noValidate = true;
   form.innerHTML = `
@@ -223,8 +236,8 @@ function goodsInForm(box, { items, cat, open }, done) {
     <label class="field"><span>Barang ${REQ}</span><select data-item>${itemOptions(items)}</select></label>
     <p class="muted small" data-req-left hidden></p>
     ${qtyInput('sk-in-qty-' + (++chipSeq), 'Jumlah', 'data-qty')}
-    ${supplierField(cat.suppliers)}
-    ${costField()}
+    ${goodsSupplierField(cat.suppliers)}
+    ${lead ? goodsCostField() : ''}
     ${staffChips(cat.staff)}
     <label class="field"><span>Catatan</span><input type="text" data-note maxlength="200" placeholder="Contoh: kiriman dapur pagi"></label>
     <label class="field"><span>Surat jalan</span><input type="text" data-slip maxlength="200" placeholder="Nomor atau isi surat jalan"></label>
@@ -258,7 +271,7 @@ function goodsInForm(box, { items, cat, open }, done) {
     if (!(q > 0)) return notice(msg, 'Isi jumlahnya.');
     if (!who) return notice(msg, needStaff);
     let c;
-    try { c = readCost(form); } catch (err) { return notice(msg, err.message); }
+    try { c = lead ? readCost(form) : {}; } catch (err) { return notice(msg, err.message); }
     busy(btn, true, 'Menyimpan…');
     try {
       const args = { p_item: Number(itemSel.value), p_qty: q, p_note: $('[data-note]', form).value,

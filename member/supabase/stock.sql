@@ -359,6 +359,18 @@ begin
   if total_cost > 2000000000 or total_cost <= 0 then raise exception 'Harga beli tidak masuk akal. Periksa angkanya.'; end if;
 end $$;
 
+-- Harga beli and harga pokok are for the owner and managers only (Glenn, 14 Nov 2026).
+create or replace function public._stock_sees_cost() returns boolean
+language sql stable security definer set search_path = public
+as $$ select exists (select 1 from profiles where id = auth.uid() and role in ('manager', 'owner') and deleted_at is null) $$;
+
+-- Every delivery so far came from Hanashuya's own kitchen (Glenn, 14 Nov 2026): it is the pemasok
+-- for current stock and the default when none is picked. Safe to re-run.
+insert into public.stock_suppliers (name, note) select 'Hanashuya', 'Dapur Hanashuya'
+ where not exists (select 1 from public.stock_suppliers where lower(name) = 'hanashuya');
+update public.stock_goods_in set supplier_id = (select id from public.stock_suppliers where lower(name) = 'hanashuya')
+ where supplier_id is null;
+
 create or replace function public._stock_goods_in_json(p_id bigint) returns json
 language sql stable security definer set search_path = public
 as $$
@@ -370,9 +382,11 @@ as $$
     'responsible', (select public._first_name(full_name) from profiles where id = coalesce(g.responsible_id, g.received_by)),
     'request_id', g.request_id, 'request_no', (select r.no from stock_requests r where r.id = g.request_id),
     'supplier_id', g.supplier_id, 'supplier', (select s.name from stock_suppliers s where s.id = g.supplier_id),
-    'unit_cost', g.unit_cost, 'total_cost', g.total_cost,
+    'unit_cost', case when public._stock_sees_cost() then g.unit_cost end,
+    'total_cost', case when public._stock_sees_cost() then g.total_cost end,
     'changes', coalesce((select json_agg(json_build_object('kind', c.kind, 'old_qty', c.old_qty, 'new_qty', c.new_qty,
-        'reason', c.reason, 'at', c.changed_at, 'old_cost', c.old_cost, 'new_cost', c.new_cost,
+        'reason', c.reason, 'at', c.changed_at,
+        'old_cost', case when public._stock_sees_cost() then c.old_cost end, 'new_cost', case when public._stock_sees_cost() then c.new_cost end,
         'by', (select public._first_name(full_name) from profiles where id = c.changed_by)) order by c.id)
       from stock_goods_in_changes c where c.goods_in_id = g.id), '[]'))
   from stock_goods_in g join stock_items i on i.id = g.item_id where g.id = p_id
@@ -624,10 +638,20 @@ declare
   me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg());
   i stock_items := public._stock_item(p_item); q numeric := public._stock_qty(p_qty); gid bigint;
   rb uuid := public._stock_responsible(p_responsible); rq stock_requests; sp stock_suppliers;
-  c record; old_qty numeric; new_cost numeric;
+  c record; old_qty numeric; new_cost numeric; typed boolean;
 begin
   if not i.active then raise exception '% sedang tidak dipakai.', i.name; end if;
-  select * into c from public._stock_cost(q, p_cost_mode, p_cost);
+  -- Staff never see or type harga beli (Glenn, 14 Nov 2026): only a manager or the owner may
+  -- give one. Without one, the delivery is costed at the item's harga pokok (COGS) x jumlah.
+  if exists (select 1 from profiles where id = me and role in ('manager', 'owner')) then
+    select * into c from public._stock_cost(q, p_cost_mode, p_cost);
+  else
+    select * into c from public._stock_cost(q, null, null);
+  end if;
+  typed := c.unit_cost is not null;
+  if not typed and i.unit_cost > 0 then
+    c.unit_cost := i.unit_cost; c.total_cost := greatest(1, round(i.unit_cost * q))::int;
+  end if;
   if p_request is not null then
     select * into rq from stock_requests where id = p_request for update;
     if rq.id is null then raise exception 'Permintaan barang tidak ditemukan.'; end if;
@@ -638,6 +662,9 @@ begin
   end if;
   if coalesce(p_supplier, rq.supplier_id) is not null then
     sp := public._stock_supplier(coalesce(p_supplier, rq.supplier_id));
+  else
+    -- No pemasok picked: Hanashuya's own kitchen (Glenn, 14 Nov 2026).
+    select * into sp from stock_suppliers where lower(name) = 'hanashuya' and active;
   end if;
   old_qty := public._stock_balance(i.id);
   insert into stock_goods_in (item_id, qty, current_qty, note, slip_note, day, received_by, responsible_id, created_by, request_id,
@@ -645,7 +672,7 @@ begin
   values (i.id, q, q, nullif(trim(coalesce(p_note, '')), ''), nullif(trim(coalesce(p_slip, '')), ''), public._stock_today(), rb, rb, me, rq.id,
     sp.id, c.unit_cost, c.total_cost)
   returning id into gid;
-  if c.unit_cost is not null then
+  if typed then
     new_cost := case when old_qty > 0 and i.unit_cost > 0
       then (old_qty * i.unit_cost + q * c.unit_cost) / (old_qty + q) else c.unit_cost end;
     update stock_items set unit_cost = round(new_cost, 2) where id = i.id;
