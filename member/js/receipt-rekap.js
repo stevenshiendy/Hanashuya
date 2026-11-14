@@ -21,6 +21,13 @@ const REFUND_TO = { tunai: 'tunai', transfer: 'transfer', qris: 'QRIS', campur: 
 // Tebus murah, member vouchers, stamp rewards and the owner's promos, each with pieces and rupiah.
 const promoName = (m) => `${m.label}${m.by ? ` (${m.by})` : ''}`;
 const promoQty = (m) => `${m.items} item, ${m.orders} pesanan`;
+const pct = (n) => (n == null ? '' : ' ' + String(Number(n)).replace('.', ',') + '%');
+// Service charge and PBJT apart from sales (14 Nov 2026), [label, text]; PBJT inside the price says "termasuk".
+export const rekapChargeRows = (k) => [
+  ...(k.service_charge ? [[`Service charge${pct(k.service_pct)}`, rp(k.service_charge)]] : []),
+  ...(k.tax ? [[`PBJT${pct(k.tax_pct)}`, rp(k.tax)]] : []),
+  ...(k.tax_in ? [[`PBJT${pct(k.tax_pct)} (termasuk)`, rp(k.tax_in)]] : []),
+];
 const refundRows = (k) => Object.entries(k.refunds?.by_method || {}).map(([m, a]) => [`  lewat ${REFUND_TO[m] || m}`, a]);
 
 const itemName = (i) => [i.name, i.flavour, i.promo ? '(promo)' : '', i.free_bag ? '(gratis)' : ''].filter(Boolean).join(' ');
@@ -58,7 +65,8 @@ export function rekapReceipt(k, { dots = 384, reprint = false, cut = true, at = 
   p.rule('-');
   p.row('Subtotal', rp(k.subtotal));
   if (k.discount > 0) p.row('Diskon', '-' + rp(k.discount));
-  p.row('Total', rp(k.total));
+  p.row('Penjualan', rp(k.sales ?? k.total));
+  for (const [l, a] of rekapChargeRows(k)) p.row(l, a);
   p.bold(true).row('Total Akhir', rp(k.total)).bold(false);
   p.rule('-');
 
@@ -125,6 +133,8 @@ export function rekapPdf(k) {
     rows: k.items.map((i) => [itemName(i), itemQty(i), rp(i.total)]) } } : { p: 'Belum ada penjualan.' });
   b.push({ kv: ['Subtotal', rp(k.subtotal)] });
   if (k.discount > 0) b.push({ kv: ['Diskon', '-' + rp(k.discount)] });
+  b.push({ kv: ['Penjualan', rp(k.sales ?? k.total)] });
+  for (const [l, a] of rekapChargeRows(k)) b.push({ kv: [l, a] });
   b.push({ kv: ['Total akhir', rp(k.total)], bold: true }, { rule: true });
   b.push({ h: 'Pembayaran' });
   b.push(k.payments.length ? { table: { head: ['Cara bayar', 'Pesanan', 'Diterima'], align: ['l', 'r', 'r'],

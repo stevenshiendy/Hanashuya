@@ -21,7 +21,7 @@ import { isNative, shareNative } from './native.js';
 import { SAMPLES } from './print-samples.js';
 import { staffStock } from './stock.js';
 import { mountApprovals } from './approvals.js';
-import { rekapReceipt, rekapPdf, rekapFile } from './receipt-rekap.js';
+import { rekapReceipt, rekapPdf, rekapFile, rekapChargeRows } from './receipt-rekap.js';
 import { sharePdf } from './pdf.js';
 import * as off from './till-offline.js';
 import { openReservations } from './till-reservasi.js';
@@ -78,6 +78,7 @@ const S = {
   split: null,              // Bayar 2 cara: { tunai, cash } (QRIS part = total - tunai)
   waitingCode: null,        // a voucher QR read before the member card
   sample: null,             // Sampel mode (12 Nov 2026): { id, items: [{ product, flavour, qty }] }, pieces given away
+  sampleQuota: null,        // sample_quota_now() while Sampel is open: { hour, quota, given } (14 Nov 2026, warn only)
   count: {},                // Tutup shift: notes per denomination, koin in rupiah
   rekap: null,              // the closed shift's rekap (pos_close_shift)
 };
@@ -443,7 +444,7 @@ function homeLeft(h) {
     ${lowHtml()}
     <div class="hm-tiles">
       <div class="hm-kpi"><span class="hm-l">Omzet hari ini</span><span class="hm-v num">${rupiah(h.revenue)}</span>
-        <span class="hm-s num">${h.orders} pesanan · rata-rata ${short(h.average)}<br>QRIS ${short(h.by_method.qris)} · Tunai ${short(h.by_method.tunai)}</span></div>
+        <span class="hm-s num">${h.orders} pesanan · rata-rata ${short(h.average)}<br>QRIS ${short(h.by_method.qris)} · Tunai ${short(h.by_method.tunai)}${h.service_charge || h.pbjt ? `<br>di luar omzet: ${[h.service_charge ? `service ${short(h.service_charge)}` : '', h.pbjt ? `PBJT ${short(h.pbjt)}` : ''].filter(Boolean).join(' · ')}` : ''}</span></div>
       <div class="hm-kpi"><span class="hm-l">Produk terjual</span><span class="hm-v num">${h.products_sold}</span>
         <span class="hm-s num">${esc(h.by_category.map((c) => `${c.name} ${c.qty}`).join(' · ') || 'Belum ada')}</span></div>
       <div class="hm-kpi"><span class="hm-l">Pesanan dibatalkan</span><span class="hm-v num">${h.cancelled_count ?? h.cancelled ?? 0}</span>
@@ -922,9 +923,9 @@ const promoRow = (x, cur) => `<div class="tl-vch${cur === x.key ? ' is-on' : ''}
 
 // SOP Bab 5, teknik stamp: when the total is at most Rp20.000 short of the next Rp50.000,
 // one more Signature earns one more stamp. Only a hint; staff offer it once.
+// Stamps this order earns, with the running bonus period (stamp_boost in pos_catalog, 12 Nov 2026).
 // Service charge and PBJT under the total (14 Nov 2026): "Service charge 5% Rp1.000", "PBJT 10% Rp2.100" or "Termasuk PBJT 10%".
 const chargesHtml = (r) => chargeRows(r).map(([label, amt]) => `<br><span class="muted small num" style="white-space:nowrap">${esc(label)} ${rupiah(amt)}</span>`).join('');
-// Stamps this order earns, with the running bonus period (stamp_boost in pos_catalog, 12 Nov 2026).
 function earnText(total, per) {
   const base = Math.floor(total / per), b = S.cat.stamp_boost;
   return b && base > 0 ? `${base * b.multiplier} stempel (bonus ${b.multiplier}x)` : `${base} stempel`;
@@ -974,6 +975,20 @@ function linesHtml() {
   return rows.join('') || '<p class="tl-empty muted">Belum ada produk. Ketuk produk di kiri.</p>';
 }
 
+// Sample quota of this hour (Glenn, 14 Nov 2026: warn only). The owner sets it per weekday and hour in
+// Laporan sampel; going over shows a warning and never blocks Simpan sampel.
+async function loadSampleQuota() {
+  try { S.sampleQuota = await rpc('sample_quota_now'); } catch { S.sampleQuota = null; }
+  if (S.sample) renderRight();
+}
+function sampleQuotaHtml(n) {
+  const q = S.sampleQuota; if (!q) return '';
+  const hh = String(q.hour).padStart(2, '0') + '.00';
+  if (q.quota == null) return `<p class="small muted">Sampel jam ${hh}: ${q.given} pcs sudah diberikan.</p>`;
+  const after = q.given + n;
+  return `<p class="small">Kuota sampel jam ${hh}: <b class="num">${q.given} dari ${q.quota} pcs</b> sudah diberikan.</p>`
+    + (after > q.quota ? `<p class="notice notice-warn" role="status">Melebihi kuota jam ini (${q.quota} pcs). Sampel tetap bisa disimpan.</p>` : '');
+}
 function renderSampleRight(el) {
   const it = S.sample.items, n = it.reduce((t, x) => t + x.qty, 0);
   el.innerHTML = `
@@ -981,6 +996,7 @@ function renderSampleRight(el) {
       `<button type="button" class="tl-chip is-sm${S.served === x.id ? ' is-on' : ''}" aria-pressed="${S.served === x.id}" data-act="served" data-v="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</span></div>
     <div class="tl-sample-head"><span><b>Sampel</b><br><span class="muted small">Tidak dijual. Stok choux, vla dan selai berkurang per pcs.</span></span>
       <button class="tl-link" type="button" data-act="sample-off">Batal</button></div>
+    ${sampleQuotaHtml(n)}
     <div class="tl-lines">${it.length ? it.map((x, i) => `<div class="tl-line"><b>${esc(sampleName(x.product))}</b><b class="num">${x.qty} pcs</b>
       <span class="tl-sub"><span>${esc(flavour(x.flavour)?.label || '')}</span>
         <span class="tl-step"><button type="button" data-act="sample-qty" data-i="${i}" data-d="-1" aria-label="Kurangi">−</button>
@@ -998,7 +1014,8 @@ async function saveSample(btn) {
   busy(btn, true, 'Menyimpan…');
   try {
     const r = await rpc('stock_sample', { p_sample: { id: S.sample.id, served_by: S.served, items: S.sample.items } });
-    toast(r.repeat ? 'Sampel ini sudah tersimpan.' : `Sampel tersimpan: ${r.pieces} pcs.`);
+    const q = S.sampleQuota, over = !r.repeat && q && q.quota != null && q.given + r.pieces > q.quota;
+    toast(r.repeat ? 'Sampel ini sudah tersimpan.' : `Sampel tersimpan: ${r.pieces} pcs.${over ? ' Kuota jam ini terlewati.' : ''}`);
     S.sample = null; S.pick = null; S.left = 'tiles'; render();
   } catch (e) { busy(btn, false); notice($('#tl-confirm-msg'), e.message); }
 }
@@ -1822,7 +1839,8 @@ function renderClosed() {
     <h1 class="tl-title" id="tl-closed-t">Shift ditutup</h1>
     <p class="muted">${esc(k.start)} sampai ${esc(k.end || '')} · ${k.orders} pesanan dibayar. Shift berikutnya sudah mulai.</p>
     <div>
-      <div class="tl-kv"><span>Total penjualan</span><b class="num">${rupiah(k.total)}</b></div>
+      <div class="tl-kv"><span>Total penjualan</span><b class="num">${rupiah(k.sales ?? k.total)}</b></div>
+      ${rekapChargeRows(k).map(([l, a]) => `<div class="tl-kv"><span>${esc(l)}</span><b class="num">Rp${esc(a)}</b></div>`).join('')}
       <div class="tl-kv"><span>QRIS</span><b class="num">${rupiah(pay('qris'))}</b></div>
       <div class="tl-kv"><span>Tunai</span><b class="num">${rupiah(pay('tunai'))}</b></div>
       <div class="tl-kv is-total"><span>Uang laci dihitung</span><b class="num">${rupiah(k.counted_cash)}</b></div>
@@ -2015,7 +2033,7 @@ async function onTap(e) {
         S.pick = null; S.left = 'tiles'; renderLeft(); renderRight(); return;
       }
       addItem(S.pick.code, S.pick.flavour, S.pick.qty); S.pick = null; S.left = 'tiles'; renderLeft(); return;
-    case 'sample-on': stopCamera(); S.sample = { id: newId(), items: [] }; S.left = 'tiles'; S.pick = null; renderLeft(); renderRight(); return;
+    case 'sample-on': stopCamera(); S.sample = { id: newId(), items: [] }; S.sampleQuota = null; S.left = 'tiles'; S.pick = null; renderLeft(); renderRight(); if (S.online) loadSampleQuota(); return;
     case 'sample-off': S.sample = null; S.pick = null; S.left = 'tiles'; renderLeft(); renderRight(); return;
     case 'sample-qty': {
       const x = S.sample.items[Number(b.dataset.i)]; if (!x) return;

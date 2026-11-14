@@ -21,6 +21,10 @@ const payText = (r) => {
   if (r.payment_method === 'campur') return `QRIS ${rupiah(part('qris'))} + Tunai ${rupiah(part('tunai'))} (diterima ${rupiah(r.cash_received)}, kembali ${rupiah(r.change)})`;
   return METHOD[r.payment_method] || 'Belum dibayar';
 };
+const pctText = (n) => Number(n).toLocaleString('id-ID', { maximumFractionDigits: 2 }) + '%';
+// The paid total split (14 Nov 2026): shown only when service charge or PBJT was taken.
+const paidSplit = (x) => (!x || (!x.service_charge && !x.tax && !x.tax_in) ? ''
+  : ` (penjualan ${rupiah(x.sales)}${x.service_charge ? `, service charge ${rupiah(x.service_charge)}` : ''}${x.tax ? `, PBJT ${rupiah(x.tax)}` : ''}${x.tax_in ? `, PBJT termasuk ${rupiah(x.tax_in)}` : ''})`);
 const VIA = { qr: 'scan QR', kode: 'kode diketik', nomor: 'nomor WhatsApp', daftar: 'daftar di tablet' };
 const DAYS = [[1, 'Sen'], [2, 'Sel'], [3, 'Rab'], [4, 'Kam'], [5, 'Jum'], [6, 'Sab'], [7, 'Min']];
 const errBox = (e) => `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`;
@@ -53,14 +57,18 @@ export function mountOrders(panel, { rpc }) {
     try { d = await rpc('owner_pos_orders', { p_from: st.from, p_to: st.to, p_q: st.q || null, p_status: st.status }); }
     catch (e) { if (n === seq) box.innerHTML = errBox(e); return; }
     if (n !== seq) return;
+    // Service charge and PBJT columns (14 Nov 2026) only once some order in the list has them.
+    const withCharges = d.rows.some((o) => o.service_charge || o.tax);
     box.innerHTML = `<div class="panel stack">
-      <p class="muted small num">${d.total_rows} pesanan${d.total_rows > d.rows.length ? `, ${d.rows.length} terbaru ditampilkan` : ''} · dibayar di rentang ini ${esc(rupiah(d.paid_total))}</p>
-      ${d.rows.length ? `<div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Invoice</th><th>Isi</th><th>Member</th><th>Dilayani</th><th class="num">Total</th><th>Bayar</th><th>Status</th></tr></thead><tbody>
+      <p class="muted small num">${d.total_rows} pesanan${d.total_rows > d.rows.length ? `, ${d.rows.length} terbaru ditampilkan` : ''} · dibayar di rentang ini ${esc(rupiah(d.paid_total))}${esc(paidSplit(d.paid_split))}</p>
+      ${d.rows.length ? `<div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Invoice</th><th>Isi</th><th>Member</th><th>Dilayani</th>${withCharges ? '<th class="num">Penjualan</th><th class="num">Service charge</th><th class="num">PBJT</th>' : ''}<th class="num">Total</th><th>Bayar</th><th>Status</th></tr></thead><tbody>
         ${d.rows.map((o) => { const [l, c] = STATUS[o.status] || [o.status, '']; return `<tr>
           <td>${esc(when(o.sold_at))}</td>
           <td><button class="btn btn-text num" type="button" data-open="${esc(o.id)}">${esc(o.receipt_no)}</button>${o.local_no ? `<br><span class="small muted num">offline ${esc(o.local_no)}</span>` : ''}</td>
           <td class="small">${esc(o.items || '')}${o.promo_label ? `<br><span class="muted">${esc(o.promo_label)}</span>` : ''}</td>
           <td>${esc(o.member || '–')}</td><td>${esc(o.served_by || '–')}</td>
+          ${withCharges ? `<td class="num">${esc(rupiah(o.sales ?? o.total))}</td><td class="num">${o.service_charge ? esc(rupiah(o.service_charge)) : '–'}</td>
+          <td class="num">${o.tax ? esc(rupiah(o.tax)) + (o.tax_included ? '<br><span class="small muted">termasuk</span>' : '') : '–'}</td>` : ''}
           <td class="num">${esc(rupiah(o.total))}</td><td>${esc(METHOD[o.payment_method] || '–')}</td>
           <td><span class="tag ${c}">${esc(l)}</span>${o.void_pending ? ' <span class="tag tag-warn">Minta batal</span>' : ''}</td></tr>`; }).join('')}
       </tbody></table></div>` : '<p class="muted">Tidak ada pesanan yang cocok.</p>'}</div>`;
@@ -76,7 +84,9 @@ export function mountOrders(panel, { rpc }) {
     let d;
     try { d = await rpc('owner_pos_order', { p_id: id }); } catch (e) { box.innerHTML = errBox(e); return; }
     const r = d.receipt, [l, c] = STATUS[r.status] || [r.status, ''];
-    const profit = d.cost != null && r.status === 'dibayar' ? r.total - d.cost : null;
+    // Laba kotor from the goods only: service charge and PBJT are not sales (14 Nov 2026).
+    const goods = r.subtotal - (r.discount || 0) - (r.tax_included ? r.tax || 0 : 0);
+    const profit = d.cost != null && r.status === 'dibayar' ? goods - d.cost : null;
     box.innerHTML = `<section class="panel stack" aria-labelledby="od-t">
       <div class="row-between"><h2 id="od-t" class="num">${esc(r.receipt_no)} <span class="tag ${c}">${esc(l)}</span></h2>
         <button class="btn btn-quiet" type="button" id="od-close">Tutup</button></div>
@@ -90,6 +100,8 @@ export function mountOrders(panel, { rpc }) {
       <dl class="kv">
         <dt>Subtotal</dt><dd class="num">${esc(rupiah(r.subtotal))}</dd>
         ${r.discount ? `<dt>Diskon${r.promo_label ? ` (${esc(r.promo_label)})` : ''}</dt><dd class="num">−${esc(rupiah(r.discount))}</dd>` : ''}
+        ${r.service_charge ? `<dt>Service charge${r.service_pct ? ` ${esc(pctText(r.service_pct))}` : ''}</dt><dd class="num">${esc(rupiah(r.service_charge))}</dd>` : ''}
+        ${r.tax ? `<dt>PBJT${r.tax_pct ? ` ${esc(pctText(r.tax_pct))}` : ''}${r.tax_included ? ' (termasuk)' : ''}</dt><dd class="num">${esc(rupiah(r.tax))}</dd>` : ''}
         <dt>Total</dt><dd class="num"><b>${esc(rupiah(r.total))}</b></dd>
         <dt>Bayar</dt><dd class="num">${esc(payText(r))}</dd>
         ${(r.refunds || []).map((f) => `<dt>Refund ${esc(REFUND_TO[f.method] || '')}</dt><dd class="num">−${esc(rupiah(f.amount))}${f.at ? `, ${esc(when(f.at))}` : ''}</dd>`).join('')}

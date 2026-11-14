@@ -165,23 +165,37 @@ end $$;
 
 -- Signed order rows: +1 per paid order on its sale day, a minus row per approved batal or refund on its
 -- approval day. ev: 'jual', 'batal' or 'refund'. receipts: 1, -1 (whole order back) or 0 (partial).
+-- Service charge and PBJT (14 Nov 2026) are not sales: total = penjualan = subtotal - discount (the goods,
+-- PBJT inside the price included, as on the shelf price), and they come apart in
+--   service  service charge (owed to staff, 2-2700)
+--   tax      PBJT added on top of the price (owed to Bapenda, 2-2200)
+--   tax_in   PBJT already inside the price ("termasuk"), shown for information, part of total
+--   paid     what the buyer paid: total + service + tax (cash figures use this, or _rep_pay)
+-- A batal or refund takes its share of each, by the same fraction as the books (akunting.sql).
+drop function if exists public._rep_orders(date, date);
 create or replace function public._rep_orders(d1 date, d2 date)
 returns table (ev text, day date, at timestamptz, order_id uuid, request_id bigint, receipts int, subtotal int, discount int, total int,
                commission int, receipt_no text, channel_id text, served_by uuid, member_id uuid, promo_kind text, promo_label text,
-               payment_method text, stamps int, flags text[], sold_at timestamptz, sale_day date)
+               payment_method text, stamps int, flags text[], sold_at timestamptz, sale_day date,
+               service int, tax int, tax_in int, paid int)
 language sql stable security definer set search_path = public
 as $$
-  select 'jual'::text, o.sale_day, o.sold_at, o.id, null::bigint, 1, o.subtotal, o.discount, o.total, public._rep_commission(o.id),
-         o.receipt_no, o.channel_id, o.served_by, o.member_id, o.promo_kind, o.promo_label, o.payment_method, o.stamps, o.flags, o.sold_at, o.sale_day
+  select 'jual'::text, o.sale_day, o.sold_at, o.id, null::bigint, 1, o.subtotal, o.discount, o.subtotal - o.discount, public._rep_commission(o.id),
+         o.receipt_no, o.channel_id, o.served_by, o.member_id, o.promo_kind, o.promo_label, o.payment_method, o.stamps, o.flags, o.sold_at, o.sale_day,
+         o.service_charge, case when o.tax_included then 0 else o.tax end, case when o.tax_included then o.tax else 0 end, o.total
     from pos_orders o
    where o.sale_day between d1 and d2 and o.payment_method is not null and o.status in ('dibayar', 'batal', 'refund')
   union all
   select v.kind, v.day, v.at, o.id, v.request_id, case when v.whole then -1 else 0 end,
-         -(v.amount + round(o.discount * v.frac))::int, -round(o.discount * v.frac)::int, -v.amount,
+         -(v.amount - c.sv - c.tx + round(o.discount * v.frac))::int, -round(o.discount * v.frac)::int, -(v.amount - c.sv - c.tx)::int,
          -round(public._rep_commission(o.id) * v.frac)::int,
          o.receipt_no, o.channel_id, o.served_by, o.member_id, o.promo_kind, o.promo_label, o.payment_method,
-         case when v.whole then -o.stamps else 0 end, o.flags, o.sold_at, o.sale_day
+         case when v.whole then -o.stamps else 0 end, o.flags, o.sold_at, o.sale_day,
+         -c.sv::int, -c.tx::int, -c.ti::int, -v.amount
     from public._rep_voids(d1, d2) v join pos_orders o on o.id = v.order_id
+    cross join lateral (select round(o.service_charge * v.frac) as sv,
+                               round(case when o.tax_included then 0 else o.tax end * v.frac) as tx,
+                               round(case when o.tax_included then o.tax else 0 end * v.frac) as ti) c
 $$;
 
 -- Signed item rows, by the same rule. A whole-order batal or refund takes every line back (qty, money and
@@ -208,7 +222,9 @@ begin
       from pos_orders o
      where o.sale_day between $1 and $2 and o.payment_method is not null and o.status in ('dibayar', 'batal', 'refund')
     union all
-    select v.kind, v.day, v.at, o.id, v.request_id, -v.frac, v.whole, v.whole or v.lines is not null, v.lines, -v.amount,
+    -- The money of the goods only: the request's share of service charge and PBJT on top is not a line (14 Nov 2026).
+    select v.kind, v.day, v.at, o.id, v.request_id, -v.frac, v.whole, v.whole or v.lines is not null, v.lines,
+           -(v.amount - round(o.service_charge * v.frac) - round(case when o.tax_included then 0 else o.tax end * v.frac))::int,
            o.promo_kind, o.channel_id, o.served_by, o.member_id, o.payment_method, o.receipt_no
       from public._rep_voids($1, $2) v join pos_orders o on o.id = v.order_id),
   l as (
@@ -298,10 +314,14 @@ begin
     -- Promo items of each signed order row: the lines that got a promo price.
     pi as (select l.order_id, l.ev, l.request_id, sum(l.qty) filter (where l.discount <> 0) as items from l group by 1, 2, 3),
     t as (select coalesce(sum(total), 0)::bigint as sales, coalesce(sum(receipts), 0)::bigint as receipts,
-                 coalesce(sum(total) filter (where ev = 'jual'), 0)::bigint as gross, coalesce(-sum(total) filter (where ev <> 'jual'), 0)::bigint as reduced from o)
+                 coalesce(sum(total) filter (where ev = 'jual'), 0)::bigint as gross, coalesce(-sum(total) filter (where ev <> 'jual'), 0)::bigint as reduced,
+                 coalesce(sum(service), 0)::bigint as service, coalesce(sum(tax), 0)::bigint as tax,
+                 coalesce(sum(tax_in), 0)::bigint as tax_in, coalesce(sum(paid), 0)::bigint as paid from o)
   select json_build_object(
     'from', d1, 'to', d2, 'grain', grain,
     'sales', t.sales,
+    -- Not sales (14 Nov 2026): service charge, PBJT on top, PBJT inside the price, and all money paid.
+    'service_charge', t.service, 'pbjt', t.tax, 'pbjt_included', t.tax_in, 'paid', t.paid,
     'sales_before_refunds', t.gross,
     'refunds_value', t.reduced,
     'receipts', t.receipts,
@@ -413,8 +433,8 @@ begin
         'Diskon', 0,
         'Diskon Loyalti', 0,
         'Diskon Kupon', o.discount,
-        'Biaya Layanan', 0,
-        'PB1', 0,
+        'Biaya Layanan', o.service_charge,
+        'PB1', o.tax,
         'PPN', 0,
         'Pembulatan', 0,
         'Total', o.total,
@@ -486,7 +506,7 @@ begin
         'Staff', coalesce(op.full_name, ''),
         'Kas Masuk', coalesce((select sum(amount) from pos_cash_moves c where c.shift_id = sh.id and c.kind = 'masuk'), 0),
         'Kas Keluar', coalesce((select sum(amount) from pos_cash_moves c where c.shift_id = sh.id and c.kind = 'keluar'), 0),
-        'Penjualan', coalesce((select sum(o.total) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
+        'Penjualan', coalesce((select sum(o.subtotal - o.discount) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
         'Kembalian', coalesce((select sum(o.change_given) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
         'Kas Awal', sh.opening_cash,
         'Kas Seharusnya', coalesce(sh.expected_cash, public._pos_expected_cash(sh.id)),
@@ -500,7 +520,10 @@ begin
         'Pecahan', coalesce((select string_agg(case when d.key = 'koin' then 'koin ' || public._rp(d.value::int) else public._rp(d.key::int) || ' x' || d.value end, ', '
                                order by case when d.key = 'koin' then 0 else d.key::int end desc)
                              from jsonb_each_text(coalesce(sh.denominations, '{}')) d where d.value::bigint > 0), ''),
-        'Tanda', array_to_string(sh.flags, ', ')) as r
+        'Tanda', array_to_string(sh.flags, ', '),
+        -- Service charge and PBJT apart from Penjualan (14 Nov 2026), after the VireoPOS columns.
+        'Biaya Layanan', coalesce((select sum(o.service_charge) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
+        'PB1', coalesce((select sum(o.tax) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0)) as r
       from pos_shifts sh
         join pos_outlets ou on ou.id = sh.outlet_id
         left join profiles op on op.id = sh.opened_by
@@ -650,12 +673,12 @@ as $$
 declare
   me uuid := public._require(array['staff', 'owner'], 'Akun ini belum terdaftar sebagai staf. Minta pemilik menambahkan akun Anda.');
   v_today date := public._local(now())::date;
-  v_total int; v_n int; v_qris int; v_cash int; v_other int; v_voided int; v_voided_v int; v_mtd int;
+  v_total int; v_n int; v_qris int; v_cash int; v_other int; v_voided int; v_voided_v int; v_mtd int; v_svc int; v_tax int; v_tax_in int;
   txt text; items text;
 begin
   -- Today's sales minus the batal and refund approved today (the rule at the top of this file).
-  select coalesce(sum(o.total), 0), coalesce(sum(o.receipts), 0)
-    into v_total, v_n from public._rep_orders(v_today, v_today) o;
+  select coalesce(sum(o.total), 0), coalesce(sum(o.receipts), 0), coalesce(sum(o.service), 0), coalesce(sum(o.tax), 0), coalesce(sum(o.tax_in), 0)
+    into v_total, v_n, v_svc, v_tax, v_tax_in from public._rep_orders(v_today, v_today) o;
   select coalesce(sum(p.amount) filter (where p.method = 'qris'), 0), coalesce(sum(p.amount) filter (where p.method = 'tunai'), 0),
          coalesce(sum(p.amount) filter (where p.method not in ('qris', 'tunai')), 0)
     into v_qris, v_cash, v_other from public._rep_pay(v_today, v_today) p;
@@ -676,7 +699,11 @@ begin
 
   txt := 'Daily Sales Report HANASHUYA' || E'\n' ||
     'Cut Off : ' || extract(day from v_today)::int || '/' || extract(month from v_today)::int || '/' || extract(year from v_today)::int || E'\n\n' ||
-    'Total Omset' || E'\n' || 'Rp ' || replace(to_char(v_total, 'FM999,999,999'), ',', '.') || E'\n\n' ||
+    'Total Omset' || E'\n' || 'Rp ' || replace(to_char(v_total, 'FM999,999,999'), ',', '.') || E'\n' ||
+    -- Service charge and PBJT apart from omzet (14 Nov 2026); only when there is any.
+    case when v_svc <> 0 then 'Service charge : Rp ' || replace(to_char(v_svc, 'FM999,999,999'), ',', '.') || E'\n' else '' end ||
+    case when v_tax <> 0 then 'PBJT : Rp ' || replace(to_char(v_tax, 'FM999,999,999'), ',', '.') || E'\n' else '' end ||
+    case when v_tax_in <> 0 then 'PBJT (termasuk di omzet) : Rp ' || replace(to_char(v_tax_in, 'FM999,999,999'), ',', '.') || E'\n' else '' end || E'\n' ||
     'Rekap Payment:' || E'\n' ||
     '- QRIS : Rp ' || replace(to_char(v_qris, 'FM999,999,999'), ',', '.') || E'\n' ||
     '- Cash : Rp ' || replace(to_char(v_cash, 'FM999,999,999'), ',', '.') ||

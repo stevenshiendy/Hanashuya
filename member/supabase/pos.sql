@@ -1598,7 +1598,10 @@ begin
     'closed_by', (select public._first_name(full_name) from profiles where id = sh.closed_by),
     'device', sh.device,
     'orders', (select count(*) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'),
-    'sales_total', coalesce((select sum(o.total) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
+    -- sales_total is goods only; service charge and PBJT on top apart (14 Nov 2026). by_method is the money in.
+    'sales_total', coalesce((select sum(o.subtotal - o.discount) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
+    'service_total', coalesce((select sum(o.service_charge) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
+    'tax_total', coalesce((select sum(o.tax) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar' and not o.tax_included), 0),
     'by_method', coalesce((select jsonb_object_agg(k, (v->>'amount')::int) from jsonb_each(public._pos_shift_pay(sh.id)) e (k, v)), '{}'),
     'split_count', (select count(*) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar' and o.payment_method = 'campur'),
     'voided', (select count(*) from pos_orders o where o.shift_id = sh.id and o.status <> 'dibayar'),
@@ -1704,6 +1707,14 @@ begin
     'subtotal', coalesce((select sum(o.subtotal) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
     'discount', coalesce((select sum(o.discount) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
     'total', coalesce((select sum(o.total) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
+    -- Service charge and PBJT are not sales (14 Nov 2026): sales = subtotal - discount (PBJT inside the price
+    -- included, tax_in says how much), and total = sales + service_charge + tax (PBJT added on top) = the money in.
+    'sales', coalesce((select sum(o.subtotal - o.discount) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
+    'service_charge', coalesce((select sum(o.service_charge) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
+    'tax', coalesce((select sum(o.tax) filter (where not o.tax_included) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
+    'tax_in', coalesce((select sum(o.tax) filter (where o.tax_included) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0),
+    'tax_pct', (select max(o.tax_pct) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar' and o.tax > 0),
+    'service_pct', (select max(o.service_pct) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar' and o.service_charge > 0),
     -- Per method from pos_order_payments (13 Nov 2026): a Bayar 2 cara order counts in Tunai and
     -- in QRIS with its two parts, so the rows add up to Total; split_count says how many.
     'payments', coalesce((select jsonb_agg(jsonb_build_object('method', e.k, 'count', (e.v->>'count')::int, 'amount', (e.v->>'amount')::int)

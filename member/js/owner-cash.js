@@ -7,7 +7,7 @@
 // pos_cash_move 'setor') and supabase/pos-cash.sql (owner_cash_shifts, owner_save_cash_settings).
 import { $, esc, busy, notice, toast, rupiah, when } from './lib.js';
 import { presetRange, rangeHtml, wireRange } from './owner-range.js';
-import { rekapReceipt, rekapPreview, rekapPdf, rekapFile, denomText, ledgerLabel, DENOMS } from './receipt-rekap.js';
+import { rekapReceipt, rekapPreview, rekapPdf, rekapFile, denomText, ledgerLabel, DENOMS, rekapChargeRows } from './receipt-rekap.js';
 import { sharePdf } from './pdf.js';
 import * as printer from './printer.js';
 
@@ -57,7 +57,7 @@ async function list(panel, rpc, from, to) {
       ${d.shifts.map((s) => `<tr>
         <td class="num" style="white-space: nowrap">${esc(when(s.opened_at))}</td><td class="num" style="white-space: nowrap">${s.closed_at ? esc(when(s.closed_at)) : '<span class="tag tag-ok">Berjalan</span>'}</td>
         <td>${esc([s.opened_by, s.closed_by].filter((x, i, a) => x && a.indexOf(x) === i).join(' → ') || '–')}</td>
-        <td class="num">${s.orders}</td><td class="num">${rupiah(s.sales_total)}</td><td class="num">${rupiah(s.qris)}</td><td class="num">${rupiah(s.tunai)}</td>
+        <td class="num">${s.orders}</td><td class="num">${rupiah(s.sales_total)}${s.service_total || s.tax_total || s.tax_in_total ? `<br><span class="small muted">${esc([s.service_total ? `service ${rupiah(s.service_total)}` : '', s.tax_total ? `PBJT ${rupiah(s.tax_total)}` : '', s.tax_in_total ? `PBJT termasuk ${rupiah(s.tax_in_total)}` : ''].filter(Boolean).join(' · '))}</span>` : ''}</td><td class="num">${rupiah(s.qris)}</td><td class="num">${rupiah(s.tunai)}</td>
         <td class="num">${rupiah(s.opening_cash)}</td><td class="num">${rupiah(s.expected_cash)}</td>
         <td class="num">${s.counted_cash == null ? '–' : rupiah(s.counted_cash)}</td><td class="num">${diffTag(s.difference, lim)}</td>
         <td class="small">${[...(s.flags || []).map((f) => FLAG[f] || f), s.setor ? `Setor ${rupiah(s.setor)}` : '',
@@ -158,6 +158,8 @@ async function detail(panel, rpc, id) {
           <td class="num">${i.qty}</td><td class="num">${i.unit != null ? rupiah(i.unit) : '–'}</td><td class="num">${rupiah(i.total)}</td></tr>`).join('')}
         <tr><td>Subtotal</td><td></td><td></td><td class="num">${rupiah(k.subtotal)}</td></tr>
         ${k.discount ? `<tr><td>Diskon</td><td></td><td></td><td class="num">−${rupiah(k.discount)}</td></tr>` : ''}
+        ${rekapChargeRows(k).length ? `<tr><td>Penjualan</td><td></td><td></td><td class="num">${rupiah(k.sales)}</td></tr>
+        ${rekapChargeRows(k).map(([l, a]) => `<tr><td>${esc(l)}</td><td></td><td></td><td class="num">Rp${esc(a)}</td></tr>`).join('')}` : ''}
         <tr><td><b>Total akhir</b></td><td class="num"><b>${k.items.filter((i) => !i.free_bag).reduce((t, i) => t + i.qty, 0)}</b></td><td></td><td class="num"><b>${rupiah(k.total)}</b></td></tr></tbody></table></div>` : '<p class="muted">Belum ada penjualan.</p>'}
     </div>
   </div>

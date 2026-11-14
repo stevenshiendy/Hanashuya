@@ -1,0 +1,3337 @@
+{
+ "today": "2026-11-13",
+ "yday": "2026-11-12",
+ "staff": {
+  "ranny": "6da12528-703a-473d-93a4-a26e455e1c34",
+  "fajar": "1d234538-46b3-4b81-9937-6ef91c95963c"
+ },
+ "supplier": 1,
+ "items": {
+  "jam_strawberry": 5,
+  "mini": 1,
+  "sig": 2,
+  "vla_vanilla": 3,
+  "vla_choco": 4,
+  "vla_matcha": 6,
+  "dus_besar": 7,
+  "dus_kecil": 8,
+  "bag": 9,
+  "liner_besar": 10,
+  "liner_kecil": 11,
+  "pouch": 12
+ },
+ "reports": {
+  "jual_ringkas": {
+   "report": "jual_ringkas",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "n": 1,
+     "keterangan": "Penjualan kotor",
+     "nilai": 497000,
+     "satuan": "rp"
+    },
+    {
+     "n": 2,
+     "keterangan": "Diskon",
+     "nilai": 10000,
+     "satuan": "rp"
+    },
+    {
+     "n": 3,
+     "keterangan": "Batal dan refund yang sudah dikurangkan",
+     "nilai": 120000,
+     "satuan": "rp"
+    },
+    {
+     "n": 4,
+     "keterangan": "Penjualan bersih",
+     "nilai": 487000,
+     "satuan": "rp"
+    },
+    {
+     "n": 5,
+     "keterangan": "Struk dibayar",
+     "nilai": 4,
+     "satuan": "n"
+    },
+    {
+     "n": 6,
+     "keterangan": "Rata-rata per struk",
+     "nilai": 121750,
+     "satuan": "rp"
+    },
+    {
+     "n": 7,
+     "keterangan": "Produk terjual (tanpa paper bag)",
+     "nilai": 7,
+     "satuan": "n"
+    },
+    {
+     "n": 8,
+     "keterangan": "Tunai",
+     "nilai": 242000,
+     "satuan": "rp"
+    },
+    {
+     "n": 9,
+     "keterangan": "QRIS",
+     "nilai": 245000,
+     "satuan": "rp"
+    },
+    {
+     "n": 10,
+     "keterangan": "Lainnya (platform, gratis, transfer)",
+     "nilai": 0,
+     "satuan": "rp"
+    },
+    {
+     "n": 11,
+     "keterangan": "Struk member",
+     "nilai": 2,
+     "satuan": "n"
+    },
+    {
+     "n": 12,
+     "keterangan": "Dibatalkan",
+     "nilai": 1,
+     "satuan": "n"
+    },
+    {
+     "n": 13,
+     "keterangan": "Nilai dibatalkan",
+     "nilai": 120000,
+     "satuan": "rp"
+    },
+    {
+     "n": 14,
+     "keterangan": "Refund",
+     "nilai": 0,
+     "satuan": "n"
+    },
+    {
+     "n": 15,
+     "keterangan": "Nilai refund",
+     "nilai": 0,
+     "satuan": "rp"
+    },
+    {
+     "n": 16,
+     "keterangan": "Item promo",
+     "nilai": 1,
+     "satuan": "n"
+    },
+    {
+     "n": 17,
+     "keterangan": "Pajak dan biaya layanan",
+     "nilai": 0,
+     "satuan": "rp"
+    }
+   ]
+  },
+  "jual_rinci": {
+   "report": "jual_rinci",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "at": "2026-11-12T16:22:22.017+00:00",
+     "waktu": "2026-11-12 23:22:22",
+     "struk": "HS-261113-0004",
+     "no_offline": "",
+     "saluran": "Di booth",
+     "staf": "Fajar",
+     "kasir": "Ranny",
+     "pelanggan": "",
+     "status": "Selesai",
+     "metode": "Tunai",
+     "referensi": "",
+     "promo": "",
+     "subtotal": 120000,
+     "diskon": 0,
+     "total": 120000,
+     "dibayar": 120000,
+     "kembalian": 0,
+     "refund": 0,
+     "tanda": ""
+    },
+    {
+     "id": "f21f6b41-c174-4aee-8b34-ba72a228264d",
+     "at": "2026-11-13T16:22:21.957+00:00",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0001",
+     "no_offline": "",
+     "saluran": "Di booth",
+     "staf": "Ranny",
+     "kasir": "Ranny",
+     "pelanggan": "",
+     "status": "Selesai",
+     "metode": "Tunai",
+     "referensi": "",
+     "promo": "",
+     "subtotal": 122000,
+     "diskon": 0,
+     "total": 122000,
+     "dibayar": 150000,
+     "kembalian": 28000,
+     "refund": 0,
+     "tanda": ""
+    },
+    {
+     "id": "3b5377c3-e0f0-4c2f-93e7-4421cb304b32",
+     "at": "2026-11-13T16:22:21.986+00:00",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0002",
+     "no_offline": "",
+     "saluran": "Di booth",
+     "staf": "Fajar",
+     "kasir": "Ranny",
+     "pelanggan": "Desi Ayu",
+     "status": "Selesai",
+     "metode": "QRIS",
+     "referensi": "",
+     "promo": "Diskon 50% untuk 1 produk",
+     "subtotal": 119000,
+     "diskon": 10000,
+     "total": 109000,
+     "dibayar": 109000,
+     "kembalian": 0,
+     "refund": 0,
+     "tanda": "nomor_dicari"
+    },
+    {
+     "id": "39e5a632-2566-42f1-ad2e-23d8ef130540",
+     "at": "2026-11-13T16:22:22.007+00:00",
+     "waktu": "2026-11-13 23:22:22",
+     "struk": "HS-261113-0003",
+     "no_offline": "",
+     "saluran": "Di booth",
+     "staf": "Ranny",
+     "kasir": "Ranny",
+     "pelanggan": "",
+     "status": "Dibatalkan",
+     "metode": "QRIS",
+     "referensi": "",
+     "promo": "",
+     "subtotal": 120000,
+     "diskon": 0,
+     "total": 120000,
+     "dibayar": 0,
+     "kembalian": 0,
+     "refund": 120000,
+     "tanda": ""
+    },
+    {
+     "id": "f25f1cab-83ad-49ac-ad91-e85a9c1e2263",
+     "at": "2026-11-13T16:22:22.029+00:00",
+     "waktu": "2026-11-13 23:22:22",
+     "struk": "HS-261113-0005",
+     "no_offline": "",
+     "saluran": "Di booth",
+     "staf": "Ranny",
+     "kasir": "Ranny",
+     "pelanggan": "Budi Satu",
+     "status": "Selesai",
+     "metode": "QRIS",
+     "referensi": "",
+     "promo": "",
+     "subtotal": 136000,
+     "diskon": 0,
+     "total": 136000,
+     "dibayar": 136000,
+     "kembalian": 0,
+     "refund": 0,
+     "tanda": "nomor_dicari"
+    }
+   ]
+  },
+  "jual_rinci_barang": {
+   "report": "jual_rinci_barang",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "at": "2026-11-12T16:22:22.017+00:00",
+     "line": 1,
+     "id": "HS-261113-0004-1",
+     "waktu": "2026-11-12 23:22:22",
+     "struk": "HS-261113-0004",
+     "status": "Selesai",
+     "metode": "Tunai",
+     "kategori": "Signature",
+     "produk": "Signature Box isi 6",
+     "rasa": "Vanilla",
+     "qty": 1,
+     "harga": 120000,
+     "kotor": 120000,
+     "diskon": 0,
+     "bersih": 120000,
+     "catatan": ""
+    },
+    {
+     "at": "2026-11-13T16:22:21.957+00:00",
+     "line": 1,
+     "id": "HS-261113-0001-1",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0001",
+     "status": "Selesai",
+     "metode": "Tunai",
+     "kategori": "Signature",
+     "produk": "Signature 1 pcs",
+     "rasa": "Vanilla",
+     "qty": 1,
+     "harga": 20000,
+     "kotor": 20000,
+     "diskon": 0,
+     "bersih": 20000,
+     "catatan": ""
+    },
+    {
+     "at": "2026-11-13T16:22:21.957+00:00",
+     "line": 2,
+     "id": "HS-261113-0001-2",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0001",
+     "status": "Selesai",
+     "metode": "Tunai",
+     "kategori": "Mini Choux",
+     "produk": "Mini Box isi 15",
+     "rasa": "Matcha",
+     "qty": 1,
+     "harga": 102000,
+     "kotor": 102000,
+     "diskon": 0,
+     "bersih": 102000,
+     "catatan": ""
+    },
+    {
+     "at": "2026-11-13T16:22:21.986+00:00",
+     "line": 1,
+     "id": "HS-261113-0002-1",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0002",
+     "status": "Selesai",
+     "metode": "QRIS",
+     "kategori": "Mini Choux",
+     "produk": "Mini Box isi 15",
+     "rasa": "Vanilla",
+     "qty": 1,
+     "harga": 99000,
+     "kotor": 99000,
+     "diskon": 0,
+     "bersih": 99000,
+     "catatan": ""
+    },
+    {
+     "at": "2026-11-13T16:22:21.986+00:00",
+     "line": 2,
+     "id": "HS-261113-0002-2",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0002",
+     "status": "Selesai",
+     "metode": "QRIS",
+     "kategori": "Signature",
+     "produk": "Signature 1 pcs",
+     "rasa": "Choco",
+     "qty": 1,
+     "harga": 20000,
+     "kotor": 20000,
+     "diskon": 10000,
+     "bersih": 10000,
+     "catatan": ""
+    },
+    {
+     "at": "2026-11-13T16:22:22.007+00:00",
+     "line": 1,
+     "id": "HS-261113-0003-1",
+     "waktu": "2026-11-13 23:22:22",
+     "struk": "HS-261113-0003",
+     "status": "Dibatalkan",
+     "metode": "QRIS",
+     "kategori": "Signature",
+     "produk": "Signature Box isi 6",
+     "rasa": "Vanilla",
+     "qty": 1,
+     "harga": 120000,
+     "kotor": 120000,
+     "diskon": 0,
+     "bersih": 120000,
+     "catatan": ""
+    },
+    {
+     "at": "2026-11-13T16:22:22.029+00:00",
+     "line": 1,
+     "id": "HS-261113-0005-1",
+     "waktu": "2026-11-13 23:22:22",
+     "struk": "HS-261113-0005",
+     "status": "Selesai",
+     "metode": "QRIS",
+     "kategori": "Mini Choux",
+     "produk": "Mini Box isi 8",
+     "rasa": "Vanilla",
+     "qty": 2,
+     "harga": 68000,
+     "kotor": 136000,
+     "diskon": 0,
+     "bersih": 136000,
+     "catatan": ""
+    }
+   ]
+  },
+  "jual_produk": {
+   "report": "jual_produk",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "kategori": "Mini Choux",
+     "produk": "Mini Box isi 15",
+     "kode": "mini15",
+     "qty": 2,
+     "kotor": 201000,
+     "diskon": 0,
+     "bersih": 201000,
+     "rata_rata": 100500
+    },
+    {
+     "kategori": "Mini Choux",
+     "produk": "Mini Box isi 8",
+     "kode": "mini8",
+     "qty": 2,
+     "kotor": 136000,
+     "diskon": 0,
+     "bersih": 136000,
+     "rata_rata": 68000
+    },
+    {
+     "kategori": "Signature",
+     "produk": "Signature Box isi 6",
+     "kode": "sig6",
+     "qty": 1,
+     "kotor": 120000,
+     "diskon": 0,
+     "bersih": 120000,
+     "rata_rata": 120000
+    },
+    {
+     "kategori": "Signature",
+     "produk": "Signature 1 pcs",
+     "kode": "sig1",
+     "qty": 2,
+     "kotor": 40000,
+     "diskon": 10000,
+     "bersih": 30000,
+     "rata_rata": 15000
+    }
+   ]
+  },
+  "jual_kategori": {
+   "report": "jual_kategori",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "kategori": "Mini Choux",
+     "struk": 3,
+     "qty": 4,
+     "bersih": 337000,
+     "persen": 69.2
+    },
+    {
+     "kategori": "Signature",
+     "struk": 4,
+     "qty": 3,
+     "bersih": 150000,
+     "persen": 30.8
+    }
+   ]
+  },
+  "jual_rasa": {
+   "report": "jual_rasa",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "produk": "Mini Box isi 15",
+     "rasa": "Matcha",
+     "qty": 1,
+     "bersih": 102000,
+     "persen_produk": 50
+    },
+    {
+     "produk": "Mini Box isi 15",
+     "rasa": "Vanilla",
+     "qty": 1,
+     "bersih": 99000,
+     "persen_produk": 50
+    },
+    {
+     "produk": "Mini Box isi 8",
+     "rasa": "Vanilla",
+     "qty": 2,
+     "bersih": 136000,
+     "persen_produk": 100
+    },
+    {
+     "produk": "Signature 1 pcs",
+     "rasa": "Choco",
+     "qty": 1,
+     "bersih": 10000,
+     "persen_produk": 50
+    },
+    {
+     "produk": "Signature 1 pcs",
+     "rasa": "Vanilla",
+     "qty": 1,
+     "bersih": 20000,
+     "persen_produk": 50
+    },
+    {
+     "produk": "Signature Box isi 6",
+     "rasa": "Vanilla",
+     "qty": 1,
+     "bersih": 120000,
+     "persen_produk": 100
+    }
+   ]
+  },
+  "jual_jam": {
+   "report": "jual_jam",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "h": 8,
+     "jam": "08.00-08.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 9,
+     "jam": "09.00-09.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 10,
+     "jam": "10.00-10.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 11,
+     "jam": "11.00-11.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 12,
+     "jam": "12.00-12.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 13,
+     "jam": "13.00-13.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 14,
+     "jam": "14.00-14.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 15,
+     "jam": "15.00-15.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 16,
+     "jam": "16.00-16.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 17,
+     "jam": "17.00-17.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 18,
+     "jam": "18.00-18.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 19,
+     "jam": "19.00-19.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 20,
+     "jam": "20.00-20.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 21,
+     "jam": "21.00-21.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 22,
+     "jam": "22.00-22.59",
+     "struk": 0,
+     "qty": 0,
+     "bersih": 0,
+     "rata_rata": 0
+    },
+    {
+     "h": 23,
+     "jam": "23.00-23.59",
+     "struk": 4,
+     "qty": 7,
+     "bersih": 487000,
+     "rata_rata": 121750
+    }
+   ]
+  },
+  "jual_harian": {
+   "report": "jual_harian",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "tanggal": "2026-11-12",
+     "hari": "Kamis",
+     "struk": 1,
+     "qty": 1,
+     "kotor": 120000,
+     "diskon": 0,
+     "refund": 0,
+     "bersih": 120000,
+     "rata_rata": 120000,
+     "batal": 0
+    },
+    {
+     "tanggal": "2026-11-13",
+     "hari": "Jumat",
+     "struk": 3,
+     "qty": 6,
+     "kotor": 497000,
+     "diskon": 10000,
+     "refund": 120000,
+     "bersih": 367000,
+     "rata_rata": 122333,
+     "batal": 1
+    }
+   ]
+  },
+  "jual_staf": {
+   "report": "jual_staf",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": "6da12528-703a-473d-93a4-a26e455e1c34",
+     "staf": "Ranny Putri",
+     "struk": 2,
+     "qty": 4,
+     "bersih": 258000,
+     "rata_rata": 129000,
+     "komisi": 2580
+    },
+    {
+     "id": "1d234538-46b3-4b81-9937-6ef91c95963c",
+     "staf": "Fajar",
+     "struk": 2,
+     "qty": 3,
+     "bersih": 229000,
+     "rata_rata": 114500,
+     "komisi": 2290
+    }
+   ]
+  },
+  "jual_metode": {
+   "report": "jual_metode",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "tanggal": null,
+     "metode": "QRIS",
+     "struk": 3,
+     "total": 245000,
+     "persen": 50.3
+    },
+    {
+     "tanggal": null,
+     "metode": "Tunai",
+     "struk": 2,
+     "total": 242000,
+     "persen": 49.7
+    }
+   ]
+  },
+  "jual_metode:{\"group\":\"hari\"}": {
+   "report": "jual_metode",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "tanggal": "2026-11-12",
+     "metode": "Tunai",
+     "struk": 1,
+     "total": 120000,
+     "persen": 100
+    },
+    {
+     "tanggal": "2026-11-13",
+     "metode": "QRIS",
+     "struk": 3,
+     "total": 245000,
+     "persen": 66.8
+    },
+    {
+     "tanggal": "2026-11-13",
+     "metode": "Tunai",
+     "struk": 1,
+     "total": 122000,
+     "persen": 33.2
+    }
+   ]
+  },
+  "jual_member": {
+   "report": "jual_member",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": "tanpa",
+     "pelanggan": "Tanpa kartu member",
+     "whatsapp": "",
+     "struk": 2,
+     "total": 242000,
+     "rata_rata": 121000,
+     "stempel": 0,
+     "terakhir": "2026-11-13"
+    },
+    {
+     "id": "8bae9be2-0dd5-4fac-bc0b-482647371279",
+     "pelanggan": "Budi Satu",
+     "whatsapp": "6281666666661",
+     "struk": 1,
+     "total": 136000,
+     "rata_rata": 136000,
+     "stempel": 2,
+     "terakhir": "2026-11-13"
+    },
+    {
+     "id": "741d9b9d-2fbc-4b0f-b24f-4ed9aea86150",
+     "pelanggan": "Desi Ayu",
+     "whatsapp": "6281555555555",
+     "struk": 1,
+     "total": 109000,
+     "rata_rata": 109000,
+     "stempel": 2,
+     "terakhir": "2026-11-13"
+    }
+   ]
+  },
+  "jual_saluran": {
+   "report": "jual_saluran",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "saluran": "Di booth",
+     "struk": 4,
+     "kotor": 497000,
+     "diskon": 10000,
+     "bersih": 487000,
+     "rata_rata": 121750
+    }
+   ]
+  },
+  "jual_promo": {
+   "report": "jual_promo",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "urut": 5,
+     "jenis": "Diskon member baru 50%",
+     "promo": "Diskon 50% untuk 1 produk",
+     "dipakai": 1,
+     "item": 1,
+     "kotor": 119000,
+     "diskon": 10000,
+     "bersih": 109000
+    }
+   ]
+  },
+  "jual_batal": {
+   "report": "jual_batal",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": "1",
+     "at": "2026-11-13T16:22:22.049+00:00",
+     "waktu": "2026-11-13 23:22:22",
+     "waktu_jual": "2026-11-13 23:22:22",
+     "struk": "HS-261113-0003",
+     "status": "Dibatalkan",
+     "bagian": "Seluruh pesanan",
+     "metode": "QRIS",
+     "total": 120000,
+     "alasan": "Salah pesan",
+     "diminta": "Ranny",
+     "disetujui": "Glenn",
+     "diputuskan": "2026-11-13 23:22:22"
+    }
+   ]
+  },
+  "laba_produk": {
+   "report": "laba_produk",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "tanggal": null,
+     "produk": "Mini Box isi 15",
+     "qty": 2,
+     "diskon": 0,
+     "penjualan": 201000,
+     "hpp": 65930,
+     "laba": 135070,
+     "margin": 67.2,
+     "catatan": ""
+    },
+    {
+     "tanggal": null,
+     "produk": "Mini Box isi 8",
+     "qty": 2,
+     "diskon": 0,
+     "penjualan": 136000,
+     "hpp": 35716,
+     "laba": 100284,
+     "margin": 73.7,
+     "catatan": ""
+    },
+    {
+     "tanggal": null,
+     "produk": "Signature Box isi 6",
+     "qty": 1,
+     "diskon": 0,
+     "penjualan": 120000,
+     "hpp": 32440,
+     "laba": 87560,
+     "margin": 73,
+     "catatan": ""
+    },
+    {
+     "tanggal": null,
+     "produk": "Signature 1 pcs",
+     "qty": 2,
+     "diskon": 10000,
+     "penjualan": 30000,
+     "hpp": 11330,
+     "laba": 18670,
+     "margin": 62.2,
+     "catatan": ""
+    }
+   ]
+  },
+  "laba_produk:{\"group\":\"hari\"}": {
+   "report": "laba_produk",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "tanggal": "2026-11-12",
+     "produk": "Signature Box isi 6",
+     "qty": 1,
+     "diskon": 0,
+     "penjualan": 120000,
+     "hpp": 32440,
+     "laba": 87560,
+     "margin": 73,
+     "catatan": ""
+    },
+    {
+     "tanggal": "2026-11-13",
+     "produk": "Mini Box isi 15",
+     "qty": 2,
+     "diskon": 0,
+     "penjualan": 201000,
+     "hpp": 65930,
+     "laba": 135070,
+     "margin": 67.2,
+     "catatan": ""
+    },
+    {
+     "tanggal": "2026-11-13",
+     "produk": "Mini Box isi 8",
+     "qty": 2,
+     "diskon": 0,
+     "penjualan": 136000,
+     "hpp": 35716,
+     "laba": 100284,
+     "margin": 73.7,
+     "catatan": ""
+    },
+    {
+     "tanggal": "2026-11-13",
+     "produk": "Signature 1 pcs",
+     "qty": 2,
+     "diskon": 10000,
+     "penjualan": 30000,
+     "hpp": 11330,
+     "laba": 18670,
+     "margin": 62.2,
+     "catatan": ""
+    }
+   ]
+  },
+  "laba_hari": {
+   "report": "laba_hari",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "tanggal": "2026-11-12",
+     "hari": "Kamis",
+     "penjualan": 120000,
+     "diskon": 0,
+     "hpp": 32440,
+     "laba": 87560,
+     "margin": 73,
+     "catatan": ""
+    },
+    {
+     "tanggal": "2026-11-13",
+     "hari": "Jumat",
+     "penjualan": 367000,
+     "diskon": 10000,
+     "hpp": 112976,
+     "laba": 254024,
+     "margin": 69.2,
+     "catatan": ""
+    }
+   ]
+  },
+  "laba_transaksi": {
+   "report": "laba_transaksi",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "at": "2026-11-12T16:22:22.017+00:00",
+     "waktu": "2026-11-12 23:22:22",
+     "struk": "HS-261113-0004",
+     "metode": "Tunai",
+     "penjualan": 120000,
+     "hpp": 32440,
+     "laba": 87560,
+     "margin": 73,
+     "catatan": ""
+    },
+    {
+     "id": "f21f6b41-c174-4aee-8b34-ba72a228264d",
+     "at": "2026-11-13T16:22:21.957+00:00",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0001",
+     "metode": "Tunai",
+     "penjualan": 122000,
+     "hpp": 38630,
+     "laba": 83370,
+     "margin": 68.3,
+     "catatan": ""
+    },
+    {
+     "id": "3b5377c3-e0f0-4c2f-93e7-4421cb304b32",
+     "at": "2026-11-13T16:22:21.986+00:00",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0002",
+     "metode": "QRIS",
+     "penjualan": 109000,
+     "hpp": 38630,
+     "laba": 70370,
+     "margin": 64.6,
+     "catatan": ""
+    },
+    {
+     "id": "39e5a632-2566-42f1-ad2e-23d8ef130540",
+     "at": "2026-11-13T16:22:22.007+00:00",
+     "waktu": "2026-11-13 23:22:22",
+     "struk": "HS-261113-0003",
+     "metode": "QRIS",
+     "penjualan": 120000,
+     "hpp": 32440,
+     "laba": 87560,
+     "margin": 73,
+     "catatan": ""
+    },
+    {
+     "id": "f25f1cab-83ad-49ac-ad91-e85a9c1e2263",
+     "at": "2026-11-13T16:22:22.029+00:00",
+     "waktu": "2026-11-13 23:22:22",
+     "struk": "HS-261113-0005",
+     "metode": "QRIS",
+     "penjualan": 136000,
+     "hpp": 35716,
+     "laba": 100284,
+     "margin": 73.7,
+     "catatan": ""
+    },
+    {
+     "id": "39e5a632-2566-42f1-ad2e-23d8ef130540:1",
+     "at": "2026-11-13T16:22:22.049+00:00",
+     "waktu": "2026-11-13 23:22:22",
+     "struk": "HS-261113-0003",
+     "metode": "Dibatalkan",
+     "penjualan": -120000,
+     "hpp": -32440,
+     "laba": -87560,
+     "margin": 73,
+     "catatan": ""
+    }
+   ]
+  },
+  "kas_rekap": {
+   "report": "kas_rekap",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": 1,
+     "at": "2026-11-13T16:22:21.957+00:00",
+     "mulai": "2026-11-13 23:22:21",
+     "berakhir": "2026-11-13 23:22:22",
+     "perangkat": "",
+     "akun": "Ranny",
+     "dilayani": "Fajar, Ranny",
+     "modal": 200000,
+     "struk": 4,
+     "produk": 7,
+     "penjualan": 487000,
+     "tunai": 242000,
+     "kas_masuk": 5000,
+     "kas_keluar": 15000,
+     "setor": 0,
+     "seharusnya": 432000,
+     "dihitung": 400000,
+     "selisih": -32000,
+     "status": "Ditutup"
+    },
+    {
+     "id": 2,
+     "at": "2026-11-13T16:22:22.061+00:00",
+     "mulai": "2026-11-13 23:22:22",
+     "berakhir": "",
+     "perangkat": "",
+     "akun": "Manajer",
+     "dilayani": "",
+     "modal": 400000,
+     "struk": 0,
+     "produk": 0,
+     "penjualan": 0,
+     "tunai": 0,
+     "kas_masuk": 0,
+     "kas_keluar": 0,
+     "setor": 0,
+     "seharusnya": 400000,
+     "dihitung": null,
+     "selisih": null,
+     "status": "Berjalan"
+    }
+   ]
+  },
+  "owner_shift_detail": {
+   "id": 1,
+   "info": {
+    "mulai": "2026-11-13 23:22:21",
+    "berakhir": "2026-11-13 23:22:22",
+    "gerai": "Hanashuya Papaya Fresh Gallery Bandung",
+    "perangkat": "",
+    "akun": "Ranny",
+    "ditutup_oleh": "Manajer",
+    "dilayani": "Fajar, Ranny",
+    "status": "Ditutup"
+   },
+   "orders": [
+    {
+     "at": "2026-11-12T16:22:22.017+00:00",
+     "waktu": "2026-11-12 23:22:22",
+     "struk": "HS-261113-0004",
+     "saluran": "Di booth",
+     "dilayani": "Fajar",
+     "kasir": "Ranny",
+     "pelanggan": "",
+     "status": "Selesai",
+     "metode": "Tunai",
+     "catatan": "",
+     "produk": 1,
+     "subtotal": 120000,
+     "diskon": 0,
+     "total": 120000,
+     "dibayar": 120000,
+     "kembalian": 0
+    },
+    {
+     "at": "2026-11-13T16:22:21.957+00:00",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0001",
+     "saluran": "Di booth",
+     "dilayani": "Ranny",
+     "kasir": "Ranny",
+     "pelanggan": "",
+     "status": "Selesai",
+     "metode": "Tunai",
+     "catatan": "",
+     "produk": 2,
+     "subtotal": 122000,
+     "diskon": 0,
+     "total": 122000,
+     "dibayar": 150000,
+     "kembalian": 28000
+    },
+    {
+     "at": "2026-11-13T16:22:21.986+00:00",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0002",
+     "saluran": "Di booth",
+     "dilayani": "Fajar",
+     "kasir": "Ranny",
+     "pelanggan": "Desi",
+     "status": "Selesai",
+     "metode": "QRIS",
+     "catatan": "Diskon 50% untuk 1 produk",
+     "produk": 2,
+     "subtotal": 119000,
+     "diskon": 10000,
+     "total": 109000,
+     "dibayar": 109000,
+     "kembalian": 0
+    },
+    {
+     "at": "2026-11-13T16:22:22.007+00:00",
+     "waktu": "2026-11-13 23:22:22",
+     "struk": "HS-261113-0003",
+     "saluran": "Di booth",
+     "dilayani": "Ranny",
+     "kasir": "Ranny",
+     "pelanggan": "",
+     "status": "Dibatalkan",
+     "metode": "QRIS",
+     "catatan": "",
+     "produk": 1,
+     "subtotal": 120000,
+     "diskon": 0,
+     "total": 120000,
+     "dibayar": 120000,
+     "kembalian": 0
+    },
+    {
+     "at": "2026-11-13T16:22:22.029+00:00",
+     "waktu": "2026-11-13 23:22:22",
+     "struk": "HS-261113-0005",
+     "saluran": "Di booth",
+     "dilayani": "Ranny",
+     "kasir": "Ranny",
+     "pelanggan": "Budi",
+     "status": "Selesai",
+     "metode": "QRIS",
+     "catatan": "",
+     "produk": 2,
+     "subtotal": 136000,
+     "diskon": 0,
+     "total": 136000,
+     "dibayar": 136000,
+     "kembalian": 0
+    }
+   ],
+   "items": [
+    {
+     "produk": "Signature 1 pcs",
+     "rasa": "Vanilla",
+     "qty": 1,
+     "harga": 20000,
+     "total": 20000,
+     "promo": false,
+     "paper_bag_gratis": false
+    },
+    {
+     "produk": "Signature 1 pcs",
+     "rasa": "Choco",
+     "qty": 1,
+     "harga": 10000,
+     "total": 10000,
+     "promo": true,
+     "paper_bag_gratis": false
+    },
+    {
+     "produk": "Signature Box isi 6",
+     "rasa": "Vanilla",
+     "qty": 1,
+     "harga": 120000,
+     "total": 120000,
+     "promo": false,
+     "paper_bag_gratis": false
+    },
+    {
+     "produk": "Mini Box isi 15",
+     "rasa": "Vanilla",
+     "qty": 1,
+     "harga": 99000,
+     "total": 99000,
+     "promo": false,
+     "paper_bag_gratis": false
+    },
+    {
+     "produk": "Mini Box isi 15",
+     "rasa": "Matcha",
+     "qty": 1,
+     "harga": 102000,
+     "total": 102000,
+     "promo": false,
+     "paper_bag_gratis": false
+    },
+    {
+     "produk": "Mini Box isi 8",
+     "rasa": "Vanilla",
+     "qty": 2,
+     "harga": 68000,
+     "total": 136000,
+     "promo": false,
+     "paper_bag_gratis": false
+    }
+   ],
+   "subtotal": 497000,
+   "diskon": 10000,
+   "total": 487000,
+   "payments": [
+    {
+     "metode": "QRIS",
+     "struk": 2,
+     "total": 245000
+    },
+    {
+     "metode": "Tunai",
+     "struk": 2,
+     "total": 242000
+    }
+   ],
+   "split_count": 0,
+   "promos": [
+    {
+     "by": null,
+     "kind": "voucher",
+     "items": 1,
+     "label": "Voucher member",
+     "orders": 1,
+     "discount": 10000
+    }
+   ],
+   "other": {
+    "modal": 200000,
+    "uang_diterima": 270000,
+    "kembalian": 28000,
+    "kas_masuk": 5000,
+    "kas_keluar": 15000,
+    "setor": 0,
+    "seharusnya": 432000,
+    "dihitung": 400000,
+    "selisih": -32000,
+    "catatan": "Tutup",
+    "batal_count": 1,
+    "batal_amount": 120000,
+    "refund_count": 0,
+    "refund_amount": 0
+   },
+   "moves": [
+    {
+     "at": "2026-11-13T16:22:22.04+00:00",
+     "by": "Ranny",
+     "kind": "keluar",
+     "time": "23.22",
+     "amount": 15000,
+     "reason": "Beli es batu"
+    },
+    {
+     "at": "2026-11-13T16:22:22.042+00:00",
+     "by": "Ranny",
+     "kind": "masuk",
+     "time": "23.22",
+     "amount": 5000,
+     "reason": "Tambah uang kecil"
+    }
+   ]
+  },
+  "kas_gerak": {
+   "report": "kas_gerak",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": 1,
+     "at": "2026-11-13T16:22:22.04+00:00",
+     "waktu": "2026-11-13 23:22:22",
+     "jenis": "Kas keluar",
+     "masuk": 0,
+     "keluar": 15000,
+     "alasan": "Beli es batu",
+     "oleh": "Ranny",
+     "shift": 1
+    },
+    {
+     "id": 2,
+     "at": "2026-11-13T16:22:22.042+00:00",
+     "waktu": "2026-11-13 23:22:22",
+     "jenis": "Kas masuk",
+     "masuk": 5000,
+     "keluar": 0,
+     "alasan": "Tambah uang kecil",
+     "oleh": "Ranny",
+     "shift": 1
+    }
+   ]
+  },
+  "diskon": {
+   "report": "diskon",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": "3b5377c3-e0f0-4c2f-93e7-4421cb304b32",
+     "at": "2026-11-13T16:22:21.986+00:00",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0002",
+     "pelanggan": "Desi Ayu",
+     "promo": "Diskon 50% untuk 1 produk",
+     "subtotal": 119000,
+     "diskon": 10000,
+     "total": 109000
+    }
+   ]
+  },
+  "hpp": {
+   "report": "hpp",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "produk": "Mini Box isi 15",
+     "qty": 2,
+     "hpp": 65930,
+     "per_satuan": 32965,
+     "catatan": ""
+    },
+    {
+     "produk": "Mini Box isi 8",
+     "qty": 2,
+     "hpp": 35716,
+     "per_satuan": 17858,
+     "catatan": ""
+    },
+    {
+     "produk": "Signature Box isi 6",
+     "qty": 1,
+     "hpp": 32440,
+     "per_satuan": 32440,
+     "catatan": ""
+    },
+    {
+     "produk": "Signature 1 pcs",
+     "qty": 2,
+     "hpp": 11330,
+     "per_satuan": 5665,
+     "catatan": ""
+    }
+   ]
+  },
+  "hpp:{\"group\":\"bahan\"}": {
+   "report": "hpp",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "barang": "Vla Vanilla",
+     "satuan": "g",
+     "qty": 710,
+     "harga_pokok": 85,
+     "hpp": 60350
+    },
+    {
+     "barang": "Mini Choux",
+     "satuan": "pcs",
+     "qty": 46,
+     "harga_pokok": 726,
+     "hpp": 33396
+    },
+    {
+     "barang": "Vla Matcha",
+     "satuan": "g",
+     "qty": 225,
+     "harga_pokok": 85,
+     "hpp": 19125
+    },
+    {
+     "barang": "Signature Choux",
+     "satuan": "pcs",
+     "qty": 8,
+     "harga_pokok": 1940,
+     "hpp": 15520
+    },
+    {
+     "barang": "Dus besar",
+     "satuan": "pcs",
+     "qty": 3,
+     "harga_pokok": 2650,
+     "hpp": 7950
+    },
+    {
+     "barang": "Dus kecil",
+     "satuan": "pcs",
+     "qty": 2,
+     "harga_pokok": 1700,
+     "hpp": 3400
+    },
+    {
+     "barang": "Vla Chocolate",
+     "satuan": "g",
+     "qty": 35,
+     "harga_pokok": 85,
+     "hpp": 2975
+    },
+    {
+     "barang": "Paper pouch (untuk 1 pcs)",
+     "satuan": "pcs",
+     "qty": 2,
+     "harga_pokok": 750,
+     "hpp": 1500
+    },
+    {
+     "barang": "Paper liner besar",
+     "satuan": "pcs",
+     "qty": 3,
+     "harga_pokok": 300,
+     "hpp": 900
+    },
+    {
+     "barang": "Paper liner kecil",
+     "satuan": "pcs",
+     "qty": 2,
+     "harga_pokok": 150,
+     "hpp": 300
+    }
+   ]
+  },
+  "komisi": {
+   "report": "komisi",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": "6da12528-703a-473d-93a4-a26e455e1c34",
+     "staf": "Ranny Putri",
+     "struk": 2,
+     "penjualan": 258000,
+     "komisi": 2580
+    },
+    {
+     "id": "1d234538-46b3-4b81-9937-6ef91c95963c",
+     "staf": "Fajar",
+     "struk": 2,
+     "penjualan": 229000,
+     "komisi": 2290
+    }
+   ]
+  },
+  "komisi_proses": {
+   "report": "komisi_proses",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": 1,
+     "dari": "2026-11-12",
+     "sampai": "2026-11-13",
+     "staf": "Ranny Putri",
+     "struk": 2,
+     "penjualan": 258000,
+     "komisi": 2580,
+     "status": "Diproses",
+     "diproses": "2026-11-13 23:22:22",
+     "dibayar": "",
+     "catatan": "Komisi minggu ini"
+    }
+   ]
+  },
+  "voucher": {
+   "report": "voucher",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": 1,
+     "at": "2026-11-13T16:22:21.986+00:00",
+     "waktu": "2026-11-13 23:22:21",
+     "member": "Desi Ayu",
+     "jenis": "Diskon member baru",
+     "hadiah": "Diskon 50% untuk 1 produk",
+     "struk": "HS-261113-0002",
+     "diskon": 10000,
+     "kasir": "Fajar",
+     "dari": "Kasir baru"
+    }
+   ]
+  },
+  "transaksi_pelanggan": {
+   "report": "transaksi_pelanggan",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": "3b5377c3-e0f0-4c2f-93e7-4421cb304b32",
+     "at": "2026-11-13T16:22:21.986+00:00",
+     "waktu": "2026-11-13 23:22:21",
+     "struk": "HS-261113-0002",
+     "member": "Desi Ayu",
+     "whatsapp": "6281555555555",
+     "barang": "1x Mini Box isi 15 Vanilla, 1x Signature 1 pcs Choco",
+     "promo": "Diskon 50% untuk 1 produk",
+     "total": 109000,
+     "stempel": 2,
+     "status": "Selesai"
+    },
+    {
+     "id": "f25f1cab-83ad-49ac-ad91-e85a9c1e2263",
+     "at": "2026-11-13T16:22:22.029+00:00",
+     "waktu": "2026-11-13 23:22:22",
+     "struk": "HS-261113-0005",
+     "member": "Budi Satu",
+     "whatsapp": "6281666666661",
+     "barang": "2x Mini Box isi 8 Vanilla",
+     "promo": "",
+     "total": 136000,
+     "stempel": 2,
+     "status": "Selesai"
+    }
+   ]
+  },
+  "stok_kartu": {
+   "report": "stok_kartu",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": 1,
+     "barang": "Mini Choux",
+     "satuan": "pcs",
+     "sort": 1,
+     "awal": 0,
+     "masuk": 200,
+     "penjualan": 46,
+     "keluar_lain": 0,
+     "potong_liner": 0,
+     "penyesuaian": 16,
+     "akhir": 170,
+     "hpp": 726,
+     "nilai": 123420
+    },
+    {
+     "id": 2,
+     "barang": "Signature Choux",
+     "satuan": "pcs",
+     "sort": 2,
+     "awal": 0,
+     "masuk": 60,
+     "penjualan": 8,
+     "keluar_lain": 0,
+     "potong_liner": 0,
+     "penyesuaian": 0,
+     "akhir": 52,
+     "hpp": 1940,
+     "nilai": 100880
+    },
+    {
+     "id": 3,
+     "barang": "Vla Vanilla",
+     "satuan": "g",
+     "sort": 3,
+     "awal": 0,
+     "masuk": 5000,
+     "penjualan": 710,
+     "keluar_lain": 0,
+     "potong_liner": 0,
+     "penyesuaian": 0,
+     "akhir": 4290,
+     "hpp": 85,
+     "nilai": 364650
+    },
+    {
+     "id": 4,
+     "barang": "Vla Chocolate",
+     "satuan": "g",
+     "sort": 4,
+     "awal": 0,
+     "masuk": 5000,
+     "penjualan": 35,
+     "keluar_lain": 0,
+     "potong_liner": 0,
+     "penyesuaian": 0,
+     "akhir": 4965,
+     "hpp": 85,
+     "nilai": 422025
+    },
+    {
+     "id": 6,
+     "barang": "Vla Matcha",
+     "satuan": "g",
+     "sort": 6,
+     "awal": 0,
+     "masuk": 5000,
+     "penjualan": 225,
+     "keluar_lain": 0,
+     "potong_liner": 0,
+     "penyesuaian": 0,
+     "akhir": 4775,
+     "hpp": 85,
+     "nilai": 405875
+    },
+    {
+     "id": 7,
+     "barang": "Dus besar",
+     "satuan": "pcs",
+     "sort": 7,
+     "awal": 0,
+     "masuk": 58,
+     "penjualan": 3,
+     "keluar_lain": 2,
+     "potong_liner": 0,
+     "penyesuaian": -3,
+     "akhir": 50,
+     "hpp": 2650,
+     "nilai": 132500
+    },
+    {
+     "id": 8,
+     "barang": "Dus kecil",
+     "satuan": "pcs",
+     "sort": 8,
+     "awal": 0,
+     "masuk": 40,
+     "penjualan": 2,
+     "keluar_lain": 0,
+     "potong_liner": 0,
+     "penyesuaian": 0,
+     "akhir": 38,
+     "hpp": 1700,
+     "nilai": 64600
+    },
+    {
+     "id": 9,
+     "barang": "Paper bag",
+     "satuan": "pcs",
+     "sort": 9,
+     "awal": 0,
+     "masuk": 40,
+     "penjualan": 0,
+     "keluar_lain": 0,
+     "potong_liner": 0,
+     "penyesuaian": 0,
+     "akhir": 40,
+     "hpp": 6000,
+     "nilai": 240000
+    },
+    {
+     "id": 10,
+     "barang": "Paper liner besar",
+     "satuan": "pcs",
+     "sort": 10,
+     "awal": 0,
+     "masuk": 40,
+     "penjualan": 3,
+     "keluar_lain": 0,
+     "potong_liner": 0,
+     "penyesuaian": 0,
+     "akhir": 37,
+     "hpp": 300,
+     "nilai": 11100
+    },
+    {
+     "id": 11,
+     "barang": "Paper liner kecil",
+     "satuan": "pcs",
+     "sort": 11,
+     "awal": 0,
+     "masuk": 40,
+     "penjualan": 2,
+     "keluar_lain": 0,
+     "potong_liner": 0,
+     "penyesuaian": 0,
+     "akhir": 38,
+     "hpp": 150,
+     "nilai": 5700
+    },
+    {
+     "id": 12,
+     "barang": "Paper pouch (untuk 1 pcs)",
+     "satuan": "pcs",
+     "sort": 12,
+     "awal": 0,
+     "masuk": 40,
+     "penjualan": 2,
+     "keluar_lain": 0,
+     "potong_liner": 0,
+     "penyesuaian": 0,
+     "akhir": 38,
+     "hpp": 750,
+     "nilai": 28500
+    }
+   ]
+  },
+  "stok_terkini": {
+   "report": "stok_terkini",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": 1,
+     "barang": "Mini Choux",
+     "satuan": "pcs",
+     "sort": 1,
+     "stok": 170,
+     "minimum": null,
+     "hpp": 726,
+     "nilai": 123420,
+     "keadaan": "Cukup"
+    },
+    {
+     "id": 2,
+     "barang": "Signature Choux",
+     "satuan": "pcs",
+     "sort": 2,
+     "stok": 52,
+     "minimum": null,
+     "hpp": 1940,
+     "nilai": 100880,
+     "keadaan": "Cukup"
+    },
+    {
+     "id": 3,
+     "barang": "Vla Vanilla",
+     "satuan": "g",
+     "sort": 3,
+     "stok": 4290,
+     "minimum": 1000,
+     "hpp": 85,
+     "nilai": 364650,
+     "keadaan": "Cukup"
+    },
+    {
+     "id": 4,
+     "barang": "Vla Chocolate",
+     "satuan": "g",
+     "sort": 4,
+     "stok": 4965,
+     "minimum": 1000,
+     "hpp": 85,
+     "nilai": 422025,
+     "keadaan": "Cukup"
+    },
+    {
+     "id": 5,
+     "barang": "Selai strawberry",
+     "satuan": "g",
+     "sort": 5,
+     "stok": 0,
+     "minimum": 200,
+     "hpp": 0,
+     "nilai": 0,
+     "keadaan": "Di bawah minimum"
+    },
+    {
+     "id": 6,
+     "barang": "Vla Matcha",
+     "satuan": "g",
+     "sort": 6,
+     "stok": 4775,
+     "minimum": 1000,
+     "hpp": 85,
+     "nilai": 405875,
+     "keadaan": "Cukup"
+    },
+    {
+     "id": 7,
+     "barang": "Dus besar",
+     "satuan": "pcs",
+     "sort": 7,
+     "stok": 50,
+     "minimum": 20,
+     "hpp": 2650,
+     "nilai": 132500,
+     "keadaan": "Cukup"
+    },
+    {
+     "id": 8,
+     "barang": "Dus kecil",
+     "satuan": "pcs",
+     "sort": 8,
+     "stok": 38,
+     "minimum": 20,
+     "hpp": 1700,
+     "nilai": 64600,
+     "keadaan": "Cukup"
+    },
+    {
+     "id": 9,
+     "barang": "Paper bag",
+     "satuan": "pcs",
+     "sort": 9,
+     "stok": 40,
+     "minimum": 20,
+     "hpp": 6000,
+     "nilai": 240000,
+     "keadaan": "Cukup"
+    },
+    {
+     "id": 10,
+     "barang": "Paper liner besar",
+     "satuan": "pcs",
+     "sort": 10,
+     "stok": 37,
+     "minimum": 20,
+     "hpp": 300,
+     "nilai": 11100,
+     "keadaan": "Cukup"
+    },
+    {
+     "id": 11,
+     "barang": "Paper liner kecil",
+     "satuan": "pcs",
+     "sort": 11,
+     "stok": 38,
+     "minimum": 20,
+     "hpp": 150,
+     "nilai": 5700,
+     "keadaan": "Cukup"
+    },
+    {
+     "id": 12,
+     "barang": "Paper pouch (untuk 1 pcs)",
+     "satuan": "pcs",
+     "sort": 12,
+     "stok": 38,
+     "minimum": 100,
+     "hpp": 750,
+     "nilai": 28500,
+     "keadaan": "Di bawah minimum"
+    }
+   ]
+  },
+  "stok_minimum": {
+   "report": "stok_minimum",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": 5,
+     "barang": "Selai strawberry",
+     "satuan": "g",
+     "stok": 0,
+     "minimum": 200,
+     "kurang": 200
+    },
+    {
+     "id": 12,
+     "barang": "Paper pouch (untuk 1 pcs)",
+     "satuan": "pcs",
+     "stok": 38,
+     "minimum": 100,
+     "kurang": 62
+    }
+   ]
+  },
+  "stok_riwayat:{\"item\":\"1\"}": {
+   "report": "stok_riwayat",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": 2,
+     "at": "2026-11-13T16:22:21.906+00:00",
+     "tanggal": "2026-11-13",
+     "barang": "Mini Choux",
+     "satuan": "pcs",
+     "jenis": "Barang masuk",
+     "dokumen": "Barang masuk #2",
+     "masuk": 200,
+     "keluar": 0,
+     "saldo": 200,
+     "oleh": "Glenn"
+    },
+    {
+     "id": 21,
+     "at": "2026-11-13T16:22:21.957+00:00",
+     "tanggal": "2026-11-13",
+     "barang": "Mini Choux",
+     "satuan": "pcs",
+     "jenis": "Penjualan",
+     "dokumen": "HS-261113-0001",
+     "masuk": 0,
+     "keluar": 15,
+     "saldo": 185,
+     "oleh": "Ranny"
+    },
+    {
+     "id": 28,
+     "at": "2026-11-13T16:22:21.986+00:00",
+     "tanggal": "2026-11-13",
+     "barang": "Mini Choux",
+     "satuan": "pcs",
+     "jenis": "Penjualan",
+     "dokumen": "HS-261113-0002",
+     "masuk": 0,
+     "keluar": 15,
+     "saldo": 170,
+     "oleh": "Ranny"
+    },
+    {
+     "id": 39,
+     "at": "2026-11-13T16:22:22.029+00:00",
+     "tanggal": "2026-11-13",
+     "barang": "Mini Choux",
+     "satuan": "pcs",
+     "jenis": "Penjualan",
+     "dokumen": "HS-261113-0005",
+     "masuk": 0,
+     "keluar": 16,
+     "saldo": 154,
+     "oleh": "Ranny"
+    },
+    {
+     "id": 46,
+     "at": "2026-11-13T16:22:22.059+00:00",
+     "tanggal": "2026-11-13",
+     "barang": "Mini Choux",
+     "satuan": "pcs",
+     "jenis": "Koreksi",
+     "dokumen": "Stok opname #1",
+     "masuk": 16,
+     "keluar": 0,
+     "saldo": 170,
+     "oleh": "Glenn"
+    }
+   ]
+  },
+  "stok_opname": {
+   "report": "stok_opname",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "count_id": 1,
+     "tanggal": "2026-11-13",
+     "status": "Diterima",
+     "jenis": "Biasa",
+     "barang": "Mini Choux",
+     "satuan": "pcs",
+     "sort": 1,
+     "sistem": 154,
+     "dihitung": 170,
+     "selisih": 16,
+     "dibuang": 0,
+     "nilai_selisih": 11616,
+     "oleh": "Ranny"
+    },
+    {
+     "count_id": 1,
+     "tanggal": "2026-11-13",
+     "status": "Diterima",
+     "jenis": "Biasa",
+     "barang": "Dus besar",
+     "satuan": "pcs",
+     "sort": 7,
+     "sistem": 52,
+     "dihitung": 49,
+     "selisih": -3,
+     "dibuang": 0,
+     "nilai_selisih": -7950,
+     "oleh": "Ranny"
+    }
+   ]
+  },
+  "beli_rinci": {
+   "report": "beli_rinci",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": 13,
+     "tanggal": "2026-11-13",
+     "barang": "Dus besar",
+     "jumlah": 8,
+     "satuan": "pcs",
+     "pemasok": "Toko Sejati",
+     "po": "PB-261113-01",
+     "surat_jalan": "SJ-01",
+     "harga_satuan": 2650,
+     "total": 21200,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    },
+    {
+     "id": 11,
+     "tanggal": "2026-11-13",
+     "barang": "Paper bag",
+     "jumlah": 40,
+     "satuan": "pcs",
+     "pemasok": "Tanpa pemasok",
+     "po": "",
+     "surat_jalan": "",
+     "harga_satuan": null,
+     "total": null,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    },
+    {
+     "id": 10,
+     "tanggal": "2026-11-13",
+     "barang": "Paper pouch (untuk 1 pcs)",
+     "jumlah": 40,
+     "satuan": "pcs",
+     "pemasok": "Tanpa pemasok",
+     "po": "",
+     "surat_jalan": "",
+     "harga_satuan": null,
+     "total": null,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    },
+    {
+     "id": 9,
+     "tanggal": "2026-11-13",
+     "barang": "Paper liner kecil",
+     "jumlah": 40,
+     "satuan": "pcs",
+     "pemasok": "Tanpa pemasok",
+     "po": "",
+     "surat_jalan": "",
+     "harga_satuan": null,
+     "total": null,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    },
+    {
+     "id": 8,
+     "tanggal": "2026-11-13",
+     "barang": "Paper liner besar",
+     "jumlah": 40,
+     "satuan": "pcs",
+     "pemasok": "Tanpa pemasok",
+     "po": "",
+     "surat_jalan": "",
+     "harga_satuan": null,
+     "total": null,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    },
+    {
+     "id": 7,
+     "tanggal": "2026-11-13",
+     "barang": "Dus kecil",
+     "jumlah": 40,
+     "satuan": "pcs",
+     "pemasok": "Tanpa pemasok",
+     "po": "",
+     "surat_jalan": "",
+     "harga_satuan": null,
+     "total": null,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    },
+    {
+     "id": 6,
+     "tanggal": "2026-11-13",
+     "barang": "Vla Matcha",
+     "jumlah": 5000,
+     "satuan": "g",
+     "pemasok": "Tanpa pemasok",
+     "po": "",
+     "surat_jalan": "",
+     "harga_satuan": null,
+     "total": null,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    },
+    {
+     "id": 5,
+     "tanggal": "2026-11-13",
+     "barang": "Vla Chocolate",
+     "jumlah": 5000,
+     "satuan": "g",
+     "pemasok": "Tanpa pemasok",
+     "po": "",
+     "surat_jalan": "",
+     "harga_satuan": null,
+     "total": null,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    },
+    {
+     "id": 4,
+     "tanggal": "2026-11-13",
+     "barang": "Vla Vanilla",
+     "jumlah": 5000,
+     "satuan": "g",
+     "pemasok": "Tanpa pemasok",
+     "po": "",
+     "surat_jalan": "",
+     "harga_satuan": null,
+     "total": null,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    },
+    {
+     "id": 3,
+     "tanggal": "2026-11-13",
+     "barang": "Signature Choux",
+     "jumlah": 60,
+     "satuan": "pcs",
+     "pemasok": "Tanpa pemasok",
+     "po": "",
+     "surat_jalan": "",
+     "harga_satuan": 1940,
+     "total": 116400,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    },
+    {
+     "id": 2,
+     "tanggal": "2026-11-13",
+     "barang": "Mini Choux",
+     "jumlah": 200,
+     "satuan": "pcs",
+     "pemasok": "Tanpa pemasok",
+     "po": "",
+     "surat_jalan": "",
+     "harga_satuan": 726,
+     "total": 145200,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    },
+    {
+     "id": 1,
+     "tanggal": "2026-11-13",
+     "barang": "Dus besar",
+     "jumlah": 50,
+     "satuan": "pcs",
+     "pemasok": "Toko Sejati",
+     "po": "",
+     "surat_jalan": "",
+     "harga_satuan": 2650,
+     "total": 132500,
+     "status": "Aktif",
+     "penerima": "Glenn"
+    }
+   ]
+  },
+  "beli_pemasok": {
+   "report": "beli_pemasok",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "pemasok": "Tanpa pemasok",
+     "kiriman": 10,
+     "jenis_barang": 10,
+     "tanpa_harga": 8,
+     "total": 261600
+    },
+    {
+     "pemasok": "Toko Sejati",
+     "kiriman": 2,
+     "jenis_barang": 1,
+     "tanpa_harga": 0,
+     "total": 153700
+    }
+   ]
+  },
+  "beli_barang": {
+   "report": "beli_barang",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "barang": "Dus besar",
+     "satuan": "pcs",
+     "jumlah": 58,
+     "kiriman": 2,
+     "total": 153700,
+     "rata_rata": 2650,
+     "termurah": 2650,
+     "termahal": 2650
+    },
+    {
+     "barang": "Mini Choux",
+     "satuan": "pcs",
+     "jumlah": 200,
+     "kiriman": 1,
+     "total": 145200,
+     "rata_rata": 726,
+     "termurah": 726,
+     "termahal": 726
+    },
+    {
+     "barang": "Signature Choux",
+     "satuan": "pcs",
+     "jumlah": 60,
+     "kiriman": 1,
+     "total": 116400,
+     "rata_rata": 1940,
+     "termurah": 1940,
+     "termahal": 1940
+    },
+    {
+     "barang": "Dus kecil",
+     "satuan": "pcs",
+     "jumlah": 40,
+     "kiriman": 1,
+     "total": null,
+     "rata_rata": null,
+     "termurah": null,
+     "termahal": null
+    },
+    {
+     "barang": "Paper bag",
+     "satuan": "pcs",
+     "jumlah": 40,
+     "kiriman": 1,
+     "total": null,
+     "rata_rata": null,
+     "termurah": null,
+     "termahal": null
+    },
+    {
+     "barang": "Paper liner besar",
+     "satuan": "pcs",
+     "jumlah": 40,
+     "kiriman": 1,
+     "total": null,
+     "rata_rata": null,
+     "termurah": null,
+     "termahal": null
+    },
+    {
+     "barang": "Paper liner kecil",
+     "satuan": "pcs",
+     "jumlah": 40,
+     "kiriman": 1,
+     "total": null,
+     "rata_rata": null,
+     "termurah": null,
+     "termahal": null
+    },
+    {
+     "barang": "Paper pouch (untuk 1 pcs)",
+     "satuan": "pcs",
+     "jumlah": 40,
+     "kiriman": 1,
+     "total": null,
+     "rata_rata": null,
+     "termurah": null,
+     "termahal": null
+    },
+    {
+     "barang": "Vla Chocolate",
+     "satuan": "g",
+     "jumlah": 5000,
+     "kiriman": 1,
+     "total": null,
+     "rata_rata": null,
+     "termurah": null,
+     "termahal": null
+    },
+    {
+     "barang": "Vla Matcha",
+     "satuan": "g",
+     "jumlah": 5000,
+     "kiriman": 1,
+     "total": null,
+     "rata_rata": null,
+     "termurah": null,
+     "termahal": null
+    },
+    {
+     "barang": "Vla Vanilla",
+     "satuan": "g",
+     "jumlah": 5000,
+     "kiriman": 1,
+     "total": null,
+     "rata_rata": null,
+     "termurah": null,
+     "termahal": null
+    }
+   ]
+  },
+  "beli_po": {
+   "report": "beli_po",
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "no": "PB-261113-01",
+     "tanggal": "2026-11-13",
+     "dibutuhkan": null,
+     "pemasok": "Toko Sejati",
+     "status": "Diterima sebagian",
+     "barang": "Dus besar",
+     "satuan": "pcs",
+     "dipesan": 20,
+     "diterima": 8,
+     "sisa": 12,
+     "harga_perkiraan": 2650,
+     "nilai_sisa": 31800
+    },
+    {
+     "no": "PB-261113-01",
+     "tanggal": "2026-11-13",
+     "dibutuhkan": null,
+     "pemasok": "Toko Sejati",
+     "status": "Diterima sebagian",
+     "barang": "Paper pouch (untuk 1 pcs)",
+     "satuan": "pcs",
+     "dipesan": 50,
+     "diterima": 0,
+     "sisa": 50,
+     "harga_perkiraan": null,
+     "nilai_sisa": null
+    }
+   ]
+  },
+  "acc_balance_monthly": {
+   "from": "2026-11-01",
+   "to": "2026-11-30",
+   "months": [
+    {
+     "key": "2026-11",
+     "label": "November 2026",
+     "end": "2026-11-30"
+    }
+   ],
+   "rows": [
+    {
+     "id": 1,
+     "code": "1-1100",
+     "name": "Kas laci",
+     "type": "aset",
+     "opening": 0,
+     "months": [
+      {
+       "debit": 367000,
+       "credit": 167000,
+       "saldo": 200000
+      }
+     ]
+    },
+    {
+     "id": 2,
+     "code": "1-1200",
+     "name": "Kas QRIS (GoPay Merchant)",
+     "type": "aset",
+     "opening": 0,
+     "months": [
+      {
+       "debit": 365000,
+       "credit": 120000,
+       "saldo": 245000
+      }
+     ]
+    },
+    {
+     "id": 5,
+     "code": "1-1500",
+     "name": "Persediaan bahan (choux, vla, kemasan)",
+     "type": "aset",
+     "opening": 0,
+     "months": [
+      {
+       "debit": 480180,
+       "credit": 215596,
+       "saldo": 264584
+      }
+     ]
+    },
+    {
+     "id": 6,
+     "code": "2-1100",
+     "name": "Hutang usaha (pemasok)",
+     "type": "kewajiban",
+     "opening": 0,
+     "months": [
+      {
+       "debit": 0,
+       "credit": 415300,
+       "saldo": 415300
+      }
+     ]
+    },
+    {
+     "id": 7,
+     "code": "2-1200",
+     "name": "Hutang komisi",
+     "type": "kewajiban",
+     "opening": 0,
+     "months": [
+      {
+       "debit": 0,
+       "credit": 2580,
+       "saldo": 2580
+      }
+     ]
+    },
+    {
+     "id": 9,
+     "code": "3-1100",
+     "name": "Modal pemilik",
+     "type": "ekuitas",
+     "opening": 0,
+     "months": [
+      {
+       "debit": 0,
+       "credit": 5000,
+       "saldo": 5000
+      }
+     ]
+    }
+   ],
+   "profit": [
+    {
+     "saldo": 286704,
+     "month": 286704
+    }
+   ],
+   "totals": [
+    {
+     "aset": 709584,
+     "kewajiban": 417880,
+     "ekuitas": 291704,
+     "balanced": true
+    }
+   ]
+  },
+  "acc_journal_lines": {
+   "from": "2026-11-12",
+   "to": "2026-11-13",
+   "rows": [
+    {
+     "id": 44,
+     "journal_id": 15,
+     "tanggal": "2026-11-12",
+     "no": "JU-261112-01",
+     "keterangan": "Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 1,
+     "kode": "1-1100",
+     "akun": "Kas laci",
+     "jenis": "aset",
+     "debit": 120000,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 45,
+     "journal_id": 15,
+     "tanggal": "2026-11-12",
+     "no": "JU-261112-01",
+     "keterangan": "Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 11,
+     "kode": "4-1100",
+     "akun": "Pendapatan penjualan booth",
+     "jenis": "pendapatan",
+     "debit": 0,
+     "kredit": 120000,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 46,
+     "journal_id": 15,
+     "tanggal": "2026-11-12",
+     "no": "JU-261112-01",
+     "keterangan": "Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 15,
+     "kode": "5-1100",
+     "akun": "Harga pokok penjualan (HPP)",
+     "jenis": "beban",
+     "debit": 32440,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 47,
+     "journal_id": 15,
+     "tanggal": "2026-11-12",
+     "no": "JU-261112-01",
+     "keterangan": "Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 0,
+     "kredit": 32440,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 1,
+     "journal_id": 1,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-01",
+     "keterangan": "Penjualan HS-261113-0001",
+     "sumber": "penjualan",
+     "referensi": "f21f6b41-c174-4aee-8b34-ba72a228264d",
+     "account_id": 1,
+     "kode": "1-1100",
+     "akun": "Kas laci",
+     "jenis": "aset",
+     "debit": 122000,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 2,
+     "journal_id": 1,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-01",
+     "keterangan": "Penjualan HS-261113-0001",
+     "sumber": "penjualan",
+     "referensi": "f21f6b41-c174-4aee-8b34-ba72a228264d",
+     "account_id": 11,
+     "kode": "4-1100",
+     "akun": "Pendapatan penjualan booth",
+     "jenis": "pendapatan",
+     "debit": 0,
+     "kredit": 122000,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 3,
+     "journal_id": 1,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-01",
+     "keterangan": "Penjualan HS-261113-0001",
+     "sumber": "penjualan",
+     "referensi": "f21f6b41-c174-4aee-8b34-ba72a228264d",
+     "account_id": 15,
+     "kode": "5-1100",
+     "akun": "Harga pokok penjualan (HPP)",
+     "jenis": "beban",
+     "debit": 38630,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 4,
+     "journal_id": 1,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-01",
+     "keterangan": "Penjualan HS-261113-0001",
+     "sumber": "penjualan",
+     "referensi": "f21f6b41-c174-4aee-8b34-ba72a228264d",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 0,
+     "kredit": 38630,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 5,
+     "journal_id": 2,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-02",
+     "keterangan": "Barang masuk Dus besar dari Toko Sejati",
+     "sumber": "pembelian",
+     "referensi": "1",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 132500,
+     "kredit": 0,
+     "memo": "Dus besar",
+     "status": ""
+    },
+    {
+     "id": 6,
+     "journal_id": 2,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-02",
+     "keterangan": "Barang masuk Dus besar dari Toko Sejati",
+     "sumber": "pembelian",
+     "referensi": "1",
+     "account_id": 6,
+     "kode": "2-1100",
+     "akun": "Hutang usaha (pemasok)",
+     "jenis": "kewajiban",
+     "debit": 0,
+     "kredit": 132500,
+     "memo": "Toko Sejati",
+     "status": ""
+    },
+    {
+     "id": 7,
+     "journal_id": 3,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-03",
+     "keterangan": "Barang masuk Mini Choux",
+     "sumber": "pembelian",
+     "referensi": "2",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 145200,
+     "kredit": 0,
+     "memo": "Mini Choux",
+     "status": ""
+    },
+    {
+     "id": 8,
+     "journal_id": 3,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-03",
+     "keterangan": "Barang masuk Mini Choux",
+     "sumber": "pembelian",
+     "referensi": "2",
+     "account_id": 6,
+     "kode": "2-1100",
+     "akun": "Hutang usaha (pemasok)",
+     "jenis": "kewajiban",
+     "debit": 0,
+     "kredit": 145200,
+     "memo": "Pemasok",
+     "status": ""
+    },
+    {
+     "id": 9,
+     "journal_id": 4,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-04",
+     "keterangan": "Barang masuk Signature Choux",
+     "sumber": "pembelian",
+     "referensi": "3",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 116400,
+     "kredit": 0,
+     "memo": "Signature Choux",
+     "status": ""
+    },
+    {
+     "id": 10,
+     "journal_id": 4,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-04",
+     "keterangan": "Barang masuk Signature Choux",
+     "sumber": "pembelian",
+     "referensi": "3",
+     "account_id": 6,
+     "kode": "2-1100",
+     "akun": "Hutang usaha (pemasok)",
+     "jenis": "kewajiban",
+     "debit": 0,
+     "kredit": 116400,
+     "memo": "Pemasok",
+     "status": ""
+    },
+    {
+     "id": 11,
+     "journal_id": 5,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-05",
+     "keterangan": "Barang masuk Dus besar dari Toko Sejati",
+     "sumber": "pembelian",
+     "referensi": "13",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 21200,
+     "kredit": 0,
+     "memo": "Dus besar",
+     "status": ""
+    },
+    {
+     "id": 12,
+     "journal_id": 5,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-05",
+     "keterangan": "Barang masuk Dus besar dari Toko Sejati",
+     "sumber": "pembelian",
+     "referensi": "13",
+     "account_id": 6,
+     "kode": "2-1100",
+     "akun": "Hutang usaha (pemasok)",
+     "jenis": "kewajiban",
+     "debit": 0,
+     "kredit": 21200,
+     "memo": "Toko Sejati",
+     "status": ""
+    },
+    {
+     "id": 13,
+     "journal_id": 6,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-06",
+     "keterangan": "Penjualan HS-261113-0002",
+     "sumber": "penjualan",
+     "referensi": "3b5377c3-e0f0-4c2f-93e7-4421cb304b32",
+     "account_id": 2,
+     "kode": "1-1200",
+     "akun": "Kas QRIS (GoPay Merchant)",
+     "jenis": "aset",
+     "debit": 109000,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 14,
+     "journal_id": 6,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-06",
+     "keterangan": "Penjualan HS-261113-0002",
+     "sumber": "penjualan",
+     "referensi": "3b5377c3-e0f0-4c2f-93e7-4421cb304b32",
+     "account_id": 14,
+     "kode": "4-2000",
+     "akun": "Diskon penjualan",
+     "jenis": "pendapatan",
+     "debit": 10000,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 15,
+     "journal_id": 6,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-06",
+     "keterangan": "Penjualan HS-261113-0002",
+     "sumber": "penjualan",
+     "referensi": "3b5377c3-e0f0-4c2f-93e7-4421cb304b32",
+     "account_id": 11,
+     "kode": "4-1100",
+     "akun": "Pendapatan penjualan booth",
+     "jenis": "pendapatan",
+     "debit": 0,
+     "kredit": 119000,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 16,
+     "journal_id": 6,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-06",
+     "keterangan": "Penjualan HS-261113-0002",
+     "sumber": "penjualan",
+     "referensi": "3b5377c3-e0f0-4c2f-93e7-4421cb304b32",
+     "account_id": 15,
+     "kode": "5-1100",
+     "akun": "Harga pokok penjualan (HPP)",
+     "jenis": "beban",
+     "debit": 38630,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 17,
+     "journal_id": 6,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-06",
+     "keterangan": "Penjualan HS-261113-0002",
+     "sumber": "penjualan",
+     "referensi": "3b5377c3-e0f0-4c2f-93e7-4421cb304b32",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 0,
+     "kredit": 38630,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 18,
+     "journal_id": 7,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-07",
+     "keterangan": "Penjualan HS-261113-0003",
+     "sumber": "penjualan",
+     "referensi": "39e5a632-2566-42f1-ad2e-23d8ef130540",
+     "account_id": 2,
+     "kode": "1-1200",
+     "akun": "Kas QRIS (GoPay Merchant)",
+     "jenis": "aset",
+     "debit": 120000,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 19,
+     "journal_id": 7,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-07",
+     "keterangan": "Penjualan HS-261113-0003",
+     "sumber": "penjualan",
+     "referensi": "39e5a632-2566-42f1-ad2e-23d8ef130540",
+     "account_id": 11,
+     "kode": "4-1100",
+     "akun": "Pendapatan penjualan booth",
+     "jenis": "pendapatan",
+     "debit": 0,
+     "kredit": 120000,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 20,
+     "journal_id": 7,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-07",
+     "keterangan": "Penjualan HS-261113-0003",
+     "sumber": "penjualan",
+     "referensi": "39e5a632-2566-42f1-ad2e-23d8ef130540",
+     "account_id": 15,
+     "kode": "5-1100",
+     "akun": "Harga pokok penjualan (HPP)",
+     "jenis": "beban",
+     "debit": 32440,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 21,
+     "journal_id": 7,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-07",
+     "keterangan": "Penjualan HS-261113-0003",
+     "sumber": "penjualan",
+     "referensi": "39e5a632-2566-42f1-ad2e-23d8ef130540",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 0,
+     "kredit": 32440,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 22,
+     "journal_id": 8,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-08",
+     "keterangan": "Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 1,
+     "kode": "1-1100",
+     "akun": "Kas laci",
+     "jenis": "aset",
+     "debit": 120000,
+     "kredit": 0,
+     "memo": "",
+     "status": "Dibatalkan"
+    },
+    {
+     "id": 23,
+     "journal_id": 8,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-08",
+     "keterangan": "Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 11,
+     "kode": "4-1100",
+     "akun": "Pendapatan penjualan booth",
+     "jenis": "pendapatan",
+     "debit": 0,
+     "kredit": 120000,
+     "memo": "",
+     "status": "Dibatalkan"
+    },
+    {
+     "id": 24,
+     "journal_id": 8,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-08",
+     "keterangan": "Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 15,
+     "kode": "5-1100",
+     "akun": "Harga pokok penjualan (HPP)",
+     "jenis": "beban",
+     "debit": 32440,
+     "kredit": 0,
+     "memo": "",
+     "status": "Dibatalkan"
+    },
+    {
+     "id": 25,
+     "journal_id": 8,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-08",
+     "keterangan": "Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 0,
+     "kredit": 32440,
+     "memo": "",
+     "status": "Dibatalkan"
+    },
+    {
+     "id": 26,
+     "journal_id": 9,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-09",
+     "keterangan": "Penjualan HS-261113-0005",
+     "sumber": "penjualan",
+     "referensi": "f25f1cab-83ad-49ac-ad91-e85a9c1e2263",
+     "account_id": 2,
+     "kode": "1-1200",
+     "akun": "Kas QRIS (GoPay Merchant)",
+     "jenis": "aset",
+     "debit": 136000,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 27,
+     "journal_id": 9,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-09",
+     "keterangan": "Penjualan HS-261113-0005",
+     "sumber": "penjualan",
+     "referensi": "f25f1cab-83ad-49ac-ad91-e85a9c1e2263",
+     "account_id": 11,
+     "kode": "4-1100",
+     "akun": "Pendapatan penjualan booth",
+     "jenis": "pendapatan",
+     "debit": 0,
+     "kredit": 136000,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 28,
+     "journal_id": 9,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-09",
+     "keterangan": "Penjualan HS-261113-0005",
+     "sumber": "penjualan",
+     "referensi": "f25f1cab-83ad-49ac-ad91-e85a9c1e2263",
+     "account_id": 15,
+     "kode": "5-1100",
+     "akun": "Harga pokok penjualan (HPP)",
+     "jenis": "beban",
+     "debit": 35716,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 29,
+     "journal_id": 9,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-09",
+     "keterangan": "Penjualan HS-261113-0005",
+     "sumber": "penjualan",
+     "referensi": "f25f1cab-83ad-49ac-ad91-e85a9c1e2263",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 0,
+     "kredit": 35716,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 30,
+     "journal_id": 10,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-10",
+     "keterangan": "Pembatalan HS-261113-0003",
+     "sumber": "batal",
+     "referensi": "39e5a632-2566-42f1-ad2e-23d8ef130540",
+     "account_id": 2,
+     "kode": "1-1200",
+     "akun": "Kas QRIS (GoPay Merchant)",
+     "jenis": "aset",
+     "debit": 0,
+     "kredit": 120000,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 31,
+     "journal_id": 10,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-10",
+     "keterangan": "Pembatalan HS-261113-0003",
+     "sumber": "batal",
+     "referensi": "39e5a632-2566-42f1-ad2e-23d8ef130540",
+     "account_id": 11,
+     "kode": "4-1100",
+     "akun": "Pendapatan penjualan booth",
+     "jenis": "pendapatan",
+     "debit": 120000,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 32,
+     "journal_id": 10,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-10",
+     "keterangan": "Pembatalan HS-261113-0003",
+     "sumber": "batal",
+     "referensi": "39e5a632-2566-42f1-ad2e-23d8ef130540",
+     "account_id": 15,
+     "kode": "5-1100",
+     "akun": "Harga pokok penjualan (HPP)",
+     "jenis": "beban",
+     "debit": 0,
+     "kredit": 32440,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 33,
+     "journal_id": 10,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-10",
+     "keterangan": "Pembatalan HS-261113-0003",
+     "sumber": "batal",
+     "referensi": "39e5a632-2566-42f1-ad2e-23d8ef130540",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 32440,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 34,
+     "journal_id": 11,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-11",
+     "keterangan": "Kas keluar: Beli es batu",
+     "sumber": "kas",
+     "referensi": "gerak:1",
+     "account_id": 25,
+     "kode": "6-9000",
+     "akun": "Beban lain-lain",
+     "jenis": "beban",
+     "debit": 15000,
+     "kredit": 0,
+     "memo": "Beli es batu",
+     "status": ""
+    },
+    {
+     "id": 35,
+     "journal_id": 11,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-11",
+     "keterangan": "Kas keluar: Beli es batu",
+     "sumber": "kas",
+     "referensi": "gerak:1",
+     "account_id": 1,
+     "kode": "1-1100",
+     "akun": "Kas laci",
+     "jenis": "aset",
+     "debit": 0,
+     "kredit": 15000,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 36,
+     "journal_id": 12,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-12",
+     "keterangan": "Kas masuk: Tambah uang kecil",
+     "sumber": "kas",
+     "referensi": "gerak:2",
+     "account_id": 1,
+     "kode": "1-1100",
+     "akun": "Kas laci",
+     "jenis": "aset",
+     "debit": 5000,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 37,
+     "journal_id": 12,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-12",
+     "keterangan": "Kas masuk: Tambah uang kecil",
+     "sumber": "kas",
+     "referensi": "gerak:2",
+     "account_id": 9,
+     "kode": "3-1100",
+     "akun": "Modal pemilik",
+     "jenis": "ekuitas",
+     "debit": 0,
+     "kredit": 5000,
+     "memo": "Tambah uang kecil",
+     "status": ""
+    },
+    {
+     "id": 38,
+     "journal_id": 13,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-13",
+     "keterangan": "Barang rusak (harga pokok)",
+     "sumber": "stok",
+     "referensi": "2026-11-13|rusak",
+     "account_id": 19,
+     "kode": "6-1400",
+     "akun": "Beban barang rusak / dibuang",
+     "jenis": "beban",
+     "debit": 5300,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 39,
+     "journal_id": 13,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-13",
+     "keterangan": "Barang rusak (harga pokok)",
+     "sumber": "stok",
+     "referensi": "2026-11-13|rusak",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 0,
+     "kredit": 5300,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 40,
+     "journal_id": 14,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-14",
+     "keterangan": "Koreksi otomatis: Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 1,
+     "kode": "1-1100",
+     "akun": "Kas laci",
+     "jenis": "aset",
+     "debit": 0,
+     "kredit": 120000,
+     "memo": "",
+     "status": "Pembatalan"
+    },
+    {
+     "id": 41,
+     "journal_id": 14,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-14",
+     "keterangan": "Koreksi otomatis: Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 11,
+     "kode": "4-1100",
+     "akun": "Pendapatan penjualan booth",
+     "jenis": "pendapatan",
+     "debit": 120000,
+     "kredit": 0,
+     "memo": "",
+     "status": "Pembatalan"
+    },
+    {
+     "id": 42,
+     "journal_id": 14,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-14",
+     "keterangan": "Koreksi otomatis: Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 15,
+     "kode": "5-1100",
+     "akun": "Harga pokok penjualan (HPP)",
+     "jenis": "beban",
+     "debit": 0,
+     "kredit": 32440,
+     "memo": "",
+     "status": "Pembatalan"
+    },
+    {
+     "id": 43,
+     "journal_id": 14,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-14",
+     "keterangan": "Koreksi otomatis: Penjualan HS-261113-0004",
+     "sumber": "penjualan",
+     "referensi": "9e2669fc-53d7-462f-ae6f-2e696b557116",
+     "account_id": 5,
+     "kode": "1-1500",
+     "akun": "Persediaan bahan (choux, vla, kemasan)",
+     "jenis": "aset",
+     "debit": 32440,
+     "kredit": 0,
+     "memo": "",
+     "status": "Pembatalan"
+    },
+    {
+     "id": 48,
+     "journal_id": 16,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-15",
+     "keterangan": "Selisih kas shift #1 (kurang)",
+     "sumber": "kas",
+     "referensi": "shift:1",
+     "account_id": 20,
+     "kode": "6-1500",
+     "akun": "Selisih kas",
+     "jenis": "beban",
+     "debit": 32000,
+     "kredit": 0,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 49,
+     "journal_id": 16,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-15",
+     "keterangan": "Selisih kas shift #1 (kurang)",
+     "sumber": "kas",
+     "referensi": "shift:1",
+     "account_id": 1,
+     "kode": "1-1100",
+     "akun": "Kas laci",
+     "jenis": "aset",
+     "debit": 0,
+     "kredit": 32000,
+     "memo": "",
+     "status": ""
+    },
+    {
+     "id": 50,
+     "journal_id": 17,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-16",
+     "keterangan": "Komisi Ranny 12/11 - 13/11/2026",
+     "sumber": "komisi",
+     "referensi": "hitung:1",
+     "account_id": 16,
+     "kode": "6-1100",
+     "akun": "Beban komisi",
+     "jenis": "beban",
+     "debit": 2580,
+     "kredit": 0,
+     "memo": "Ranny",
+     "status": ""
+    },
+    {
+     "id": 51,
+     "journal_id": 17,
+     "tanggal": "2026-11-13",
+     "no": "JU-261113-16",
+     "keterangan": "Komisi Ranny 12/11 - 13/11/2026",
+     "sumber": "komisi",
+     "referensi": "hitung:1",
+     "account_id": 7,
+     "kode": "2-1200",
+     "akun": "Hutang komisi",
+     "jenis": "kewajiban",
+     "debit": 0,
+     "kredit": 2580,
+     "memo": "Ranny",
+     "status": ""
+    }
+   ]
+  }
+ }
+}

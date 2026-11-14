@@ -83,13 +83,15 @@ const R = {
   jual_rinci: { t: 'Penjualan rinci', d: 'Satu baris per struk, termasuk yang dibatalkan, dengan staf, pelanggan, promo dan pembayaran.',
     f: [F.statusJual, F.method, F.channel, F.staff], c: [['waktu', 'Waktu'], ['struk', 'Nomor struk'], ['no_offline', 'No. offline'], ['saluran', 'Saluran'], ['staf', 'Staf'], ['kasir', 'Kasir'],
       ['pelanggan', 'Pelanggan'], ['status', 'Status'], ['metode', 'Metode'], ['referensi', 'Referensi'], ['promo', 'Promo'], ['subtotal', 'Subtotal', 'rp', 1],
-      ['diskon', 'Diskon', 'rp', 1], ['total', 'Total', 'rp', 1], ['refund', 'Refund', 'rp', 1], ['dibayar', 'Dibayar', 'rp', 1], ['kembalian', 'Kembalian', 'rp', 1], ['tanda', 'Tanda']] },
+      ['diskon', 'Diskon', 'rp', 1], ['penjualan', 'Penjualan', 'rp', 1], ['service', 'Service charge', 'rp', 1], ['pbjt', 'PBJT', 'rp', 1], ['pbjt_ket', 'PBJT dalam harga'],
+      ['total', 'Total dibayar', 'rp', 1], ['refund', 'Refund', 'rp', 1], ['dibayar', 'Dibayar', 'rp', 1], ['kembalian', 'Kembalian', 'rp', 1], ['tanda', 'Tanda']] },
   jual_rinci_barang: { t: 'Penjualan rinci per barang', d: 'Satu baris per barang di setiap struk.',
     f: [F.statusJual, F.method, F.channel], c: [['waktu', 'Waktu'], ['struk', 'Nomor struk'], ['status', 'Status'], ['metode', 'Metode'], ['kategori', 'Kategori'], ['produk', 'Produk'],
       ['rasa', 'Rasa'], ['qty', 'Qty', 'n', 1], ['harga', 'Harga', 'rp'], ['kotor', 'Kotor', 'rp', 1], ['diskon', 'Diskon', 'rp', 1], ['bersih', 'Bersih', 'rp', 1], ['catatan', 'Catatan']] },
   jual_harian: { t: 'Penjualan harian', d: 'Per hari: struk, produk terjual, penjualan, batal dan refund yang disetujui hari itu, dan rata-rata per struk.',
     c: [['tanggal', 'Tanggal', 'd'], ['hari', 'Hari'], ['struk', 'Struk', 'n', 1], ['qty', 'Produk terjual', 'n', 1], ['kotor', 'Kotor', 'rp', 1], ['diskon', 'Diskon', 'rp', 1],
-      ['refund', 'Batal dan refund', 'rp', 1], ['bersih', 'Bersih', 'rp', 1], ['rata_rata', 'Rata-rata per struk', 'rp'], ['batal', 'Jumlah batal dan refund', 'n', 1]] },
+      ['refund', 'Batal dan refund', 'rp', 1], ['bersih', 'Bersih', 'rp', 1], ['rata_rata', 'Rata-rata per struk', 'rp'], ['batal', 'Jumlah batal dan refund', 'n', 1],
+      ['service', 'Service charge', 'rp', 1], ['pbjt', 'PBJT', 'rp', 1], ['pbjt_termasuk', 'PBJT termasuk di bersih', 'rp', 1], ['uang_masuk', 'Total uang masuk', 'rp', 1]] },
   jual_jam: { t: 'Penjualan per jam', d: 'Per jam buka booth: struk, produk terjual dan penjualan, untuk melihat jam ramai dan sepi.',
     c: [['jam', 'Jam'], ['struk', 'Struk', 'n', 1], ['qty', 'Produk terjual', 'n', 1], ['bersih', 'Penjualan', 'rp', 1], ['rata_rata', 'Rata-rata per struk', 'rp']] },
   jual_produk: { t: 'Penjualan per produk', d: 'Kuantitas terjual, diskon dan penjualan bersih per produk.',
@@ -127,7 +129,7 @@ const R = {
   kas_rekap: { t: 'Rekapitulasi kas', d: 'Satu baris per shift: struk, produk terjual dan penjualan, laci kas dan selisihnya. Tekan baris atau Lihat untuk rincian setiap transaksi di shift itu.',
     drill: (panel, rpc, row, back) => shiftDetail(panel, rpc, row.id, back),
     c: [['mulai', 'Mulai'], ['berakhir', 'Berakhir'], ['perangkat', 'Perangkat'], ['akun', 'Akun'], ['dilayani', 'Dilayani'],
-      ['struk', 'Struk', 'n', 1], ['produk', 'Produk terjual', 'n', 1], ['penjualan', 'Penjualan', 'rp', 1], ['tunai', 'Tunai', 'rp', 1],
+      ['struk', 'Struk', 'n', 1], ['produk', 'Produk terjual', 'n', 1], ['penjualan', 'Penjualan', 'rp', 1], ['service', 'Service charge', 'rp', 1], ['pbjt', 'PBJT', 'rp', 1], ['tunai', 'Tunai', 'rp', 1],
       ['kas_masuk', 'Kas masuk', 'rp', 1], ['kas_keluar', 'Kas keluar', 'rp', 1], ['setor', 'Setor', 'rp', 1], ['seharusnya', 'Seharusnya', 'rp'], ['dihitung', 'Dihitung', 'rp'],
       ['selisih', 'Selisih', 'rp', 1], ['status', 'Status']] },
   kas_gerak: { t: 'Kas masuk dan keluar', d: 'Setiap uang masuk, keluar dan setor dari laci, dengan alasannya.',
@@ -315,7 +317,7 @@ async function reportView(panel, rpc, key, backHtml, onBack) {
 // transaction of the shift with a Jumlah row. SQL: owner_shift_detail (pos-laporan2.sql).
 const ORDER_COLS = [['waktu', 'Waktu'], ['struk', 'Nomor struk'], ['saluran', 'Saluran'], ['dilayani', 'Dilayani'], ['kasir', 'Akun kasir'], ['pelanggan', 'Pelanggan'],
   ['status', 'Status'], ['metode', 'Metode bayar'], ['catatan', 'Catatan'], ['produk', 'Produk', 'n', 1], ['subtotal', 'Subtotal', 'rp', 1], ['diskon', 'Diskon', 'rp', 1],
-  ['total', 'Total', 'rp', 1], ['dibayar', 'Dibayar', 'rp', 1], ['kembalian', 'Kembalian', 'rp', 1]];
+  ['service', 'Service charge', 'rp', 1], ['pbjt', 'PBJT', 'rp', 1], ['pbjt_ket', 'PBJT dalam harga'], ['total', 'Total dibayar', 'rp', 1], ['dibayar', 'Dibayar', 'rp', 1], ['kembalian', 'Kembalian', 'rp', 1]];
 
 // '2026-11-13 19:38:42' -> '13/11/2026 19.38'
 const stampShort = (v) => { const m = /^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d)/.exec(v || ''); return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}.${m[5]}` : (v || ''); };
@@ -339,7 +341,11 @@ async function shiftDetail(panel, rpc, id, back) {
         <td class="num">${num(it.qty)}</td><td class="num">${it.harga == null ? '–' : rp(it.harga)}</td><td class="num">${rp(it.total)}</td></tr>`).join('')}</tbody>
       <tfoot><tr><th scope="row" colspan="4">Subtotal (harga normal)</th><td class="num">${rp(d.subtotal)}</td></tr>
         ${d.diskon ? `<tr><th scope="row" colspan="4">Diskon</th><td class="num">-${rp(d.diskon)}</td></tr>` : ''}
-        <tr><th scope="row" colspan="4">Total penjualan</th><td class="num"><b>${rp(d.total)}</b></td></tr></tfoot></table></div>
+        <tr><th scope="row" colspan="4">Total penjualan</th><td class="num"><b>${rp(d.penjualan ?? d.total)}</b></td></tr>
+        ${d.service ? `<tr><th scope="row" colspan="4">Service charge</th><td class="num">${rp(d.service)}</td></tr>` : ''}
+        ${d.pbjt ? `<tr><th scope="row" colspan="4">PBJT</th><td class="num">${rp(d.pbjt)}</td></tr>` : ''}
+        ${d.pbjt_termasuk ? `<tr><th scope="row" colspan="4">PBJT (termasuk dalam penjualan)</th><td class="num">${rp(d.pbjt_termasuk)}</td></tr>` : ''}
+        ${d.service || d.pbjt ? `<tr><th scope="row" colspan="4">Total uang masuk</th><td class="num"><b>${rp(d.total)}</b></td></tr>` : ''}</tfoot></table></div>
       <p class="muted small">Harga adalah harga per barang yang dibayar. Barang dengan promo ditulis di baris sendiri, jadi Total sama dengan penjualan.</p>`
     : '<p class="muted">Belum ada penjualan di shift ini.</p>';
   const payHtml = d.payments.length ? `<div class="table-wrap"><table><thead><tr><th>Metode bayar</th><th class="num">Struk</th><th class="num">Total</th></tr></thead><tbody>
@@ -433,7 +439,9 @@ async function shiftDetail(panel, rpc, id, back) {
       X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet([...info, ...tx]), 'Transaksi');
       X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet([['Produk', 'Rasa', 'Qty', 'Harga', 'Total', 'Promo'],
         ...d.items.map((it) => [it.produk, it.rasa, it.qty, it.harga ?? '', it.total, it.promo ? 'Ya' : '']),
-        ['Subtotal (harga normal)', '', '', '', d.subtotal], ['Diskon', '', '', '', -d.diskon], ['Total penjualan', '', '', '', d.total]]), 'Barang');
+        ['Subtotal (harga normal)', '', '', '', d.subtotal], ['Diskon', '', '', '', -d.diskon], ['Total penjualan', '', '', '', d.penjualan ?? d.total],
+        ['Service charge', '', '', '', d.service || 0], ['PBJT', '', '', '', d.pbjt || 0], ['PBJT (termasuk dalam penjualan)', '', '', '', d.pbjt_termasuk || 0],
+        ['Total uang masuk', '', '', '', d.total]]), 'Barang');
       X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet([['Metode bayar', 'Struk', 'Total'], ...d.payments.map((p) => [p.metode, p.struk, p.total])]), 'Pembayaran');
       X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet([['Keterangan', 'Nilai'], ['Uang modal', x.modal], ['Uang tunai diterima', x.uang_diterima], ['Kembalian', x.kembalian],
         ['Kas masuk', x.kas_masuk], ['Kas keluar', x.kas_keluar], ['Setor', x.setor], ['Seharusnya di laci', x.seharusnya], ['Dihitung staf', x.dihitung ?? ''],

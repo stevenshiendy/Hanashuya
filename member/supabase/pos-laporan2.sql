@@ -241,7 +241,12 @@ begin
       (14, 'Refund', (select count(*) from vv where kind = 'refund')::bigint, 'n'),
       (15, 'Nilai refund', (select coalesce(sum(amount), 0) from vv where kind = 'refund')::bigint, 'rp'),
       (16, 'Item promo', (select coalesce(sum(l.qty), 0) from l where l.promo_kind is not null and l.discount <> 0)::bigint, 'n'),
-      (17, 'Pajak dan biaya layanan', 0::bigint, 'rp')) t(n, k, v, u);
+      -- Not sales (14 Nov 2026): service charge and PBJT come on top, so money in = bersih + these two.
+      -- PBJT already inside the price is part of Penjualan bersih and is shown as "termasuk".
+      (17, 'Service charge', (select coalesce(sum(service), 0) from o)::bigint, 'rp'),
+      (18, 'PBJT', (select coalesce(sum(tax), 0) from o)::bigint, 'rp'),
+      (19, 'PBJT termasuk dalam harga (sudah di penjualan bersih)', (select coalesce(sum(tax_in), 0) from o)::bigint, 'rp'),
+      (20, 'Total uang masuk (penjualan bersih + service charge + PBJT)', (select coalesce(sum(paid), 0) from o)::bigint, 'rp')) t(n, k, v, u);
 
   -- Penjualan rinci: one row per receipt on its sale day, cancelled ones too unless a status is chosen.
   -- A partial refund shows in Refund (rupiah) on the receipt; Batal dan refund lists it on its approval day.
@@ -251,7 +256,10 @@ begin
         ch.label as saluran, coalesce(public._first_name(sp.full_name), '') as staf, coalesce(public._first_name(cp.full_name), '') as kasir,
         coalesce(mp.full_name, o.customer_name, '') as pelanggan, public._pos_status_label(o.status) as status, public._pos_pay_label(o.payment_method) as metode,
         coalesce(o.payment_ref, '') as referensi, coalesce(o.promo_label, '') as promo,
-        o.subtotal, o.discount as diskon, o.total, coalesce(o.cash_received, case when o.status = 'dibayar' then o.total end, 0) as dibayar,
+        o.subtotal, o.discount as diskon, o.subtotal - o.discount as penjualan,
+        -- Service charge and PBJT apart from penjualan (14 Nov 2026); total = what the buyer paid.
+        o.service_charge as service, o.tax as pbjt, case when o.tax_included and o.tax > 0 then 'termasuk' else '' end as pbjt_ket,
+        o.total, coalesce(o.cash_received, case when o.status = 'dibayar' then o.total end, 0) as dibayar,
         coalesce(o.change_given, 0) as kembalian,
         coalesce(rf.amount, 0)::bigint as refund,
         array_to_string(o.flags, ', ') as tanda
@@ -332,7 +340,9 @@ begin
         coalesce(-sum(o.total) filter (where o.ev <> 'jual'), 0) as refund,
         coalesce(sum(o.total), 0) as bersih,
         case when sum(o.receipts) > 0 then round(sum(o.total)::numeric / sum(o.receipts)) else 0 end as rata_rata,
-        count(*) filter (where o.ev <> 'jual') as batal
+        count(*) filter (where o.ev <> 'jual') as batal,
+        coalesce(sum(o.service), 0) as service, coalesce(sum(o.tax), 0) as pbjt, coalesce(sum(o.tax_in), 0) as pbjt_termasuk,
+        coalesce(sum(o.paid), 0) as uang_masuk
       from o group by o.day),
     iq as (select l.day as d, sum(l.qty) as qty from public._rep_lines(d1, d2) l where l.product_code is distinct from 'bag' group by l.day)
     select json_agg(x order by x.tanggal) into r from (
@@ -340,7 +350,9 @@ begin
         coalesce(od.struk, 0) as struk, coalesce(iq.qty, 0)::bigint as qty,
         coalesce(od.kotor, 0)::bigint as kotor, coalesce(od.diskon, 0)::bigint as diskon, coalesce(od.refund, 0)::bigint as refund,
         coalesce(od.bersih, 0)::bigint as bersih, coalesce(od.rata_rata, 0)::bigint as rata_rata,
-        coalesce(od.batal, 0) as batal
+        coalesce(od.batal, 0) as batal,
+        coalesce(od.service, 0)::bigint as service, coalesce(od.pbjt, 0)::bigint as pbjt,
+        coalesce(od.pbjt_termasuk, 0)::bigint as pbjt_termasuk, coalesce(od.uang_masuk, 0)::bigint as uang_masuk
       from generate_series(d1, d2, interval '1 day') g(d)
       left join od on od.d = g.d::date left join iq on iq.d = g.d::date
     ) x;
@@ -468,7 +480,10 @@ begin
         (select count(*) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar')::int as struk,
         coalesce((select sum(i.qty) from pos_order_items i join pos_orders o on o.id = i.order_id
                    where o.shift_id = sh.id and o.status = 'dibayar' and not i.free_bag), 0)::int as produk,
-        coalesce((select sum(o.total) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0)::bigint as penjualan,
+        coalesce((select sum(o.subtotal - o.discount) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0)::bigint as penjualan,
+        -- Service charge and PBJT on top, apart from penjualan (14 Nov 2026).
+        coalesce((select sum(o.service_charge) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0)::bigint as service,
+        coalesce((select sum(case when o.tax_included then 0 else o.tax end) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0)::bigint as pbjt,
         -- Tunai part: pos_order_payments (split orders) when it exists, else Tunai orders.
         coalesce(case when public._rep_has('pos_order_payments') then public._rep_shift_tunai(sh.id)
           else (select sum(o.total) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar' and o.payment_method = 'tunai') end, 0)::bigint as tunai,
@@ -683,7 +698,8 @@ begin
         public._pos_status_label(o.status) as status, public._pos_pay_label(o.payment_method) as metode,
         concat_ws(' · ', nullif(o.promo_label, ''), nullif(o.note, '')) as catatan,
         coalesce((select sum(i.qty) from pos_order_items i where i.order_id = o.id and not i.free_bag), 0)::int as produk,
-        o.subtotal, o.discount as diskon, o.total,
+        o.subtotal, o.discount as diskon, o.service_charge as service, o.tax as pbjt,
+        case when o.tax_included and o.tax > 0 then 'termasuk' else '' end as pbjt_ket, o.total,
         case when o.payment_method is null then 0 else coalesce(o.cash_received, o.total) end as dibayar,
         coalesce(o.change_given, 0) as kembalian
       from pos_orders o
@@ -698,6 +714,8 @@ begin
         'total', (e->>'total')::int, 'promo', coalesce((e->>'promo')::boolean, false), 'paper_bag_gratis', coalesce((e->>'free_bag')::boolean, false)))
       from jsonb_array_elements(rk->'items') e), '[]'),
     'subtotal', (rk->>'subtotal')::bigint, 'diskon', (rk->>'discount')::bigint, 'total', (rk->>'total')::bigint,
+    'penjualan', (rk->>'sales')::bigint, 'service', (rk->>'service_charge')::bigint,
+    'pbjt', (rk->>'tax')::bigint, 'pbjt_termasuk', (rk->>'tax_in')::bigint,
     'payments', coalesce((select json_agg(json_build_object('metode', public._pos_pay_label(e->>'method'),
         'struk', (e->>'count')::int, 'total', (e->>'amount')::bigint))
       from jsonb_array_elements(rk->'payments') e), '[]'),

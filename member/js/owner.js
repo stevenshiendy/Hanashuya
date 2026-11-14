@@ -8,6 +8,7 @@ import { mountCashRekap } from './owner-cash.js';
 import { mountStampBoosts, mountCommission } from './owner-loyalty.js';
 import { mountWaTemplates } from './owner-wa.js';
 import { mountMemberInsights } from './owner-member-insights.js';
+import { mountSamples } from './owner-samples.js';
 import { mountLaporan } from './owner-laporan.js';
 import { mountTransaksi } from './owner-transaksi.js';
 import { mountAkunting } from './owner-akunting.js';
@@ -26,7 +27,7 @@ const MENU = [
     ['t-sales', 'penjualan', 'Penjualan member'], ['t-kas', 'rekap-kas', 'Rekap kas']]],
   // Laporan group (Glenn, 12 Nov 2026, like VireoPOS): every report in one place.
   ['laporan', 'chart', 'Laporan', [['t-stock-rep', 'stok-laporan', 'Laporan stok'], ['t-lbuy', 'laporan-pembelian', 'Laporan pembelian'],
-    ['t-rep', 'laporan-pos', 'Laporan penjualan'], ['t-profit', 'laba-kotor', 'Laporan laba'], ['t-lother', 'laporan-lainnya', 'Laporan lainnya']]],
+    ['t-rep', 'laporan-pos', 'Laporan penjualan'], ['t-profit', 'laba-kotor', 'Laporan laba'], ['t-sample', 'laporan-sampel', 'Laporan sampel'], ['t-lother', 'laporan-lainnya', 'Laporan lainnya']]],
   ['promo', 'tag', 'Promo', [['t-promo', 'promo', 'Promo POS'], ['t-camp', 'promo-member', 'Promo member'], ['t-codes', 'voucher-kertas', 'Voucher kertas']]],
   ['produk', 'box', 'Produk', [['t-prod', 'produk', 'Daftar produk'], ['t-cat', 'kategori', 'Kategori'], ['t-flav', 'rasa', 'Rasa'],
     ['t-target', 'target-harian', 'Target harian'], ['t-chan', 'saluran', 'Saluran pesan-antar']]],
@@ -62,7 +63,7 @@ const isLink = (item) => !!item[3];
 // A manager signs in here too (Glenn, 13 Nov 2026) and sees the reports read-only: Ringkasan, the Laporan
 // group, the Transaksi lists and Laporan akunting. Settings, staff accounts, products and prices, backups,
 // promo setup, vouchers and member data stay with the owner (the SQL refuses them for a manager as well).
-const MANAGER_VIEWS = new Set(['ringkasan', 'stok-laporan', 'laporan-pembelian', 'laporan-pos', 'laba-kotor', 'laporan-lainnya',
+const MANAGER_VIEWS = new Set(['ringkasan', 'stok-laporan', 'laporan-pembelian', 'laporan-pos', 'laba-kotor', 'laporan-sampel', 'laporan-lainnya',
   'purchase-order', 'penerimaan-barang', 'stok-masuk', 'stok-keluar', 'opname-transaksi', 'penyesuaian-stok', 'kartu-stok',
   'dalam-perjalanan', 'proses-komisi', 'pembatalan', 'laporan-akunting']);
 const menuFor = (role) => (role === 'owner' ? MENU : MENU.map(([key, icon, title, items]) =>
@@ -163,6 +164,7 @@ async function boot() {
     barang: () => ownerStock(P('p-items'), { part: 'items' }),
     pemasok: () => ownerStock(P('p-supp'), { part: 'pemasok' }),
     'analitik-member': () => mountMemberInsights(P('p-mem-an'), { rpc }),
+    'laporan-sampel': () => mountSamples(P('p-sample'), { rpc }),
     member: () => mountMembers(P('p-mem'), { rpc }), bantuan: help, 'aturan-kartu': cardRules, 'qr-daftar': joinQr,
     staf: staff, absensi: () => mountOwnerAbsensi(P('p-att'), { part: 'hari' }),
     lembur: () => mountOwnerAbsensi(P('p-att-ot'), { part: 'lembur' }), 'absen-staf': () => mountOwnerAbsensi(P('p-att-one'), { part: 'staf' }),

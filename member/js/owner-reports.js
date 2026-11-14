@@ -46,6 +46,18 @@ export function lowStock(low) {
     ${document.getElementById('t-stock') ? '<button class="btn btn-quiet" type="button" id="rep-low-go">Buka Stok sekarang</button>' : ''}</div>`;
 }
 
+// Service charge and PBJT are not sales (14 Nov 2026): shown under the tiles only when there is any.
+// PBJT inside the price is already part of Penjualan, so it says "termasuk".
+function charges(d) {
+  const sv = Number(d.service_charge || 0), tx = Number(d.pbjt || 0), ti = Number(d.pbjt_included || 0);
+  if (!sv && !tx && !ti) return '';
+  return `<div class="table-wrap"><table><caption class="muted small">Di luar penjualan</caption><tbody>
+    ${sv ? `<tr><th scope="row">Service charge</th><td class="num">${esc(rupiah(sv))}</td></tr>` : ''}
+    ${tx ? `<tr><th scope="row">PBJT</th><td class="num">${esc(rupiah(tx))}</td></tr>` : ''}
+    ${ti ? `<tr><th scope="row">PBJT (termasuk dalam penjualan)</th><td class="num">${esc(rupiah(ti))}</td></tr>` : ''}
+    <tr><th scope="row">Total uang masuk</th><td class="num">${esc(rupiah(d.paid))}</td></tr></tbody></table></div>`;
+}
+
 function render(d, state, low) {
   const days = state.from === state.to ? dmy(state.from) : `${dmy(state.from)} sampai ${dmy(state.to)}`;
   const gl = { jam: 'jam', hari: 'hari', bulan: 'bulan' }[d.grain];
@@ -60,6 +72,7 @@ function render(d, state, low) {
     <div class="stat"><span>Produk terjual</span><b>${d.items}</b></div>
     <div class="stat"><span>Dibatalkan / refund</span><b>${cancelled}</b></div>
   </div>
+  ${charges(d)}
   <p class="muted small">Rentang ${esc(days)}. Penjualan dihitung di tanggal transaksi; batal dan refund mengurangi di tanggal disetujui. Diperbarui ${new Intl.DateTimeFormat('id-ID', { timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())}, otomatis tiap 30 detik.</p>
   <div class="panel stack"><h2>Penjualan per ${gl}</h2>${columns(d.series)}</div>
   <div class="panel stack"><h2>7 hari terakhir</h2>${columns(d.last7)}</div>

@@ -27,6 +27,8 @@ begin
   return json_build_object(
     'rows', coalesce((select json_agg(x order by x.sold_at desc) from (
       select o.id, o.receipt_no, o.local_no, o.sold_at, o.status, o.total, o.discount, o.payment_method, o.promo_label, o.stamps,
+             -- Service charge and PBJT apart from the goods (14 Nov 2026); total is what the buyer paid.
+             o.subtotal - o.discount as sales, o.service_charge, o.tax, o.tax_included,
              public._first_name(mb.full_name) as member, public._first_name(sv.full_name) as served_by,
              (select string_agg(i.qty || '× ' || i.name || coalesce(' ' || f.label, ''), ', ' order by i.line)
                 from pos_order_items i left join pos_flavours f on f.id = i.flavour_id where i.order_id = o.id and not i.free_bag) as items,
@@ -47,7 +49,11 @@ begin
          and (q is null or lower(o.receipt_no) like '%' || q || '%' or lower(coalesce(o.local_no, '')) like '%' || q || '%' or lower(coalesce(mb.full_name, '')) like '%' || q || '%'
               or lower(coalesce(sv.full_name, '')) like '%' || q || '%' or lower(coalesce(o.promo_label, '')) like '%' || q || '%'
               or (digits is not null and length(digits) >= 4 and regexp_replace(coalesce(mb.whatsapp, ''), '\D', '', 'g') like '%' || digits || '%'))),
-    'paid_total', (select coalesce(sum(total), 0) from pos_orders where sale_day between d1 and d2 and status = 'dibayar'));
+    'paid_total', (select coalesce(sum(total), 0) from pos_orders where sale_day between d1 and d2 and status = 'dibayar'),
+    -- The same paid orders split (14 Nov 2026): goods sales, service charge, PBJT on top and PBJT inside the price.
+    'paid_split', (select json_build_object('sales', coalesce(sum(subtotal - discount), 0), 'service_charge', coalesce(sum(service_charge), 0),
+        'tax', coalesce(sum(tax) filter (where not tax_included), 0), 'tax_in', coalesce(sum(tax) filter (where tax_included), 0))
+      from pos_orders where sale_day between d1 and d2 and status = 'dibayar'));
 end $$;
 
 -- One sale in full: the receipt data plus who rang it, the member's full name and number,

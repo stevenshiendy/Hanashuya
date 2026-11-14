@@ -174,9 +174,10 @@ begin
     'gap_days', (select round(percentile_cont(0.5) within group (order by d)::numeric, 0) from gaps where d is not null),
     'wa', (select count(*) from prof where marketing_opt_in),
     'member_orders', (select count(*) from ord where member_id is not null),
-    'member_revenue', (select coalesce(sum(total), 0) from ord where member_id is not null),
+    -- Goods only, never service charge or PBJT (14 Nov 2026).
+    'member_revenue', (select coalesce(sum(subtotal - discount), 0) from ord where member_id is not null),
     'other_orders', (select count(*) from ord where member_id is null),
-    'other_revenue', (select coalesce(sum(total), 0) from ord where member_id is null),
+    'other_revenue', (select coalesce(sum(subtotal - discount), 0) from ord where member_id is null),
     -- Sign-ups in the last 8 weeks, weeks starting Monday.
     'weeks', (select json_agg(json_build_object('week', w, 'n',
         (select count(*) from prof where public._local(created_at)::date between w and w + 6)) order by w)

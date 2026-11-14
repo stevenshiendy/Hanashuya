@@ -24,7 +24,11 @@ begin
         (select public._first_name(full_name) from profiles where id = sh.opened_by) as opened_by,
         (select public._first_name(full_name) from profiles where id = sh.closed_by) as closed_by,
         (select count(*) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar') as orders,
-        coalesce((select sum(o.total) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0) as sales_total,
+        -- Penjualan is goods only; service charge and PBJT on top apart (14 Nov 2026). QRIS + Tunai stay the money in.
+        coalesce((select sum(o.subtotal - o.discount) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0) as sales_total,
+        coalesce((select sum(o.service_charge) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar'), 0) as service_total,
+        coalesce((select sum(o.tax) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar' and not o.tax_included), 0) as tax_total,
+        coalesce((select sum(o.tax) from pos_orders o where o.shift_id = sh.id and o.status = 'dibayar' and o.tax_included), 0) as tax_in_total,
         -- Tunai and QRIS from pos_order_payments (13 Nov 2026): a Bayar 2 cara order adds each part.
         coalesce((select sum(p.amount) from pos_order_payments p join pos_orders o on o.id = p.order_id
                    where o.shift_id = sh.id and o.status = 'dibayar' and p.method = 'qris'), 0) as qris,

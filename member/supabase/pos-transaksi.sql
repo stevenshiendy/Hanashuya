@@ -51,7 +51,7 @@ begin
   return json_build_object('from', p_from, 'to', p_to,
     'unassigned', (select count(*) from pos_orders where sale_day between p_from and p_to and status = 'dibayar' and served_by is null),
     'rows', coalesce((select json_agg(x order by x.commission desc, x.name) from (
-      select o.served_by as staff_id, public._first_name(p.full_name) as name, count(*)::int as orders, sum(o.total)::int as sales,
+      select o.served_by as staff_id, public._first_name(p.full_name) as name, count(*)::int as orders, sum(o.subtotal - o.discount)::int as sales,
         coalesce(sum(public._pos_order_commission(o.id)), 0)::int as commission,
         (select y.id from pos_commission_payouts y where y.staff_id = o.served_by and y.cancelled_at is null
             and y.period_from <= p_to and y.period_to >= p_from order by y.id desc limit 1) as payout_id,
@@ -75,7 +75,7 @@ begin
   if nt is not null and length(nt) > 200 then raise exception 'Catatan terlalu panjang (paling panjang 200 huruf).'; end if;
   perform pg_advisory_xact_lock(hashtext('pos_commission_process'));
   for r in
-    select o.served_by as staff_id, count(*)::int as orders, sum(o.total)::int as sales,
+    select o.served_by as staff_id, count(*)::int as orders, sum(o.subtotal - o.discount)::int as sales,
       coalesce(sum(public._pos_order_commission(o.id)), 0)::int as commission
     from pos_orders o
     where o.sale_day between p_from and p_to and o.status = 'dibayar' and o.served_by is not null

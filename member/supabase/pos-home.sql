@@ -53,6 +53,10 @@ begin
   select json_build_object(
     'day', d,
     'revenue', v_rev,
+    -- Omzet is goods only; service charge and PBJT apart (14 Nov 2026). by_method below is the money in.
+    'service_charge', coalesce((select sum(o.service) from o), 0),
+    'pbjt', coalesce((select sum(o.tax) from o), 0),
+    'pbjt_included', coalesce((select sum(o.tax_in) from o), 0),
     'orders', v_orders,
     'average', case when v_orders > 0 then round(v_rev::numeric / v_orders)::int else 0 end,
     'cancelled', (select count(*) from public._rep_voids(d, d)),

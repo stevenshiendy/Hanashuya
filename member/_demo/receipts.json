@@ -1,0 +1,239 @@
+{
+ "walk": {
+  "id": "189b1573-2112-45b7-b66c-275b51ca3916",
+  "receipt_no": "HS-261111-0001",
+  "status": "dibayar",
+  "outlet": "Papaya Fresh Gallery Bandung",
+  "channel": "toko",
+  "channel_label": "Di booth",
+  "sold_at": "2026-11-11T09:09:39.306+00:00",
+  "date": "11 Nov 2026",
+  "time": "16.09",
+  "served_by": "Ranny",
+  "member": null,
+  "lines": [
+   {
+    "name": "Signature 1 pcs",
+    "flavour": "Vanilla",
+    "qty": 1,
+    "unit_price": 20000,
+    "line_total": 20000,
+    "discount": 0,
+    "free_bag": false
+   },
+   {
+    "name": "Mini Box isi 15",
+    "flavour": "Matcha",
+    "qty": 1,
+    "unit_price": 102000,
+    "line_total": 102000,
+    "discount": 0,
+    "free_bag": false
+   }
+  ],
+  "subtotal": 122000,
+  "discount": 0,
+  "promo_label": null,
+  "promo_product": null,
+  "total": 122000,
+  "payment_method": "tunai",
+  "cash_received": 150000,
+  "change": 28000,
+  "stamps": 0,
+  "card": null,
+  "new_rewards": null,
+  "rewards_ready": null
+ },
+ "member": {
+  "id": "2dd15793-86ce-4d9f-88d4-7901049b3825",
+  "receipt_no": "HS-261111-0002",
+  "status": "dibayar",
+  "outlet": "Papaya Fresh Gallery Bandung",
+  "channel": "toko",
+  "channel_label": "Di booth",
+  "sold_at": "2026-11-11T09:09:39.325+00:00",
+  "date": "11 Nov 2026",
+  "time": "16.09",
+  "served_by": "Ranny",
+  "member": "Desi",
+  "lines": [
+   {
+    "name": "Mini Box isi 15",
+    "flavour": "Vanilla",
+    "qty": 1,
+    "unit_price": 99000,
+    "line_total": 99000,
+    "discount": 0,
+    "free_bag": false
+   },
+   {
+    "name": "Signature 1 pcs",
+    "flavour": "Choco",
+    "qty": 1,
+    "unit_price": 20000,
+    "line_total": 20000,
+    "discount": 10000,
+    "free_bag": false
+   }
+  ],
+  "subtotal": 119000,
+  "discount": 10000,
+  "promo_label": "Diskon 50% untuk 1 produk",
+  "promo_product": "Signature 1 pcs",
+  "total": 109000,
+  "payment_method": "qris",
+  "cash_received": null,
+  "change": null,
+  "stamps": 2,
+  "card": {
+   "position": 2,
+   "size": 10,
+   "waiting": 0,
+   "next_label": "Diskon 10%",
+   "next_in": 1
+  },
+  "new_rewards": [],
+  "rewards_ready": []
+ },
+ "reward": {
+  "id": "160ec06e-a364-4261-9d9e-e416592b1de2",
+  "receipt_no": "HS-261111-0003",
+  "status": "dibayar",
+  "outlet": "Papaya Fresh Gallery Bandung",
+  "channel": "toko",
+  "channel_label": "Di booth",
+  "sold_at": "2026-11-11T09:09:39.338+00:00",
+  "date": "11 Nov 2026",
+  "time": "16.09",
+  "served_by": "Ranny",
+  "member": "Desi",
+  "lines": [
+   {
+    "name": "Signature Box isi 6",
+    "flavour": "Vanilla",
+    "qty": 1,
+    "unit_price": 120000,
+    "line_total": 120000,
+    "discount": 0,
+    "free_bag": false
+   }
+  ],
+  "subtotal": 120000,
+  "discount": 0,
+  "promo_label": null,
+  "promo_product": null,
+  "total": 120000,
+  "payment_method": "tunai",
+  "cash_received": 120000,
+  "change": 0,
+  "stamps": 2,
+  "card": {
+   "position": 4,
+   "size": 10,
+   "waiting": 0,
+   "next_label": "Diskon 20%",
+   "next_in": 3
+  },
+  "new_rewards": [
+   "Diskon 10%"
+  ],
+  "rewards_ready": [
+   "Diskon 10%"
+  ]
+ },
+ "promo": {
+  "id": "228a0248-e2d2-4709-aa19-da79956eb463",
+  "receipt_no": "HS-261111-0004",
+  "status": "dibayar",
+  "outlet": "Papaya Fresh Gallery Bandung",
+  "channel": "toko",
+  "channel_label": "Di booth",
+  "sold_at": "2026-11-11T09:09:39.343+00:00",
+  "date": "11 Nov 2026",
+  "time": "16.09",
+  "served_by": "Ranny",
+  "member": "Desi",
+  "lines": [
+   {
+    "name": "Mini Box isi 8",
+    "flavour": "Matcha Strawberry",
+    "qty": 1,
+    "unit_price": 71000,
+    "line_total": 71000,
+    "discount": 0,
+    "free_bag": false
+   },
+   {
+    "name": "Signature 1 pcs",
+    "flavour": "Vanilla",
+    "qty": 1,
+    "unit_price": 20000,
+    "line_total": 20000,
+    "discount": 0,
+    "free_bag": false
+   }
+  ],
+  "subtotal": 91000,
+  "discount": 9100,
+  "promo_label": "Diskon 10%",
+  "promo_product": null,
+  "total": 81900,
+  "payment_method": "tunai",
+  "cash_received": 100000,
+  "change": 18100,
+  "stamps": 1,
+  "card": {
+   "position": 5,
+   "size": 10,
+   "waiting": 0,
+   "next_label": "Diskon 20%",
+   "next_in": 2
+  },
+  "new_rewards": [],
+  "rewards_ready": []
+ },
+ "free": {
+  "id": "0183d64f-818d-4353-a2ff-491bc823398c",
+  "receipt_no": "HS-261111-0006",
+  "status": "dibayar",
+  "outlet": "Papaya Fresh Gallery Bandung",
+  "channel": "toko",
+  "channel_label": "Di booth",
+  "sold_at": "2026-11-11T09:09:39.365+00:00",
+  "date": "11 Nov 2026",
+  "time": "16.09",
+  "served_by": "Ranny",
+  "member": "Desi",
+  "lines": [
+   {
+    "name": "Signature 1 pcs",
+    "flavour": "Vanilla",
+    "qty": 1,
+    "unit_price": 20000,
+    "line_total": 20000,
+    "discount": 20000,
+    "free_bag": false
+   }
+  ],
+  "subtotal": 20000,
+  "discount": 20000,
+  "promo_label": "1 Signature choux gratis",
+  "promo_product": "Signature 1 pcs",
+  "total": 0,
+  "payment_method": "gratis",
+  "cash_received": null,
+  "change": null,
+  "stamps": 0,
+  "card": {
+   "position": 4,
+   "size": 10,
+   "waiting": 0,
+   "next_label": "Diskon 20%",
+   "next_in": 3
+  },
+  "new_rewards": null,
+  "rewards_ready": [
+   "Diskon 10%"
+  ]
+ }
+}

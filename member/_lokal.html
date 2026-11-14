@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Uji lokal</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/img/favicon.png?v=2" type="image/png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<!-- Local testing only (skipped by the build): every page with fake data, no Supabase needed.
+     The real pages (pemilik.html, kasir.html, absen.html) talk to the live Supabase, where the
+     POS SQL has not run yet, so they show no POS data. -->
+<body class="w-staff">
+<main class="stack-lg" style="max-width:48rem;margin:0 auto;padding:var(--space-lg) var(--space-md)">
+  <section class="panel stack">
+    <h1>Uji lokal</h1>
+    <p class="muted">Semua halaman di sini memakai data contoh, tanpa Supabase. Perubahan hanya tersimpan selama halaman terbuka. Halaman asli (pemilik.html, kasir.html, absen.html) memakai database live, yang belum menjalankan SQL POS, jadi isinya kosong.</p>
+  </section>
+  <section class="panel stack">
+    <h2>Dasbor pemilik</h2>
+    <ul class="list">
+      <li><a href="_demo-owner.html#ringkasan">Ringkasan</a></li>
+      <li><a href="_demo-owner.html#pesanan">Pesanan</a></li>
+      <li><a href="_demo-owner.html#produk">Daftar produk</a></li>
+      <li><a href="_demo-owner.html#laporan-pos">Laporan penjualan</a></li>
+      <li><a href="_demo-owner.html#purchase-order">Transaksi: Purchase Order</a></li>
+      <li><a href="_demo-owner.html#stok-transfer">Transaksi: Stok transfer</a></li>
+      <li><a href="_demo-owner.html#pesanan-di-muka">Transaksi: Pesanan di muka</a></li>
+      <li><a href="_demo-owner.html#laporan-akunting">Akunting</a></li>
+      <li><a href="_demo-owner.html#absen-staf">Tim: Per staf (permintaan ubah profil)</a></li>
+    </ul>
+    <p class="muted small">Semua menu di samping juga bisa dibuka.</p>
+  </section>
+  <section class="panel stack">
+    <h2>Kasir (tablet)</h2>
+    <ul class="list">
+      <li><a href="_demo-till.html">Dashboard dan Mode penjualan</a></li>
+      <li><a href="_demo-till.html?net=0">Tanpa internet</a></li>
+      <li><a href="_demo-reservasi.html#till">Ambil pesanan di muka</a></li>
+    </ul>
+  </section>
+  <section class="panel stack">
+    <h2>Halaman staf (HP)</h2>
+    <ul class="list">
+      <li><a href="_demo-absen.html">Absen, jadwal, profil, izin</a></li>
+      <li><a href="_demo-absen.html?prof=baru">Profil belum diisi</a></li>
+      <li><a href="_demo-absen.html?prof=menunggu">Permintaan ubah profil menunggu</a></li>
+      <li><a href="_demo-absen.html?prof=ditolak">Permintaan ubah profil ditolak</a></li>
+    </ul>
+    <p class="muted small">Untuk tampilan HP, perkecil jendela browser atau pakai mode perangkat di Chrome.</p>
+  </section>
+</main>
+</body>
+</html>
