@@ -99,6 +99,13 @@ async function start() {
         <div><strong>Setelah daftar, dapat 1 Signature choux gratis</strong>
         <span>Voucher <b class="num">${esc(prettyCode(pendingCode()))}</b> langsung masuk ke kartu member Anda. Tukar di booth dengan menyerahkan voucher kertasnya. Sudah punya akun? Pilih Masuk.</span></div>
       </div>`);
+    // Plain sign-up: the 50% welcome voucher, which _vouchers gives every new card (Glenn, 15 Nov 2026).
+    else $('.stage-inner')?.insertAdjacentHTML('afterbegin', `
+      <div class="promo-banner" role="note">
+        <img src="img/reward-free.webp" alt="" width="56" height="56">
+        <div><strong>Diskon 50% untuk belanja pertama</strong>
+        <span>Langsung masuk ke kartu member setelah daftar. Berlaku untuk 1 produk, 30 hari sejak daftar.</span></div>
+      </div>`);
     $('.sheet-paper > div')?.insertAdjacentHTML('beforeend',
       `<p class="help-line">Ada kendala? <a href="${esc(waLink('Halo Hanashuya, saya mau tanya soal kartu member: '))}" target="_blank" rel="noopener">Chat Hanashuya di WhatsApp</a></p>`);
     return;
