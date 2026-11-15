@@ -56,15 +56,28 @@ insert into public.wa_templates (name, category, body, active, sort, seed_key) v
   ('Kangen mampir', 'umum',
    E'Kak {nama}, kami kangen nih.\n\nSudah lama Kakak nggak mampir ke booth Hanashuya, dan kartu member Kakak juga kangen distempel. Sekarang di *{stempel}* stempel, hadiah berikutnya _{hadiah}_.\n\nChoux kami masih dibuat baru setiap hari, di Papaya Fresh Gallery area sushi, 08.00–21.00.\n\nSampai bertemu kembali kak!', true, 1, 'wa_kangen'),
   ('Selamat datang member', 'kartu',
-   E'Makasih sudah jadi member Hanashuya Kak {nama}!\n\nKartu Kakak: {link_kartu}\n\n*Cara kerjanya*\n- Setiap belanja Rp50.000 dapat 1 stempel\n- Stempel ke-3: diskon 10%\n- Stempel ke-7: diskon 20%\n- Stempel ke-10: gratis 1 produk\n\nSimpan kartunya ke layar utama HP biar tinggal buka di kasir.\n\nSampai bertemu kembali kak!', true, 2, 'wa_welcome'),
+   E'Kak {nama}, makasih sudah jadi member Hanashuya!\n\nKartu Kakak: {link_kartu}\n\n*Cara kerjanya*\n- Setiap belanja Rp50.000 dapat 1 stempel\n- Stempel ke-3: diskon 10%\n- Stempel ke-7: diskon 20%\n- Stempel ke-10: gratis 1 produk\n\nSimpan kartunya ke layar utama HP biar tinggal buka di kasir.\n\nSampai bertemu kembali kak!', true, 2, 'wa_welcome'),
   ('Voucher nganggur', 'voucher',
    E'Kak {nama}, voucher Kakak masih nganggur nih.\n\n*{voucher}*\nBerlaku sampai _{voucher_sampai}_. Sayang kalau sampai hangus.\n\nTunjukkan kartu member di kasir: {link_kartu}\n\nSampai bertemu kembali kak!', true, 3, 'wa_voucher'),
   ('Besok Selasa Member', 'umum',
-   E'Besok *Selasa Member* Kak {nama}!\n\nDiskon 15% untuk semua belanja, khusus member. Otomatis terpasang di kartu Kakak, tinggal tunjukkan QR di kasir.\n\nKartu Kakak: {link_kartu}\n\nSampai bertemu kembali kak!', true, 4, 'wa_selasa'),
+   E'Kak {nama}, besok *Selasa Member*!\n\nDiskon 15% untuk semua belanja, khusus member. Otomatis terpasang di kartu Kakak, tinggal tunjukkan QR di kasir.\n\nKartu Kakak: {link_kartu}\n\nSampai bertemu kembali kak!', true, 4, 'wa_selasa'),
   ('Besok Rabu Akhir Bulan', 'umum',
-   E'Besok *Rabu Akhir Bulan* Kak {nama}!\n\nSetiap belanja member dapat stempel 2x. Kartu Kakak sekarang di *{stempel}* stempel, hadiah berikutnya _{hadiah}_.\n\nKartu Kakak: {link_kartu}\n\nSampai bertemu kembali kak!', true, 5, 'wa_rabu'),
+   E'Kak {nama}, besok *Rabu Akhir Bulan*!\n\nSetiap belanja member dapat stempel 2x. Kartu Kakak sekarang di *{stempel}* stempel, hadiah berikutnya _{hadiah}_.\n\nKartu Kakak: {link_kartu}\n\nSampai bertemu kembali kak!', true, 5, 'wa_rabu'),
   ('Ulang tahun', 'ulang_tahun',
-   E'Selamat ulang tahun Kak {nama}!\n\nTerima kasih sudah jadi bagian dari cerita kecil Hanashuya. Di hari spesial Kakak, kami siapkan *1 box Mini Choux isi 8*, gratis, untuk dinikmati bareng orang-orang tersayang.\n\nBisa diambil di booth sampai _{voucher_sampai}_. Tinggal tunjukkan kartu member di kasir: {link_kartu}\n\nSemoga tahun ini penuh hal manis.\nSampai bertemu kembali kak!', true, 6, 'wa_ultah'),
+   E'Kak {nama}, selamat ulang tahun!\n\nTerima kasih sudah jadi bagian dari cerita kecil Hanashuya. Di hari spesial Kakak, kami siapkan *1 box Mini Choux isi 8*, gratis, untuk dinikmati bareng orang-orang tersayang.\n\nBisa diambil di booth sampai _{voucher_sampai}_. Tinggal tunjukkan kartu member di kasir: {link_kartu}\n\nSemoga tahun ini penuh hal manis.\nSampai bertemu kembali kak!', true, 6, 'wa_ultah'),
   ('Link kartu member', 'kartu',
-   E'Halo Kak {nama}, ini kartu member Hanashuya Kakak:\n{link_kartu}\n\n*Biar nggak dicari-cari*\n1. Buka link di atas\n2. Pilih _Tambahkan ke Layar Utama_\n3. Di kasir, tunjukkan QR-nya\n\nStempel sekarang: *{stempel}*', true, 7, 'wa_link')
+   E'Kak {nama}, ini kartu member Hanashuya Kakak:\n{link_kartu}\n\n*Biar nggak dicari-cari*\n1. Buka link di atas\n2. Pilih _Tambahkan ke Layar Utama_\n3. Di kasir, tunjukkan QR-nya\n\nStempel sekarang: *{stempel}*', true, 7, 'wa_link')
 on conflict (seed_key) where seed_key is not null do nothing;
+
+-- Greetings open with the name (Glenn, 15 Nov 2026: "start with name rather than makasih first").
+-- Updates the templates already saved by the first run, only where the owner hasn't changed the text.
+update public.wa_templates set body = E'Kak {nama}, makasih sudah jadi member Hanashuya!\n\n' || substr(body, length(E'Makasih sudah jadi member Hanashuya Kak {nama}!\n\n') + 1), updated_at = now()
+  where seed_key = 'wa_welcome' and left(body, length(E'Makasih sudah jadi member Hanashuya Kak {nama}!\n\n')) = E'Makasih sudah jadi member Hanashuya Kak {nama}!\n\n';
+update public.wa_templates set body = E'Kak {nama}, besok *Selasa Member*!\n\n' || substr(body, length(E'Besok *Selasa Member* Kak {nama}!\n\n') + 1), updated_at = now()
+  where seed_key = 'wa_selasa' and left(body, length(E'Besok *Selasa Member* Kak {nama}!\n\n')) = E'Besok *Selasa Member* Kak {nama}!\n\n';
+update public.wa_templates set body = E'Kak {nama}, besok *Rabu Akhir Bulan*!\n\n' || substr(body, length(E'Besok *Rabu Akhir Bulan* Kak {nama}!\n\n') + 1), updated_at = now()
+  where seed_key = 'wa_rabu' and left(body, length(E'Besok *Rabu Akhir Bulan* Kak {nama}!\n\n')) = E'Besok *Rabu Akhir Bulan* Kak {nama}!\n\n';
+update public.wa_templates set body = E'Kak {nama}, selamat ulang tahun!\n\n' || substr(body, length(E'Selamat ulang tahun Kak {nama}!\n\n') + 1), updated_at = now()
+  where seed_key = 'wa_ultah' and left(body, length(E'Selamat ulang tahun Kak {nama}!\n\n')) = E'Selamat ulang tahun Kak {nama}!\n\n';
+update public.wa_templates set body = E'Kak {nama}, ini kartu member' || substr(body, length(E'Halo Kak {nama}, ini kartu member') + 1), updated_at = now()
+  where seed_key = 'wa_link' and left(body, length(E'Halo Kak {nama}, ini kartu member')) = E'Halo Kak {nama}, ini kartu member';
