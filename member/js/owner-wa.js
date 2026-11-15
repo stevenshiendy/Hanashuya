@@ -6,8 +6,8 @@
 import { $, $$, esc, busy, notice, toast } from './lib.js';
 
 export const WA_CATS = { ulang_tahun: 'Ulang tahun', voucher: 'Voucher', kartu: 'Kartu member', umum: 'Umum' };
-export const WA_FIELDS = [['{nama}', 'Nama depan member'], ['{stempel}', 'Stempel di kartu'], ['{hadiah}', 'Hadiah berikutnya'], ['{voucher}', 'Voucher siap pakai'], ['{link_kartu}', 'Link kartu member']];
-const SAMPLE = { '{nama}': 'Desi', '{stempel}': '4', '{hadiah}': 'Diskon 20% di stempel ke-7', '{voucher}': 'Diskon 50% untuk 1 produk', '{link_kartu}': 'https://hanashuya.vercel.app/member/' };
+export const WA_FIELDS = [['{nama}', 'Nama depan member'], ['{stempel}', 'Stempel di kartu'], ['{hadiah}', 'Hadiah berikutnya'], ['{voucher}', 'Voucher siap pakai'], ['{voucher_sampai}', 'Voucher berlaku sampai'], ['{link_kartu}', 'Link kartu member']];
+const SAMPLE = { '{nama}': 'Desi', '{stempel}': '4', '{hadiah}': 'Diskon 20% di stempel ke-7', '{voucher}': 'Diskon 50% untuk 1 produk', '{voucher_sampai}': '30 November 2026', '{link_kartu}': 'https://hanashuya.vercel.app/member/' };
 export const fillSample = (body) => Object.entries(SAMPLE).reduce((t, [k, v]) => t.split(k).join(v), String(body || ''));
 export const waOpenLink = (number, text) => `https://wa.me/${String(number || '').replace(/\D/g, '')}?text=${encodeURIComponent(text)}`;
 const errBox = (e) => `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`;

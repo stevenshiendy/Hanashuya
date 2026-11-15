@@ -17,7 +17,7 @@ export async function mountStampBoosts(p, { rpc }) {
   p.innerHTML = loading;
   let list;
   try { list = await rpc('owner_stamp_boosts'); } catch (e) { p.innerHTML = errorBox(e); return; }
-  const days = (b) => (b.days?.length ? b.days.map((d) => DAYS.find(([n]) => n === d)?.[1]).join(', ') : 'Setiap hari');
+  const days = (b) => (b.days?.length ? b.days.map((d) => DAYS.find(([n]) => n === d)?.[1]).join(', ') : 'Setiap hari') + (b.last_week ? ', terakhir di bulan itu' : '');
   p.innerHTML = `<section class="panel stack" aria-labelledby="bs-t">
       <h1 id="bs-t">Bonus stempel</h1>
       <p class="muted small">Selama periode bonus berjalan, stempel member dari setiap pembelian di kasir dikali 2 atau 3. Kasir menampilkan "bonus 2x" di samping jumlah stempel. Pembeli tanpa kartu tidak terpengaruh.</p>
@@ -40,6 +40,7 @@ export async function mountStampBoosts(p, { rpc }) {
         </div>
         <fieldset class="field"><legend>Bonus</legend><div class="choices">${[2, 3].map((m) => `<label class="choice"><input type="radio" name="multiplier" value="${m}"${(b?.multiplier || 2) === m ? ' checked' : ''}><span>${m}x stempel</span></label>`).join('')}</div></fieldset>
         <fieldset class="field"><legend>Hari <span class="hint">kosongkan untuk setiap hari</span></legend><div class="choices">${DAYS.map(([n, l]) => `<label class="choice"><input type="checkbox" name="days" value="${n}"${b?.days?.includes(n) ? ' checked' : ''}><span>${l}</span></label>`).join('')}</div></fieldset>
+        <label class="check"><input type="checkbox" name="last_week"${b?.last_week ? ' checked' : ''}><span>Hanya hari terakhir di bulan itu <span class="hint">misalnya Rabu terakhir setiap bulan</span></span></label>
         <label class="check"><input type="checkbox" name="active"${b ? (b.active ? ' checked' : '') : ' checked'}><span>Aktif</span></label>
         <label class="field"><span>Catatan <span class="hint">boleh dikosongkan</span></span><input name="note" type="text" maxlength="200" value="${esc(b?.note || '')}"></label>
         <div class="notice" data-msg hidden></div>
@@ -52,7 +53,7 @@ export async function mountStampBoosts(p, { rpc }) {
       const btn = $('button[type="submit"]', f);
       const data = { name: f.elements.name.value, starts_on: f.elements.starts_on.value, ends_on: f.elements.ends_on.value,
         multiplier: Number(f.elements.multiplier.value), days: $$('input[name="days"]:checked', f).map((x) => Number(x.value)),
-        active: f.elements.active.checked, note: f.elements.note.value };
+        active: f.elements.active.checked, last_week: f.elements.last_week.checked, note: f.elements.note.value };
       busy(btn, true, 'Menyimpan…');
       try { await rpc('owner_save_stamp_boost', { p_id: b?.id ?? null, p: data }); toast('Periode bonus tersimpan'); again(); }
       catch (err) { busy(btn, false); notice($('[data-msg]', f), err.message); }

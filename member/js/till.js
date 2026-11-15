@@ -1611,6 +1611,10 @@ function setMember(m) {
   if (m.whatsapp) S.memberPhone = m.whatsapp;
   if (m.rupiah_per_stamp) S.cat.rupiah_per_stamp = m.rupiah_per_stamp;
   S.promo = null;
+  // Hari member (Glenn, 15 Nov 2026): Selasa Member is picked by itself when the card has no other
+  // reward or voucher ready; otherwise it waits as a Pakai row (one promo per order).
+  const auto = (S.cat?.promos?.custom || []).find((p) => p.auto && p.member_only && !promoCode(p));
+  if (auto && !(m.vouchers || []).length && !(m.rewards || []).length) S.promo = { kind: 'promo', period: auto.id, line: null };
   stopCamera();
   S.left = 'tiles';
   renderLeft();

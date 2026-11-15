@@ -83,7 +83,7 @@ create or replace function public.owner_wa_preview(p_template int, p_member uuid
 language plpgsql volatile security definer set search_path = public
 as $$
 declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
-  t wa_templates; p profiles; txt text; cv record; nxt text; vch text; num text;
+  t wa_templates; p profiles; txt text; cv record; nxt text; vch text; num text; until date;
 begin
   select * into t from wa_templates where id = p_template;
   if t.id is null then raise exception 'Template tidak ditemukan.'; end if;
@@ -94,7 +94,12 @@ begin
   select * into cv from public._card_view(p.id);
   select r.label || ' di stempel ke-' || r.slot into nxt from public._rewards(p.id) r where r.status = 'terkunci' order by r.cycle, r.slot limit 1;
   select string_agg(v.label, ', ' order by v.ends_on nulls last) into vch from public._vouchers(p.id) v where v.status = 'tersedia';
+  -- {voucher_sampai} (15 Nov 2026): the last day of the voucher that ends first, open or not open yet
+  -- (a birthday message may go out before the birthday window opens), as "30 November 2026".
+  select min(v.ends_on) into until from public._vouchers(p.id) v where v.status in ('tersedia', 'belum');
   txt := t.body;
+  txt := replace(txt, '{voucher_sampai}', coalesce(extract(day from until)::int || ' ' || (array['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'])[extract(month from until)::int] || ' ' || extract(year from until)::int, '-'));
   txt := replace(txt, '{nama}', public._first_name(p.full_name));
   txt := replace(txt, '{stempel}', coalesce(cv.card_position, 0)::text);
   txt := replace(txt, '{hadiah}', coalesce(nxt, 'semua hadiah di kartu ini sudah terbuka'));

@@ -321,6 +321,11 @@ alter table public.pos_promos enable row level security;
 -- staff type the code in the Kode voucher box. Without a code it stays a Pakai button.
 alter table public.pos_promos add column if not exists code text;
 create unique index if not exists pos_promos_code_key on public.pos_promos (upper(code)) where code is not null;
+-- Hari member (Glenn, 15 Nov 2026): rows made by member-day.sql carry a seed_key so a re-run never adds
+-- them twice. A promo with a seed_key is picked by itself on the till when a member card is scanned and
+-- the member has no other reward or voucher ready (one promo per order still holds).
+alter table public.pos_promos add column if not exists seed_key text;
+create unique index if not exists pos_promos_seed_key on public.pos_promos (seed_key) where seed_key is not null;
 revoke all on public.pos_promos from anon, authenticated;
 alter table public.pos_orders add column if not exists promo_id int references public.pos_promos (id);
 -- Working offline (task 7, 11 Nov 2026): the number the tablet printed while the internet
@@ -350,6 +355,11 @@ create table if not exists public.stamp_boosts (
 alter table public.stamp_boosts enable row level security;
 revoke all on public.stamp_boosts from anon, authenticated;
 alter table public.pos_orders add column if not exists stamp_boost_id int references public.stamp_boosts (id);
+-- Rabu Akhir Bulan (Glenn, 15 Nov 2026): last_week limits a bonus to the last time each of its
+-- weekdays falls in the month (a week later is already next month).
+alter table public.stamp_boosts add column if not exists last_week boolean not null default false;
+alter table public.stamp_boosts add column if not exists seed_key text;
+create unique index if not exists stamp_boosts_seed_key on public.stamp_boosts (seed_key) where seed_key is not null;
 
 -- Komisi (12 Nov 2026, Glenn, like VireoPOS Komisi): rules the owner sets instead of the
 -- fixed 1%. A rule covers one product (product_code) or all products (null), as a percent
@@ -434,6 +444,7 @@ as $$
   select b.* from stamp_boosts b
    where b.active and public._local(p_at)::date between b.starts_on and b.ends_on
      and (b.days is null or cardinality(b.days) = 0 or extract(isodow from public._local(p_at))::int = any (b.days))
+     and (not b.last_week or extract(month from public._local(p_at)::date + 7) <> extract(month from public._local(p_at)::date))
    order by b.multiplier desc, b.id limit 1
 $$;
 
@@ -443,14 +454,14 @@ as $$
 declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
 begin
   return coalesce((select json_agg(json_build_object('id', b.id, 'name', b.name, 'starts_on', b.starts_on, 'ends_on', b.ends_on,
-      'days', b.days, 'multiplier', b.multiplier, 'active', b.active, 'note', b.note,
+      'days', b.days, 'multiplier', b.multiplier, 'active', b.active, 'note', b.note, 'last_week', b.last_week,
       'running', b.active and public._local(now())::date between b.starts_on and b.ends_on,
       'orders', (select count(*) from pos_orders o where o.stamp_boost_id = b.id and o.status = 'dibayar'),
       'extra_stamps', (select coalesce(sum(o.stamps - o.stamps / b.multiplier), 0) from pos_orders o where o.stamp_boost_id = b.id and o.status = 'dibayar'))
     order by b.starts_on desc, b.id desc) from stamp_boosts b), '[]');
 end $$;
 
--- Add (p_id null) or change a bonus period. p: {name, starts_on, ends_on, days, multiplier, active, note}.
+-- Add (p_id null) or change a bonus period. p: {name, starts_on, ends_on, days, multiplier, active, note, last_week}.
 create or replace function public.owner_save_stamp_boost(p_id int, p jsonb) returns json
 language plpgsql volatile security definer set search_path = public
 as $$
@@ -468,12 +479,14 @@ begin
     if exists (select 1 from unnest(dd) v where v not between 1 and 7) then raise exception 'Hari tidak valid.'; end if;
   end if;
   if p_id is null then
-    insert into stamp_boosts (name, starts_on, ends_on, days, multiplier, active, note)
-    values (n, d1, d2, dd, m, coalesce((p->>'active')::boolean, true), nullif(trim(coalesce(p->>'note', '')), ''))
+    insert into stamp_boosts (name, starts_on, ends_on, days, multiplier, active, note, last_week)
+    values (n, d1, d2, dd, m, coalesce((p->>'active')::boolean, true), nullif(trim(coalesce(p->>'note', '')), ''),
+            coalesce((p->>'last_week')::boolean, false))
     returning id into bid;
   else
     update stamp_boosts set name = n, starts_on = d1, ends_on = d2, days = dd, multiplier = m,
-      active = coalesce((p->>'active')::boolean, active), note = nullif(trim(coalesce(p->>'note', '')), '')
+      active = coalesce((p->>'active')::boolean, active), note = nullif(trim(coalesce(p->>'note', '')), ''),
+      last_week = coalesce((p->>'last_week')::boolean, last_week)
      where id = p_id returning id into bid;
     if bid is null then raise exception 'Periode bonus tidak ditemukan.'; end if;
   end if;
@@ -1035,7 +1048,7 @@ begin
       -- Owner promos that can be used right now (member checks happen when it is used).
       'custom', coalesce((select json_agg(json_build_object('id', cp.id, 'name', cp.name, 'kind', cp.kind, 'value', cp.value,
           'products', cp.products, 'min_spend', cp.min_spend, 'member_only', cp.member_only, 'note', cp.note,
-          'time_to', to_char(cp.time_to, 'HH24.MI'), 'ends_on', cp.ends_on, 'code', cp.code) order by cp.id)
+          'time_to', to_char(cp.time_to, 'HH24.MI'), 'ends_on', cp.ends_on, 'code', cp.code, 'auto', cp.seed_key is not null) order by cp.id)
         from pos_promos cp where public._pos_promo_block(cp, null, false) is null), '[]')));
 end $$;
 

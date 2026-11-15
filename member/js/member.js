@@ -702,13 +702,23 @@ async function refreshToken() {
   }
 }
 
+// Hari member (Glenn, 15 Nov 2026): Selasa Member and Rabu Akhir Bulan from member_days()
+// (member-day.sql), listed before the campaigns. Today's shows "Hari ini"; the till applies it.
+// Until that SQL has run the call fails and only the campaigns show.
+const todayYmd = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
 async function loadPromo() {
-  const { data, error } = await sb.from('campaigns').select('title, body, ends_on').order('ends_on');
+  const [{ data, error }, days] = await Promise.all([
+    sb.from('campaigns').select('title, body, ends_on').order('ends_on'),
+    rpc('member_days').catch(() => []),
+  ]);
   const box = $('#promo');
   if (!box) return;
-  if (error) { box.innerHTML = '<div class="notice notice-error">Promo belum bisa dimuat. Muat ulang halaman.</div>'; return; }
-  box.innerHTML = data.length ? data.map((p) => `<div class="promo"><b>${esc(p.title)}</b><span>${esc(p.body)}</span><small>Sampai ${esc(day(p.ends_on))}</small></div>`).join('')
-    : '<p class="muted">Belum ada promo saat ini.</p>';
+  if (error && !days.length) { box.innerHTML = '<div class="notice notice-error">Promo belum bisa dimuat. Muat ulang halaman.</div>'; return; }
+  const t = todayYmd();
+  const member = days.map((d) => `<div class="promo"><b>${esc(d.name)}${d.next_on === t ? ' · Hari ini' : ''}</b><span>${esc(d.label)}, khusus member. Otomatis di kartu Kakak, tinggal tunjukkan QR ke kasir.</span>
+      <small>${d.next_on === t ? 'Berlaku hari ini' : `Berikutnya ${esc(ymdShort(d.next_on))}`}</small></div>`);
+  const camp = (data || []).map((p) => `<div class="promo"><b>${esc(p.title)}</b><span>${esc(p.body)}</span><small>Sampai ${esc(day(p.ends_on))}</small></div>`);
+  box.innerHTML = member.length + camp.length ? [...member, ...camp].join('') : '<p class="muted">Belum ada promo saat ini.</p>';
 }
 
 /* ---------------- new stamps arrive while the card is open */
