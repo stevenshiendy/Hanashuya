@@ -21,7 +21,7 @@ const REQ = '<span class="hint is-req">wajib</span>';
 function parseNum(raw) {
   let s = String(raw ?? '').trim().replace(/\s/g, '');
   if (!s) return null;
-  if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '');
   return Number(s.replace(',', '.'));
 }
 const need = (n, msg) => { if (n == null || !Number.isFinite(n)) throw new Error(msg); return n; };

@@ -28,11 +28,11 @@ const qtyText = (n) => Number(n || 0).toLocaleString('id-ID', { maximumFractionD
 const withUnit = (n, unit) => `${qtyText(n)} ${esc(unit || '')}`.trim();
 const signed = (n) => `${Number(n) > 0 ? '+' : ''}${qtyText(n)}`;
 const diffTag = (n) => (Number(n) ? `<span class="tag ${Number(n) < 0 ? 'tag-bad' : 'tag-warn'}">${signed(n)}</span>` : '0');
-// Accepts "1.000", "1000", "1,5" and "1.5".
+// Accepts "1.000", "1000", "1,5", "1.5" and "1.143,6".
 function parseQty(raw) {
   let s = String(raw ?? '').trim().replace(/\s/g, '');
   if (!s) return null;
-  if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '');
   s = s.replace(',', '.');
   const n = Number(s);
   return Number.isFinite(n) ? n : NaN;
@@ -653,8 +653,7 @@ function minimumForm(box, ctx) {
     <div class="notice" data-msg hidden></div>`);
   const msg = $('[data-msg]', box);
   $$('[data-save]', box).forEach((b) => b.addEventListener('click', async () => {
-    const tr = b.closest('tr'), raw = $('[data-min]', tr).value.trim().split('.').join('').replace(',', '.');
-    const v = raw === '' ? null : Number(raw);
+    const tr = b.closest('tr'), v = parseQty($('[data-min]', tr).value);
     if (v !== null && (Number.isNaN(v) || v < 0)) return notice(msg, 'Stok minimum tidak valid.');
     busy(b, true, 'Menyimpan…');
     try {
