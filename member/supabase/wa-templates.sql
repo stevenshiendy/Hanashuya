@@ -83,7 +83,7 @@ create or replace function public.owner_wa_preview(p_template int, p_member uuid
 language plpgsql volatile security definer set search_path = public
 as $$
 declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
-  t wa_templates; p profiles; txt text; cv record; nxt text; vch text; num text; until date;
+  t wa_templates; p profiles; txt text; cv record; nxt text; vch text; num text; until date; nm text;
 begin
   select * into t from wa_templates where id = p_template;
   if t.id is null then raise exception 'Template tidak ditemukan.'; end if;
@@ -100,7 +100,10 @@ begin
   txt := t.body;
   txt := replace(txt, '{voucher_sampai}', coalesce(extract(day from until)::int || ' ' || (array['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'])[extract(month from until)::int] || ' ' || extract(year from until)::int, '-'));
-  txt := replace(txt, '{nama}', public._first_name(p.full_name));
+  -- {nama} is the full name (Glenn, 16 Nov 2026), spaces tidied; typed all lower or all upper gets capitalised.
+  nm := regexp_replace(trim(coalesce(p.full_name, '')), '\s+', ' ', 'g');
+  if nm = '' then nm := 'Member'; elsif nm = lower(nm) or nm = upper(nm) then nm := initcap(nm); end if;
+  txt := replace(txt, '{nama}', nm);
   txt := replace(txt, '{stempel}', coalesce(cv.card_position, 0)::text);
   txt := replace(txt, '{hadiah}', coalesce(nxt, 'semua hadiah di kartu ini sudah terbuka'));
   txt := replace(txt, '{voucher}', coalesce(vch, 'belum ada voucher'));

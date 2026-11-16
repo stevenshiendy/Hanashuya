@@ -6,8 +6,8 @@
 import { $, $$, esc, busy, notice, toast } from './lib.js';
 
 export const WA_CATS = { ulang_tahun: 'Ulang tahun', voucher: 'Voucher', kartu: 'Kartu member', umum: 'Umum' };
-export const WA_FIELDS = [['{nama}', 'Nama depan member'], ['{stempel}', 'Stempel di kartu'], ['{hadiah}', 'Hadiah berikutnya'], ['{voucher}', 'Voucher siap pakai'], ['{voucher_sampai}', 'Voucher berlaku sampai'], ['{link_kartu}', 'Link kartu member']];
-const SAMPLE = { '{nama}': 'Desi', '{stempel}': '4', '{hadiah}': 'Diskon 20% di stempel ke-7', '{voucher}': 'Diskon 50% untuk 1 produk', '{voucher_sampai}': '30 November 2026', '{link_kartu}': 'https://hanashuya.vercel.app/member/' };
+export const WA_FIELDS = [['{nama}', 'Nama lengkap member'], ['{stempel}', 'Stempel di kartu'], ['{hadiah}', 'Hadiah berikutnya'], ['{voucher}', 'Voucher siap pakai'], ['{voucher_sampai}', 'Voucher berlaku sampai'], ['{link_kartu}', 'Link kartu member']];
+const SAMPLE = { '{nama}': 'Desi Ayu Lestari', '{stempel}': '4', '{hadiah}': 'Diskon 20% di stempel ke-7', '{voucher}': 'Diskon 50% untuk 1 produk', '{voucher_sampai}': '30 November 2026', '{link_kartu}': 'https://hanashuya.vercel.app/member/' };
 // Emoji shortcodes (Glenn, 16 Nov 2026): type :wave: in a template, members get 👋. WhatsApp never turns
 // shortcodes into emoji in text that comes from a link, so the swap happens here before WhatsApp opens.
 // Unknown codes stay as typed. The first name in each row is the one shown under the editor.
@@ -65,7 +65,7 @@ export async function mountWaTemplates(panel, { rpc }) {
         <div class="row" role="group" aria-label="Sisipkan data">${WA_FIELDS.map(([k, l]) => `<button class="btn btn-quiet" type="button" data-ph="${esc(k)}" title="${esc(l)}">${esc(k)}</button>`).join('')}</div></div>
       <div class="stack"><span class="small">Emoji: ketuk untuk menyisipkan kodenya, member menerima emojinya</span>
         <div class="row" role="group" aria-label="Sisipkan emoji">${WA_EMOJI.map(([n, e]) => `<button class="btn btn-quiet" type="button" data-ph=":${n}:" title=":${n}:" aria-label="${esc(e)} :${n}:">${e} :${n}:</button>`).join('')}</div></div>
-      <div class="stack"><span class="small">Contoh hasilnya, untuk member bernama Desi</span><p class="notice" id="wf-prev"></p></div>
+      <div class="stack"><span class="small">Contoh hasilnya, untuk member bernama Desi Ayu Lestari</span><p class="notice" id="wf-prev"></p></div>
       <div class="notice" id="wf-msg" hidden></div>
       <div class="row"><button class="btn" type="submit">Simpan</button><button class="btn btn-quiet" type="button" id="wf-cancel">Batal</button></div>
     </form>`;
