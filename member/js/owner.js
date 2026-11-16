@@ -54,7 +54,7 @@ const MENU = [
     ['t-rsv', 'pesanan-di-muka', 'Pesanan di muka'], ['t-dmut', 'mutasi-deposito', 'Mutasi deposito'], ['t-dres', 'deposit-reservasi', 'Deposit reservasi'],
     ['t-stamp', 'koreksi-stempel', 'Koreksi stempel']]],
   // Akunting (Glenn, 12 Nov 2026, like VireoPOS): chart of accounts, journals (automatic from sales, purchases, cash and stock; manual), reports.
-  ['akunting', 'book', 'Akunting', [['t-acc', 'akun-buku-besar', 'Bagan akun'], ['t-jurnal', 'buat-jurnal', 'Jurnal umum'], ['t-lacc', 'laporan-akunting', 'Laporan keuangan']]],
+  ['akunting', 'book', 'Akunting', [['t-acc', 'akun-buku-besar', 'Bagan akun'], ['t-jurnal', 'buat-jurnal', 'Jurnal umum'], ['t-fixed', 'biaya-tetap', 'Biaya tetap'], ['t-lacc', 'laporan-akunting', 'Laporan keuangan']]],
   ['pengaturan', 'gear', 'Pengaturan', [['t-set', 'cadangan', 'Cadangan data'], ['t-queue', 'nota-antrian', 'Nota antrian'], ['t-tax', 'pajak-service', 'Pajak dan service']]],
 ];
 // Hashes that no longer name a view. Every other old hash (produk, stok, staf, absensi,
@@ -158,6 +158,7 @@ async function boot() {
     'deposit-reservasi': () => dpHistory(P('p-dres'), 'deposit'), 'koreksi-stempel': () => mountReservasi(P('p-stamp'), { rpc, part: 'stempel' }),
     'akun-buku-besar': () => mountAkunting(P('p-acc'), { rpc, part: 'akun' }), 'buat-jurnal': () => mountAkunting(P('p-jurnal'), { rpc, part: 'jurnal' }),
     'laporan-akunting': () => mountAkunting(P('p-lacc'), { rpc, part: 'laporan' }),
+    'biaya-tetap': () => mountAkunting(P('p-fixed'), { rpc, part: 'biaya' }),
     pesanan: () => mountOrders(P('p-ord'), { rpc }), penjualan: sales, 'rekap-kas': () => mountCashRekap(P('p-kas'), { rpc }),
     promo: () => mountPromos(P('p-promo'), { rpc }), 'promo-member': campaigns, 'voucher-kertas': () => { P('p-codes').innerHTML = ''; codePanel(P('p-codes')); },
     produk: () => mountProducts(P('p-prod'), { rpc }), kategori: () => mountProducts(P('p-cat'), { rpc, part: 'kategori' }),

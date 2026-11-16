@@ -13,6 +13,8 @@ const CHART = [
   ['6-1300', 'Beban promosi', 'beban', 'debit', 1], ['6-1400', 'Beban barang rusak / dibuang', 'beban', 'debit', 1], ['6-1500', 'Selisih kas', 'beban', 'debit', 1],
   ['6-2100', 'Beban sewa', 'beban', 'debit', 0], ['6-2200', 'Beban gaji', 'beban', 'debit', 0], ['6-2300', 'Beban listrik dan air', 'beban', 'debit', 0],
   ['6-2400', 'Beban pemasaran', 'beban', 'debit', 0], ['6-9000', 'Beban lain-lain', 'beban', 'debit', 1],
+  ['1-1800', 'Sewa dibayar di muka', 'aset', 'debit', 0], ['1-2190', 'Akumulasi penyusutan peralatan', 'aset', 'kredit', 0],
+  ['2-1500', 'Beban yang masih harus dibayar', 'kewajiban', 'kredit', 0], ['6-3100', 'Beban penyusutan', 'beban', 'debit', 0],
 ];
 let accounts = null, journals = null, nextId = 1, counters = {};
 const pad = (n) => String(n).padStart(2, '0');
@@ -46,6 +48,21 @@ function init() {
   if (days.length > 3) post(days[2], 'Setor ke pemilik: setoran mingguan', 'kas', [['3-1200', 300000], ['1-1100', null, 300000]]);
 }
 
+let fixed = [
+  { id: 1, name: 'Sewa booth Papaya', kind: 'biaya', post_day: 1, start_month: '2026-08', end_month: null, amount: 2500000, expense: '6-2100', credit: '1-1300', note: 'Bayar ke Papaya Fresh Gallery' },
+  { id: 2, name: 'Oven Unox', kind: 'penyusutan', post_day: 0, start_month: '2026-07', end_month: '2030-06', asset_cost: 45000000, residual: 0, life_months: 48, amount: 937500, expense: '6-3100', credit: '1-2190' },
+  { id: 3, name: 'Internet booth', kind: 'biaya', post_day: 5, start_month: '2026-09', end_month: null, amount: 350000, expense: '6-2300', credit: '1-1300' },
+];
+function fixedRow(c) {
+  const ea = c.expense_id ? accounts.find((x) => x.id === c.expense_id) : byCode(c.expense), ka = c.credit_id ? accounts.find((x) => x.id === c.credit_id) : byCode(c.credit);
+  const now = ymd(new Date()).slice(0, 7), end = c.kind === 'penyusutan' ? (() => { const [y, m] = c.start_month.split('-').map(Number); const d = new Date(Date.UTC(y, m - 2 + c.life_months, 1)); return d.toISOString().slice(0, 7); })() : c.end_month;
+  const status = c.start_month > now ? 'belum' : end && end < now ? 'selesai' : 'berjalan';
+  const [y, m] = c.start_month.split('-').map(Number), [ny, nm] = now.split('-').map(Number), months = Math.max(0, (ny - y) * 12 + nm - m + (Number(new Date().getDate()) >= (c.post_day || 31) ? 1 : 0));
+  return { id: c.id, name: c.name, kind: c.kind, post_day: c.post_day, start_month: c.start_month, end_month: end || null, asset_cost: c.asset_cost || null, residual: c.residual || null, life_months: c.life_months || null, note: c.note || null,
+    status, amount_now: c.amount, amount: c.amount, expense_id: ea.id, expense_code: ea.code, expense_name: ea.name, credit_id: ka.id, credit_code: ka.code, credit_name: ka.name,
+    posted: months, posted_total: months * c.amount, next_day: status === 'selesai' ? null : ymd(new Date(Date.now() + 9 * 864e5)) };
+}
+
 const sumLines = (acc, from, to) => {
   let d = 0, k = 0;
   journals.forEach((j) => { if ((from && j.day < from) || (to && j.day > to)) return; j.lines.forEach((l) => { if (l.account_id === acc.id) { d += l.debit; k += l.credit; } }); });
@@ -59,6 +76,17 @@ export function akuntingFake(name, a = {}) {
   if (!name.startsWith('acc_')) return undefined;
   init();
   switch (name) {
+    // Biaya tetap (16 Nov 2026): a plain list, no journals in the demo.
+    case 'acc_fixed_costs': return fixed.map(fixedRow);
+    case 'acc_save_fixed_cost': {
+      const p = a.p || {};
+      if (!p.name || p.name.trim().length < 2) throw new Error('Isi nama biaya, contoh: Sewa booth.');
+      if (p.kind === 'penyusutan') { if (!p.asset_cost || !p.life_months) throw new Error('Isi harga perolehan.'); p.amount = Math.floor((p.asset_cost - (p.residual || 0)) / p.life_months); }
+      else if (!p.amount) throw new Error('Isi jumlah per bulan.');
+      const x = a.p_id ? fixed.find((c) => c.id === a.p_id) : { id: fixed.length + 1 };
+      Object.assign(x, p); if (!a.p_id) fixed.push(x); return { id: x.id };
+    }
+    case 'acc_delete_fixed_cost': fixed = fixed.filter((c) => c.id !== a.p_id); return { deleted: true, reversed: 0 };
     case 'acc_sync': return { from: '2000-01-01', to: ymd(new Date()), result: { tetap: journals.length }, changed: 0 };
     case 'acc_accounts': return accounts.map((x) => ({ ...x, used: journals.reduce((t, j) => t + j.lines.filter((l) => l.account_id === x.id).length, 0), balance: (x.normal === 'debit' ? 1 : -1) * net(x) }));
     case 'acc_save_account': {

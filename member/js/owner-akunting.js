@@ -1,5 +1,5 @@
 // Owner page, Akunting (12 Nov 2026): Akun buku besar, Buat jurnal and Laporan akunting.
-// mountAkunting(panel, { rpc, part }) with part 'akun' | 'jurnal' | 'laporan'. Database: supabase/akunting.sql.
+// mountAkunting(panel, { rpc, part }) with part 'akun' | 'jurnal' | 'biaya' | 'laporan'. Database: supabase/akunting.sql.
 // The automatic journals are built by acc_sync from the POS tables; this page runs it quietly when a view opens
 // and has a button to run it again.
 import { $, $$, esc, notice, busy, toast } from './lib.js';
@@ -21,7 +21,7 @@ export const TYPES_EN = { aset: 'Assets', kewajiban: 'Liabilities', ekuitas: 'Eq
 export const bi = (id, en) => esc(id) + (en ? `<br><span class="muted small" lang="en">${esc(en)}</span>` : '');
 // Code, name and English name of an account row (HTML); en is looked up by code when the row has none.
 const accHtml = (r, enByCode = {}) => bi(`${r.code} ${r.name}`, r.name_en || enByCode[r.code]);
-const SOURCES = { manual: 'Manual', penjualan: 'Penjualan', batal: 'Retur / pembatalan penjualan', pembelian: 'Pembelian', kas: 'Kas', stok: 'Stok', komisi: 'Komisi' };
+const SOURCES = { manual: 'Manual', penjualan: 'Penjualan', batal: 'Retur / pembatalan penjualan', pembelian: 'Pembelian', kas: 'Kas', stok: 'Stok', komisi: 'Komisi', biaya_tetap: 'Biaya tetap' };
 const ACC_KEYS = ['hari', 'kemarin', '7', '30', 'bulan', 'bulan-lalu', 'tahun', 'semua', 'custom'];
 const presetRange = (k) => sharedRange(k, null);
 // The shared range control (js/owner-range.js) with the year and "Semua" for the books.
@@ -332,8 +332,123 @@ function reportView(panel, rpc) {
   })();
 }
 
+/* ---------------------------------------------------------------- Biaya tetap */
+// Glenn, 16 Nov 2026: fixed costs the owner adds himself (sewa, penyusutan, ...). akunting.sql books one journal
+// per cost and month on its posting day (source 'biaya_tetap'); a change of amount applies from a chosen month.
+const KINDS = { biaya: 'Biaya bulanan', penyusutan: 'Penyusutan aset' };
+const STATUS = { berjalan: 'Berjalan', belum: 'Belum mulai', selesai: 'Selesai' };
+const ymNow = () => ymdToday().slice(0, 7);
+const mmyy = (s) => (s ? s.slice(5, 7) + '/' + s.slice(0, 4) : '');
+const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
+const postDayText = (d) => (Number(d) === 0 ? 'Akhir bulan' : `Tanggal ${d}`);
+
+function fixedView(panel, rpc) {
+  panel.innerHTML = `<div class="panel stack"><div class="dt-head"><h1>Biaya tetap <span class="muted small" lang="en">Fixed costs</span></h1>
+    <p class="muted small">Biaya yang sama setiap bulan, seperti sewa, gaji tetap, internet atau penyusutan alat. Isi sekali, lalu jurnalnya dibuat otomatis setiap bulan di tanggal pencatatan. Jangan dicatat lagi sebagai kas keluar di kasir atau di Jurnal umum, supaya tidak tercatat dua kali.</p></div>
+    <p data-sum></p>
+    <div class="notice" data-msg role="status" hidden></div><div data-table></div></div>`;
+  const msg = $('[data-msg]', panel);
+  let table, accounts = [];
+  const num = (v) => Number(String(v ?? '').replace(/[^\d]/g, '')) || 0;
+  const load = async () => {
+    const rows = await rpc('acc_fixed_costs');
+    const on = rows.filter((r) => r.status === 'berjalan');
+    $('[data-sum]', panel).innerHTML = on.length
+      ? `Biaya tetap bulan ini: <b>${esc(money(on.reduce((t, r) => t + Number(r.amount_now || 0), 0)))}</b> dari ${on.length} biaya yang berjalan.`
+      : '<span class="muted">Belum ada biaya tetap yang berjalan bulan ini.</span>';
+    return rows;
+  };
+  const reload = async () => { notice(msg, ''); try { table.setRows(await load()); } catch (e) { notice(msg, e.message); } };
+  const accOpts = (list, sel) => list.map((a) => `<option value="${a.id}" ${a.code === sel ? 'selected' : ''}>${esc(a.code)} ${esc(a.name)}</option>`).join('');
+
+  const form = (c) => {
+    const kind = c?.kind || 'biaya';
+    const beban = accounts.filter((a) => a.type === 'beban' && a.active);
+    const lawan = accounts.filter((a) => (a.type === 'aset' || a.type === 'kewajiban') && a.active && a.code !== '1-1500');
+    const days = [...Array(28)].map((_, i) => i + 1);
+    return `<div class="dt-fields">
+      ${c ? `<input type="hidden" name="kind" value="${kind}">` : `<label class="field"><span>Jenis</span><select name="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>`}
+      <label class="field"><span>Nama biaya</span><input name="name" value="${esc(c?.name || '')}" maxlength="80" placeholder="Contoh: Sewa booth Papaya" required></label>
+      <label class="field" data-k="biaya"><span>Jumlah per bulan</span><input name="amount" inputmode="numeric" value="${c && kind === 'biaya' ? Number(c.amount).toLocaleString('id-ID') : ''}" placeholder="2.500.000"></label>
+      ${c ? `<label class="field" data-k="biaya"><span>Perubahan berlaku mulai</span><input type="month" name="from_month" value="${esc(c.status === 'belum' ? c.start_month : ymNow())}"><span class="hint">Bulan sebelumnya tetap seperti yang sudah dicatat. Pilih bulan lalu bila angkanya salah sejak awal.</span></label>` : ''}
+      <label class="field" data-k="penyusutan"><span>Harga perolehan</span><input name="asset_cost" inputmode="numeric" value="${c?.asset_cost ? Number(c.asset_cost).toLocaleString('id-ID') : ''}" placeholder="12.000.000"><span class="hint">Harga beli alat, termasuk ongkos kirim dan pasang.</span></label>
+      <label class="field" data-k="penyusutan"><span>Nilai sisa</span><input name="residual" inputmode="numeric" value="${c?.residual ? Number(c.residual).toLocaleString('id-ID') : ''}" placeholder="0"><span class="hint">Perkiraan harga jual di akhir umurnya. Kosongkan bila tidak ada.</span></label>
+      <label class="field" data-k="penyusutan"><span>Umur manfaat (bulan)</span><input name="life_months" inputmode="numeric" value="${c?.life_months || ''}" placeholder="48"><span class="hint">Contoh: peralatan dapur 48 bulan (4 tahun, kelompok 1 aturan pajak).</span></label>
+      <p class="small" data-k="penyusutan" data-dep role="status"></p>
+      <label class="field"><span>Akun beban</span><select name="expense_id">${accOpts(beban, c?.expense_code || (kind === 'penyusutan' ? '6-3100' : '6-2100'))}</select></label>
+      <label class="field"><span>Dibayar dari</span><select name="credit_id">${accOpts(lawan, c?.credit_code || (kind === 'penyusutan' ? '1-2190' : '1-1300'))}</select>
+        <span class="hint" data-k="biaya">Bank atau Kas laci bila dibayar tiap bulan. Sewa yang dibayar setahun di muka: catat pembayarannya sekali di Jurnal umum (debit Sewa dibayar di muka, kredit Bank), lalu pilih Sewa dibayar di muka di sini.</span>
+        <span class="hint" data-k="penyusutan">Untuk penyusutan pilih Akumulasi penyusutan peralatan.</span></label>
+      <label class="field"><span>Dicatat setiap</span><select name="post_day">${days.map((d) => `<option value="${d}" ${Number(c?.post_day ?? 1) === d ? 'selected' : ''}>Tanggal ${d}</option>`).join('')}<option value="0" ${c && Number(c.post_day) === 0 ? 'selected' : ''}>Akhir bulan</option></select></label>
+      <label class="field"><span>Mulai bulan</span><input type="month" name="start_month" value="${esc(c?.start_month || ymNow())}" required></label>
+      <label class="field" data-k="biaya"><span>Sampai bulan</span><input type="month" name="end_month" value="${esc(c?.kind === 'biaya' ? c?.end_month || '' : '')}"><span class="hint">Kosongkan bila belum ada akhirnya. Isi untuk menghentikan biaya ini: bulan yang sudah lewat tetap tercatat.</span></label>
+      <label class="field"><span>Catatan</span><input name="note" value="${esc(c?.note || '')}" maxlength="200"></label>
+    </div>`;
+  };
+  const wire = (f, c) => {
+    const kindOf = () => f.querySelector('[name="kind"]').value;
+    const show = () => {
+      const k = kindOf();
+      $$('[data-k]', f).forEach((el) => { el.hidden = el.dataset.k !== k; });
+      if (!c) {
+        const pick = (n, code) => { const s = f.querySelector(`[name="${n}"]`), o = [...s.options].find((x) => x.textContent.startsWith(code + ' ')); if (o) s.value = o.value; };
+        pick('expense_id', k === 'penyusutan' ? '6-3100' : '6-2100'); pick('credit_id', k === 'penyusutan' ? '1-2190' : '1-1300');
+        f.querySelector('[name="post_day"]').value = k === 'penyusutan' ? '0' : '1';
+      }
+      dep();
+    };
+    const dep = () => {
+      const out = $('[data-dep]', f); if (kindOf() !== 'penyusutan') return;
+      const cost = num(f.querySelector('[name="asset_cost"]').value), res = num(f.querySelector('[name="residual"]').value), life = num(f.querySelector('[name="life_months"]').value);
+      const start = f.querySelector('[name="start_month"]').value;
+      out.textContent = cost && life && res < cost ? `Penyusutan ${money(Math.floor((cost - res) / life))} per bulan, selesai ${mmyy(start ? addMonths(start, life - 1) : '')}.` : '';
+    };
+    f.querySelector('[name="kind"]').addEventListener('change', show);
+    ['asset_cost', 'residual', 'life_months', 'start_month'].forEach((n) => f.querySelector(`[name="${n}"]`).addEventListener('input', dep));
+    show();
+  };
+  const read = (f) => {
+    const v = (n) => f.querySelector(`[name="${n}"]`)?.value ?? '';
+    const p = { name: v('name'), kind: v('kind'), post_day: Number(v('post_day')), start_month: v('start_month'), expense_id: Number(v('expense_id')), credit_id: Number(v('credit_id')), note: v('note') };
+    if (p.kind === 'penyusutan') Object.assign(p, { asset_cost: num(v('asset_cost')) || null, residual: num(v('residual')), life_months: num(v('life_months')) || null });
+    else Object.assign(p, { amount: num(v('amount')) || null, end_month: v('end_month') || null, from_month: v('from_month') || null });
+    return p;
+  };
+  const open = async (c) => {
+    if (!accounts.length) accounts = await rpc('acc_accounts');
+    const del = c ? [{ label: 'Hapus biaya', danger: true, onClick: async () => {
+      const text = c.posted ? `${c.posted} bulan yang sudah dicatat untuk ${c.name} ikut dibatalkan dengan jurnal pembalik. Untuk berhenti tanpa mengubah bulan yang sudah lewat, isi Sampai bulan saja.` : `${c.name} belum pernah dicatat, jadi boleh dihapus.`;
+      if (!(await confirmDialog({ title: 'Hapus biaya tetap?', text, confirmLabel: 'Hapus', danger: true }))) return false;
+      await rpc('acc_delete_fixed_cost', { p_id: c.id }); toast('Biaya tetap dihapus');
+    } }] : [];
+    const saved = await formDialog({
+      title: c ? `Ubah ${c.name}` : 'Tambah biaya tetap', html: form(c), submitLabel: 'Simpan', buttons: del, onOpen: (f) => wire(f, c),
+      onSubmit: async (f) => { await rpc('acc_save_fixed_cost', { p_id: c ? c.id : null, p: read(f) }); toast(c ? 'Biaya tetap disimpan' : 'Biaya tetap ditambahkan'); },
+    });
+    if (saved) await reload();
+  };
+  const period = (c) => `${mmyy(c.start_month)} sampai ${c.end_month ? mmyy(c.end_month) : 'seterusnya'}, ${postDayText(c.post_day).toLowerCase()}`;
+  load().then((rows) => {
+    table = dataTable($('[data-table]', panel), {
+      rows, rowKey: 'id', exportName: 'biaya-tetap', pageSize: 30, searchKeys: ['name', 'note'], emptyText: 'Belum ada biaya tetap. Tambahkan sewa, gaji tetap atau penyusutan alat.',
+      onAdd: () => open(null), onEdit: (c) => open(c),
+      columns: [
+        { key: 'name', label: 'Nama', sort: true, html: true, format: (v, c) => esc(v) + (c.note ? `<br><span class="muted small">${esc(c.note)}</span>` : ''), export: (c) => c.name },
+        { key: 'kind', label: 'Jenis', sort: true, format: (v) => KINDS[v] || v },
+        { key: 'amount_now', label: 'Per bulan', sort: true, align: 'num', format: (v) => (v == null ? '' : money(v)), export: (c) => c.amount_now },
+        { key: 'expense_name', label: 'Akun beban', sort: true, format: (v, c) => `${c.expense_code} ${v}` },
+        { key: 'credit_name', label: 'Dibayar dari', sort: true, format: (v, c) => `${c.credit_code} ${v}` },
+        { key: 'start_month', label: 'Periode', sort: true, format: (v, c) => period(c) },
+        { key: 'posted_total', label: 'Sudah dicatat', sort: true, align: 'num', format: (v, c) => (c.posted ? `${money(v)} (${c.posted} bulan)` : '-'), export: (c) => c.posted_total },
+        { key: 'status', label: 'Status', sort: true, format: (v, c) => STATUS[v] + (v !== 'selesai' && c.next_day ? `, berikutnya ${dmy(c.next_day)}` : '') },
+      ],
+    });
+  }).catch((e) => notice(msg, e.message));
+}
+
 export function mountAkunting(panel, { rpc, part = 'akun' }) {
   panel.className = 'stack-lg';
+  if (part === 'biaya') return fixedView(panel, rpc);
   if (part === 'jurnal') return journalView(panel, rpc);
   if (part === 'laporan') return reportView(panel, rpc);
   return accountsView(panel, rpc);

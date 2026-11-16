@@ -11,6 +11,8 @@
 --                           per source row, and when a source row changes the old journal is reversed and a new one posted
 --   acc_post_manual / acc_reverse_journal   Buat Jurnal (manual) and Batalkan (a reversing journal, never a delete)
 --   acc_ledger / acc_trial / acc_pnl / acc_balance_sheet   Laporan Akunting
+--   acc_fixed_costs / acc_save_fixed_cost / acc_delete_fixed_cost   Biaya tetap (16 Nov 2026): sewa, penyusutan and other
+--                           monthly costs the owner types once; acc_sync books one journal per cost and month
 --
 -- Automatic journals (source): penjualan (each paid order), batal (void or refund of a paid order), pembelian
 -- (goods in with a harga beli), kas (cash moves and the drawer selisih at shift close), stok (sampel, promo,
@@ -39,7 +41,7 @@ create table if not exists public.acc_journals (
   day date not null,
   no text not null unique,
   description text not null check (length(trim(description)) between 1 and 200),
-  source text not null check (source in ('manual', 'penjualan', 'batal', 'pembelian', 'kas', 'stok', 'komisi')),
+  source text not null check (source in ('manual', 'penjualan', 'batal', 'pembelian', 'kas', 'stok', 'komisi', 'biaya_tetap')),
   source_id text,
   posted_by uuid references public.profiles (id) on delete set null,
   created_at timestamptz not null default now(),
@@ -63,6 +65,45 @@ create table if not exists public.acc_lines (
 );
 create index if not exists acc_lines_journal on public.acc_lines (journal_id);
 create index if not exists acc_lines_account on public.acc_lines (account_id);
+
+-- Biaya tetap (16 Nov 2026) adds the source 'biaya_tetap'. Databases made before it get the wider check here.
+alter table public.acc_journals drop constraint if exists acc_journals_source_check;
+alter table public.acc_journals add constraint acc_journals_source_check
+  check (source in ('manual', 'penjualan', 'batal', 'pembelian', 'kas', 'stok', 'komisi', 'biaya_tetap'));
+
+-- Biaya tetap (Glenn, 16 Nov 2026: "fixed cost where user can add by themselves, i.e. rent, depreciations"):
+-- a cost the owner types once that is booked every month by acc_sync (Dr the expense, Cr where it is paid from).
+-- kind 'biaya' (sewa, gaji tetap, internet, ...) or 'penyusutan' (harga perolehan, nilai sisa and umur in months;
+-- the monthly amount and the last month follow from them, the last month takes the rounding rest).
+-- post_day 1-28, or 0 = the last day of the month. Months are stored as the first day of the month.
+create table if not exists public.acc_fixed_costs (
+  id bigint generated always as identity primary key,
+  name text not null check (length(trim(name)) between 2 and 80),
+  kind text not null default 'biaya' check (kind in ('biaya', 'penyusutan')),
+  post_day int not null default 1 check (post_day between 0 and 28),
+  start_month date not null check (extract(day from start_month) = 1),
+  end_month date check (end_month is null or extract(day from end_month) = 1),
+  asset_cost bigint check (asset_cost is null or asset_cost > 0),
+  residual bigint check (residual is null or residual >= 0),
+  life_months int check (life_months is null or life_months between 1 and 600),
+  note text check (note is null or length(note) <= 200),
+  created_by uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  check (end_month is null or end_month >= start_month)
+);
+-- Amount and accounts from a month on: a change of rent applies from the month the owner picks, and the months
+-- before keep what they were booked with.
+create table if not exists public.acc_fixed_cost_versions (
+  cost_id bigint not null references public.acc_fixed_costs (id) on delete cascade,
+  from_month date not null check (extract(day from from_month) = 1),
+  amount bigint not null check (amount > 0),
+  expense_id bigint not null references public.acc_accounts (id),
+  credit_id bigint not null references public.acc_accounts (id),
+  primary key (cost_id, from_month)
+);
+alter table public.acc_fixed_costs enable row level security;
+alter table public.acc_fixed_cost_versions enable row level security;
+revoke all on public.acc_fixed_costs, public.acc_fixed_cost_versions from anon, authenticated;
 
 create table if not exists public.acc_counters (
   day date primary key,
@@ -153,7 +194,11 @@ insert into public.acc_accounts (code, name, name_en, type, normal, system) valu
   ('1-2190', 'Akumulasi penyusutan peralatan', 'Accumulated depreciation, equipment', 'aset', 'kredit', false),
   ('2-3100', 'Utang bank jangka panjang', 'Long-term bank loans', 'kewajiban', 'kredit', false),
   ('3-1300', 'Saldo laba', 'Retained earnings', 'ekuitas', 'kredit', false),
-  ('6-3100', 'Beban penyusutan', 'Depreciation expense', 'beban', 'debit', false)
+  ('6-3100', 'Beban penyusutan', 'Depreciation expense', 'beban', 'debit', false),
+  -- Biaya tetap (16 Nov 2026): rent paid a year ahead is an asset that the monthly cost uses up; a cost booked
+  -- before it is paid is an accrued expense.
+  ('1-1800', 'Sewa dibayar di muka', 'Prepaid rent', 'aset', 'debit', false),
+  ('2-1500', 'Beban yang masih harus dibayar', 'Accrued expenses', 'kewajiban', 'kredit', false)
 on conflict (code) do nothing;
 
 -- Standard names (Glenn, 14 Nov 2026: "industry standard naming for both international and bahasa indonesia").
@@ -530,6 +575,9 @@ begin
     end loop;
   end if;
 
+  -- Biaya tetap: one journal per cost and month, on its posting day.
+  c := public._acc_sync_fixed(f, t, null, c);
+
   if c <> '{}'::jsonb then perform public._log('akunting_sinkron', jsonb_build_object('dari', f, 'sampai', t, 'hasil', c)); end if;
   return json_build_object('from', f, 'to', t, 'result', c,
     'changed', coalesce((c->>'baru')::int, 0) + coalesce((c->>'diubah')::int, 0) + coalesce((c->>'dibatalkan')::int, 0));
@@ -657,7 +705,7 @@ begin
   if rs is null then raise exception 'Tulis alasan pembatalan.'; end if;
   select * into j from acc_journals where id = p_id;
   if j.id is null then raise exception 'Jurnal tidak ditemukan.'; end if;
-  if j.source <> 'manual' then raise exception 'Jurnal otomatis tidak dibatalkan di sini. Koreksi di sumbernya (penjualan, barang masuk, kas) lalu perbarui jurnal.'; end if;
+  if j.source <> 'manual' then raise exception 'Jurnal otomatis tidak dibatalkan di sini. Koreksi di sumbernya (penjualan, barang masuk, kas, biaya tetap) lalu perbarui jurnal.'; end if;
   rid := public._acc_reverse(j.id, greatest(j.day, public._local(now())::date), 'Pembatalan ' || j.no || ': ' || rs, rs);
   select x.no into no from acc_journals x where x.id = rid;
   perform public._log('jurnal_batal', jsonb_build_object('jurnal', j.id, 'no', j.no, 'pembatal', no, 'alasan', rs));
@@ -778,6 +826,211 @@ begin
       'balanced', t.aset = t.kew + t.eku + pl.profit) from t, pl);
 end $$;
 
+-- ---------------------------------------------------------------- Biaya tetap
+-- The posting day of one cost in one month (post_day 0 = the last day of the month).
+create or replace function public._acc_fixed_day(p_post_day int, p_month date) returns date
+language sql immutable
+as $$ select case when coalesce(p_post_day, 0) = 0 then (p_month + interval '1 month' - interval '1 day')::date
+                  else p_month + (p_post_day - 1) end $$;
+
+-- The amount of one cost in one month, null when the month is outside the cost or has no version.
+create or replace function public._acc_fixed_amount(p_cost bigint, p_month date) returns bigint
+language plpgsql stable security definer set search_path = public
+as $$
+declare c acc_fixed_costs; v acc_fixed_cost_versions; dep bigint;
+begin
+  select * into c from acc_fixed_costs where id = p_cost;
+  if c.id is null or p_month < c.start_month or (c.end_month is not null and p_month > c.end_month) then return null; end if;
+  select * into v from acc_fixed_cost_versions where cost_id = c.id and from_month <= p_month order by from_month desc limit 1;
+  if v.cost_id is null then return null; end if;
+  if c.kind = 'penyusutan' and c.asset_cost is not null and c.life_months is not null and p_month = c.end_month then
+    dep := c.asset_cost - coalesce(c.residual, 0);
+    return greatest(dep - v.amount * (c.life_months - 1), 0);
+  end if;
+  return v.amount;
+end $$;
+
+-- Journal lines of one cost in one month (null = no journal).
+create or replace function public._acc_fixed_lines(p_cost bigint, p_month date) returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+declare c acc_fixed_costs; v acc_fixed_cost_versions; amt bigint := public._acc_fixed_amount(p_cost, p_month);
+begin
+  if amt is null or amt <= 0 then return null; end if;
+  select * into c from acc_fixed_costs where id = p_cost;
+  select * into v from acc_fixed_cost_versions where cost_id = c.id and from_month <= p_month order by from_month desc limit 1;
+  return jsonb_build_array(
+    jsonb_build_object('code', (select code from acc_accounts where id = v.expense_id), 'debit', amt, 'memo', c.name),
+    jsonb_build_object('code', (select code from acc_accounts where id = v.credit_id), 'credit', amt, 'memo', c.name));
+end $$;
+
+-- Make the biaya tetap journals of days f..t match the costs (p_cost: one cost only). Called by _acc_sync_core.
+-- Source id: '<cost id>:<YYYY-MM>'. A month is booked once its posting day has come (never ahead of t).
+create or replace function public._acc_sync_fixed(p_from date, p_to date, p_cost bigint default null, p_tally jsonb default '{}') returns jsonb
+language plpgsql volatile security definer set search_path = public
+as $$
+declare r record; c jsonb := coalesce(p_tally, '{}'); res text; d date; m date; cid bigint; seen text[] := '{}'; sid text;
+begin
+  for r in select x.id, x.name, x.post_day, gs::date as month
+             from acc_fixed_costs x,
+                  generate_series(x.start_month, least(coalesce(x.end_month, date_trunc('month', p_to)::date), date_trunc('month', p_to)::date), interval '1 month') gs
+            where p_cost is null or x.id = p_cost
+            order by gs, x.id loop
+    d := public._acc_fixed_day(r.post_day, r.month);
+    continue when d < p_from or d > p_to;
+    sid := r.id || ':' || to_char(r.month, 'YYYY-MM');
+    res := public._acc_restate('biaya_tetap', sid, d, 'Biaya tetap: ' || r.name || ' ' || to_char(r.month, 'MM/YYYY'), public._acc_fixed_lines(r.id, r.month));
+    c := public._acc_tally(res, c); seen := seen || sid;
+  end loop;
+  -- Months booked earlier that no longer belong to a cost (deleted, ended sooner, started later, moved day).
+  for r in select j.* from acc_journals j where j.source = 'biaya_tetap' and j.reverses is null and j.reversed_by is null
+              and j.day between p_from and p_to and not (j.source_id = any (seen))
+              and (p_cost is null or split_part(j.source_id, ':', 1) = p_cost::text) loop
+    cid := split_part(r.source_id, ':', 1)::bigint; m := (split_part(r.source_id, ':', 2) || '-01')::date;
+    d := public._acc_fixed_day((select post_day from acc_fixed_costs where id = cid), m);
+    res := public._acc_restate('biaya_tetap', r.source_id, case when d <= p_to then d else r.day end,
+      'Biaya tetap: ' || coalesce((select name from acc_fixed_costs where id = cid), 'dihapus') || ' ' || to_char(m, 'MM/YYYY'),
+      case when d <= p_to then public._acc_fixed_lines(cid, m) end);
+    c := public._acc_tally(res, c);
+  end loop;
+  return c;
+end $$;
+
+-- 'YYYY-MM' or a date to the first day of its month.
+create or replace function public._acc_month(p text) returns date
+language plpgsql immutable
+as $$
+begin
+  if p is null or trim(p) = '' then return null; end if;
+  if trim(p) !~ '^[0-9]{4}-[0-9]{2}(-[0-9]{2})?$' then raise exception 'Bulan ditulis seperti 2026-11.'; end if;
+  return date_trunc('month', (left(trim(p), 7) || '-01')::date)::date;
+end $$;
+
+-- Every fixed cost with this month's amount, its versions and what is booked so far.
+create or replace function public.acc_fixed_costs() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+  mo date := date_trunc('month', public._local(now()))::date; today date := public._local(now())::date;
+begin
+  return coalesce((select json_agg(x order by x.status_order, x.name) from (
+    select c.id, c.name, c.kind, c.post_day, to_char(c.start_month, 'YYYY-MM') as start_month, to_char(c.end_month, 'YYYY-MM') as end_month,
+           c.asset_cost, c.residual, c.life_months, c.note,
+           case when c.start_month > mo then 'belum' when c.end_month is not null and c.end_month < mo then 'selesai' else 'berjalan' end as status,
+           case when c.start_month > mo then 2 when c.end_month is not null and c.end_month < mo then 3 else 1 end as status_order,
+           public._acc_fixed_amount(c.id, greatest(mo, c.start_month)) as amount_now,
+           cur.amount, cur.expense_id, ea.code as expense_code, ea.name as expense_name, cur.credit_id, ka.code as credit_code, ka.name as credit_name,
+           (select json_agg(json_build_object('from_month', to_char(v.from_month, 'YYYY-MM'), 'amount', v.amount,
+                   'expense_code', (select code from acc_accounts where id = v.expense_id), 'credit_code', (select code from acc_accounts where id = v.credit_id)) order by v.from_month)
+              from acc_fixed_cost_versions v where v.cost_id = c.id) as versions,
+           coalesce(b.n, 0)::int as posted, coalesce(b.total, 0)::bigint as posted_total, to_char(b.last_month, 'YYYY-MM') as last_month,
+           (select min(public._acc_fixed_day(c.post_day, gs::date)) from generate_series(greatest(c.start_month, mo), coalesce(c.end_month, mo + interval '24 months'), interval '1 month') gs
+             where public._acc_fixed_day(c.post_day, gs::date) > today
+               and not exists (select 1 from acc_journals j where j.source = 'biaya_tetap' and j.source_id = c.id || ':' || to_char(gs, 'YYYY-MM') and j.reverses is null and j.reversed_by is null)) as next_day
+      from acc_fixed_costs c
+      left join lateral (select * from acc_fixed_cost_versions v where v.cost_id = c.id and v.from_month <= greatest(mo, c.start_month) order by v.from_month desc limit 1) cur on true
+      left join acc_accounts ea on ea.id = cur.expense_id
+      left join acc_accounts ka on ka.id = cur.credit_id
+      left join lateral (select count(*) as n, sum(l.debit) as total, max((split_part(j.source_id, ':', 2) || '-01')::date) as last_month
+                           from acc_journals j join acc_lines l on l.journal_id = j.id and l.debit > 0
+                          where j.source = 'biaya_tetap' and split_part(j.source_id, ':', 1) = c.id::text and j.reverses is null and j.reversed_by is null) b on true) x), '[]');
+end $$;
+
+-- Add (p_id null) or change a fixed cost. p: {name, kind, post_day, start_month, end_month, amount, expense_id,
+-- credit_id, from_month, asset_cost, residual, life_months, note}. For 'biaya', amount and accounts apply from
+-- from_month (default this month, or the start month when that is later); the months before keep their journals.
+-- For 'penyusutan' the amount and the end month follow from the asset, and every month is restated.
+create or replace function public.acc_save_fixed_cost(p_id bigint, p jsonb) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.');
+  old acc_fixed_costs; cid bigint; mo date := date_trunc('month', public._local(now()))::date;
+  nm text := trim(coalesce(p->>'name', '')); kd text := coalesce(nullif(p->>'kind', ''), 'biaya');
+  pd int := coalesce(nullif(p->>'post_day', '')::int, 1);
+  sm date := public._acc_month(p->>'start_month'); em date := public._acc_month(p->>'end_month'); fm date := public._acc_month(p->>'from_month');
+  amt bigint := nullif(p->>'amount', '')::bigint; ex bigint := nullif(p->>'expense_id', '')::bigint; cr bigint := nullif(p->>'credit_id', '')::bigint;
+  ac bigint := nullif(p->>'asset_cost', '')::bigint; rs bigint := coalesce(nullif(p->>'residual', '')::bigint, 0); lf int := nullif(p->>'life_months', '')::int;
+  nt text := nullif(trim(coalesce(p->>'note', '')), ''); ea acc_accounts; ka acc_accounts; f0 date;
+begin
+  if p_id is not null then
+    select * into old from acc_fixed_costs where id = p_id for update;
+    if old.id is null then raise exception 'Biaya tetap tidak ditemukan.'; end if;
+  end if;
+  if length(nm) < 2 then raise exception 'Isi nama biaya, contoh: Sewa booth.'; end if;
+  if kd not in ('biaya', 'penyusutan') then raise exception 'Jenis biaya tidak dikenal.'; end if;
+  if old.id is not null and old.kind <> kd then raise exception 'Jenis biaya tidak bisa diganti. Buat biaya tetap baru.'; end if;
+  if pd < 0 or pd > 28 then raise exception 'Tanggal pencatatan 1 sampai 28, atau akhir bulan.'; end if;
+  if sm is null then raise exception 'Isi bulan mulai.'; end if;
+  select * into ea from acc_accounts where id = ex; select * into ka from acc_accounts where id = cr;
+  if ea.id is null or ea.type <> 'beban' then raise exception 'Pilih akun beban.'; end if;
+  if ka.id is null or ka.type not in ('aset', 'kewajiban') then raise exception 'Pilih akun lawan (kas, bank, dibayar di muka, utang atau akumulasi penyusutan).'; end if;
+  if not ea.active or not ka.active then raise exception 'Ada akun yang sedang dimatikan. Nyalakan dulu di Bagan akun.'; end if;
+  if kd = 'penyusutan' then
+    if ac is null or ac <= 0 then raise exception 'Isi harga perolehan.'; end if;
+    if lf is null or lf < 1 or lf > 600 then raise exception 'Umur manfaat 1 sampai 600 bulan.'; end if;
+    if rs < 0 or rs >= ac then raise exception 'Nilai sisa harus di bawah harga perolehan.'; end if;
+    amt := (ac - rs) / lf;
+    if amt <= 0 then raise exception 'Penyusutan per bulan terlalu kecil.'; end if;
+    em := (sm + make_interval(months => lf - 1))::date;
+  else
+    ac := null; rs := null; lf := null;
+    if amt is null or amt <= 0 then raise exception 'Isi jumlah per bulan.'; end if;
+    if amt > 10000000000 then raise exception 'Jumlah per bulan terlalu besar.'; end if;
+    if em is not null and em < sm then raise exception 'Bulan selesai harus sesudah bulan mulai.'; end if;
+  end if;
+
+  if old.id is null then
+    insert into acc_fixed_costs (name, kind, post_day, start_month, end_month, asset_cost, residual, life_months, note, created_by)
+    values (nm, kd, pd, sm, em, ac, case when kd = 'penyusutan' then rs end, lf, nt, me) returning id into cid;
+    insert into acc_fixed_cost_versions values (cid, sm, amt, ex, cr);
+  else
+    cid := old.id;
+    update acc_fixed_costs set name = nm, post_day = pd, start_month = sm, end_month = em, asset_cost = ac,
+           residual = case when kd = 'penyusutan' then rs end, life_months = lf, note = nt where id = cid;
+    if kd = 'penyusutan' then
+      delete from acc_fixed_cost_versions where cost_id = cid;
+      insert into acc_fixed_cost_versions values (cid, sm, amt, ex, cr);
+    else
+      fm := greatest(coalesce(fm, mo), sm);
+      -- Ending a cost before the month a change would start leaves the booked months as they were.
+      if em is null or fm <= em then
+        delete from acc_fixed_cost_versions where cost_id = cid and from_month >= fm;
+        insert into acc_fixed_cost_versions values (cid, fm, amt, ex, cr);
+      end if;
+      -- The start month always has a version: move the earliest one back to it when the start moved earlier.
+      if not exists (select 1 from acc_fixed_cost_versions where cost_id = cid and from_month <= sm) then
+        select min(from_month) into f0 from acc_fixed_cost_versions where cost_id = cid;
+        update acc_fixed_cost_versions set from_month = sm where cost_id = cid and from_month = f0;
+      end if;
+    end if;
+  end if;
+
+  perform public._acc_sync_fixed(least(sm, coalesce(old.start_month, sm)), public._local(now())::date, cid);
+  perform public._log(case when old.id is null then 'biaya_tetap_tambah' else 'biaya_tetap_ubah' end,
+    jsonb_build_object('biaya', cid, 'nama', nm, 'jenis', kd, 'jumlah', amt, 'mulai', sm, 'selesai', em, 'berlaku_mulai', fm));
+  return json_build_object('id', cid, 'amount', amt, 'end_month', to_char(em, 'YYYY-MM'));
+end $$;
+
+-- Hapus: the cost goes, and every month booked for it is reversed (dated the day of the month it reversed).
+-- To stop a cost but keep what was booked, set its end month instead.
+create or replace function public.acc_delete_fixed_cost(p_id bigint) returns json
+language plpgsql volatile security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); c acc_fixed_costs; j record; n int := 0;
+begin
+  select * into c from acc_fixed_costs where id = p_id for update;
+  if c.id is null then raise exception 'Biaya tetap tidak ditemukan.'; end if;
+  for j in select * from acc_journals where source = 'biaya_tetap' and split_part(source_id, ':', 1) = c.id::text
+              and reverses is null and reversed_by is null loop
+    perform public._acc_reverse(j.id, j.day, 'Pembatalan otomatis: ' || j.description, 'Biaya tetap dihapus');
+    n := n + 1;
+  end loop;
+  delete from acc_fixed_costs where id = c.id;
+  perform public._log('biaya_tetap_hapus', jsonb_build_object('biaya', c.id, 'nama', c.name, 'jurnal_dibatalkan', n));
+  return json_build_object('deleted', true, 'reversed', n);
+end $$;
+
 -- ---------------------------------------------------------------- permissions
 -- Same shape as the end of pos.sql: _ functions are not callable from the app, the rest are.
 do $$
@@ -787,7 +1040,7 @@ begin
     select p.oid::regprocedure as sig, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.prokind = 'f' and (p.proname like '\_acc\_%' or p.proname in (
        'acc_sync', 'acc_accounts', 'acc_save_account', 'acc_delete_account', 'acc_journals', 'acc_post_manual', 'acc_reverse_journal',
-       'acc_ledger', 'acc_trial', 'acc_pnl', 'acc_balance_sheet'))
+       'acc_ledger', 'acc_trial', 'acc_pnl', 'acc_balance_sheet', 'acc_fixed_costs', 'acc_save_fixed_cost', 'acc_delete_fixed_cost'))
   loop
     execute format('revoke all on function %s from public, anon', f.sig);
     if f.proname like '\_%' then execute format('revoke all on function %s from authenticated', f.sig);
