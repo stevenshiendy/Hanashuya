@@ -8,7 +8,15 @@ import { $, $$, esc, busy, notice, toast } from './lib.js';
 export const WA_CATS = { ulang_tahun: 'Ulang tahun', voucher: 'Voucher', kartu: 'Kartu member', umum: 'Umum' };
 export const WA_FIELDS = [['{nama}', 'Nama depan member'], ['{stempel}', 'Stempel di kartu'], ['{hadiah}', 'Hadiah berikutnya'], ['{voucher}', 'Voucher siap pakai'], ['{voucher_sampai}', 'Voucher berlaku sampai'], ['{link_kartu}', 'Link kartu member']];
 const SAMPLE = { '{nama}': 'Desi', '{stempel}': '4', '{hadiah}': 'Diskon 20% di stempel ke-7', '{voucher}': 'Diskon 50% untuk 1 produk', '{voucher_sampai}': '30 November 2026', '{link_kartu}': 'https://hanashuya.vercel.app/member/' };
-export const fillSample = (body) => Object.entries(SAMPLE).reduce((t, [k, v]) => t.split(k).join(v), String(body || ''));
+// Emoji shortcodes (Glenn, 16 Nov 2026): type :wave: in a template, members get 👋. WhatsApp never turns
+// shortcodes into emoji in text that comes from a link, so the swap happens here before WhatsApp opens.
+// Unknown codes stay as typed. The first name in each row is the one shown under the editor.
+export const WA_EMOJI = [['wave', '👋'], ['laughing', '😆'], ['blush', '😊'], ['wink', '😉'], ['yum', '😋'], ['hugging', '🤗', 'hugs'],
+  ['pleading', '🥺', 'pleading_face'], ['raised_hands', '🙌'], ['sparkles', '✨'], ['birthday', '🎂', 'cake'], ['partying', '🥳', 'partying_face'],
+  ['tada', '🎉'], ['gift', '🎁'], ['heart', '❤️'], ['pray', '🙏'], ['star', '⭐'], ['tickets', '🎟️', 'ticket'], ['shopping', '🛍️', 'shopping_bags'], ['phone', '📱', 'iphone']];
+const EMOJI_BY = new Map(WA_EMOJI.flatMap(([n, e, ...alt]) => [n, ...alt].map((k) => [k, e])));
+export const emojify = (text) => String(text || '').replace(/:([a-z_]+):/g, (m, k) => EMOJI_BY.get(k) || m);
+export const fillSample = (body) => emojify(Object.entries(SAMPLE).reduce((t, [k, v]) => t.split(k).join(v), String(body || '')));
 // api.whatsapp.com/send, not wa.me: the wa.me redirect re-encodes the text and loses emoji (16 Nov 2026).
 export const waOpenLink = (number, text) => `https://api.whatsapp.com/send?phone=${String(number || '').replace(/\D/g, '')}&text=${encodeURIComponent(text)}`;
 const errBox = (e) => `<div class="notice notice-error" role="alert">${esc(e.message)}</div>`;
@@ -55,6 +63,8 @@ export async function mountWaTemplates(panel, { rpc }) {
       <label class="field"><span>Teks pesan <span class="hint" id="wf-count"></span></span><textarea name="body" rows="6" maxlength="1000" required>${esc(v.body)}</textarea></label>
       <div class="stack"><span class="small">Ketuk untuk menyisipkan data member</span>
         <div class="row" role="group" aria-label="Sisipkan data">${WA_FIELDS.map(([k, l]) => `<button class="btn btn-quiet" type="button" data-ph="${esc(k)}" title="${esc(l)}">${esc(k)}</button>`).join('')}</div></div>
+      <div class="stack"><span class="small">Emoji: ketuk untuk menyisipkan kodenya, member menerima emojinya</span>
+        <div class="row" role="group" aria-label="Sisipkan emoji">${WA_EMOJI.map(([n, e]) => `<button class="btn btn-quiet" type="button" data-ph=":${n}:" title=":${n}:" aria-label="${esc(e)} :${n}:">${e} :${n}:</button>`).join('')}</div></div>
       <div class="stack"><span class="small">Contoh hasilnya, untuk member bernama Desi</span><p class="notice" id="wf-prev"></p></div>
       <div class="notice" id="wf-msg" hidden></div>
       <div class="row"><button class="btn" type="submit">Simpan</button><button class="btn btn-quiet" type="button" id="wf-cancel">Batal</button></div>
@@ -116,7 +126,7 @@ export async function openWaDialog(member, { rpc }) {
     if (!sel.value) return;
     try {
       const r = await rpc('owner_wa_preview', { p_template: Number(sel.value), p_member: member.id });
-      number = r.whatsapp; ta.value = r.text; ta.disabled = false; link();
+      number = r.whatsapp; ta.value = emojify(r.text); ta.disabled = false; link();
     } catch (e) { notice(msg, e.message); }
   });
 }
