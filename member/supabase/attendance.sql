@@ -1099,8 +1099,14 @@ begin
       'report', public._att_day_json(p.id, d, now()),
       'scans', coalesce((select json_agg(json_build_object('id', e.id, 'action', e.action, 'at', e.at, 'via', e.via, 'reason', e.reason,
           'voided', e.voided_at is not null, 'void_reason', e.void_reason,
+          -- Who added or cancelled it, and when (Glenn, 18 Nov 2026: corrections must show who made them).
+          'created_at', e.created_at, 'created_by_name', cb.full_name,
+          'voided_at', e.voided_at, 'voided_by_name', vb.full_name,
           'distance_m', e.distance_m, 'acc_m', e.acc_m, 'flags', e.flags) order by e.at)
-        from att_events e where e.staff_id = p.id and public._local(e.at)::date = d), '[]'))
+        from att_events e
+        left join profiles cb on cb.id = e.created_by
+        left join profiles vb on vb.id = e.voided_by
+        where e.staff_id = p.id and public._local(e.at)::date = d), '[]'))
       order by p.full_name)
     from profiles p where p.role in ('staff', 'manager') and p.deleted_at is null and (p_staff is null or p.id = p_staff)), '[]'));
 end $$;

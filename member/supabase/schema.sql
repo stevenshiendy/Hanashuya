@@ -1822,8 +1822,8 @@ begin
     uid := p.id;
   else
     uid := public._create_login(wa, coalesce(p_password, '12345678'), un, trim(p_name));
-    -- A staff card gets no new-member 50%; that voucher is for customers.
-    update profiles set role = p_role, adult_confirmed = true, welcome_voucher = false, employer = emp where id = uid;
+    -- Staff cards get the new-member 50% too (Glenn, 15 Nov 2026).
+    update profiles set role = p_role, adult_confirmed = true, employer = emp where id = uid;
   end if;
   -- Both end every session on the account, so whoever registered a member card on this
   -- number first is signed out once it becomes a work account (14 Nov 2026).

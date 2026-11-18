@@ -65,13 +65,11 @@ begin
       end if;
     elsif by_name.id is not null then
       uid := by_name.id;
-      -- A work account that was never a customer's card gets no new-member 50%.
-      update profiles set whatsapp = wa, welcome_voucher = false where id = uid;
+      update profiles set whatsapp = wa where id = uid;
       note := 'akun staf ' || coalesce(by_name.username, by_name.full_name) || ' diperbarui';
     else
       if n > 1 then note := 'PERIKSA: lebih dari satu staf dengan nama depan ini; '; end if;
       uid := public._create_login(wa, '12345678', un, r.full_name);
-      update profiles set welcome_voucher = false where id = uid;
       note := note || 'akun baru';
     end if;
 

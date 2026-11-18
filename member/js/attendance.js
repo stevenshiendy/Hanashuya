@@ -320,6 +320,14 @@ function dayRow(x, isToday) {
 // Koreksi (Glenn, 14 Nov 2026: "combine them and change everything at once in one prompt"): the
 // whole day in one form, Masuk and Pulang plus each istirahat (Mulai, Selesai), prefilled from the
 // scans. An empty box means no scan. One reason, one save (att_correct_day); unchanged scans stay.
+// " oleh Rany Marlina, 15 Nov 21.04": who added or cancelled a scan and when (Glenn, 18 Nov 2026).
+// Older rows or a deleted account have no name; then only the time shows.
+const whenFmt = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const byWho = (name, at) => {
+  const when = at ? whenFmt.format(new Date(at)).replace(', ', ' ').replace(/(\d{2}):(\d{2})$/, '$1.$2') : '';
+  if (!name && !when) return '';
+  return ` ${name ? `oleh ${esc(name)}` : ''}${name && when ? ', ' : ''}${esc(when)}`;
+};
 const hhmm = (iso) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso));
 // Pair scans in order: a start with the next end of its kind (masuk-pulang, istirahat-kembali).
 function pairs(live, start, end) {
@@ -342,8 +350,8 @@ function fixDialog(x, date, done) {
   if (!work.length) work.push({});
   if (!brk.length) brk.push({});
   const hist = x.scans.length ? `<details class="dp-histbox"><summary class="small">Riwayat scan (${x.scans.length})</summary><ul class="list dp-hist">${x.scans.map((s) => `<li><span class="grow"><span class="num">${esc(dot(time(s.at)))}</span> ${ACTION[s.action]}
-      ${s.via === 'koreksi' ? `<span class="muted small">ditambah: ${esc(s.reason)}</span>` : ''}
-      ${s.voided ? `<span class="muted small">dibatalkan: ${esc(s.void_reason)}</span>` : ''}</span>${s.voided ? tag(['Dibatalkan', 'tag-bad']) : ''}</li>`).join('')}</ul></details>`
+      ${s.via === 'koreksi' ? `<span class="muted small">ditambah${byWho(s.created_by_name, s.created_at)}: ${esc(s.reason)}</span>` : ''}
+      ${s.voided ? `<span class="muted small">dibatalkan${byWho(s.voided_by_name, s.voided_at)}: ${esc(s.void_reason)}</span>` : ''}</span>${s.voided ? tag(['Dibatalkan', 'tag-bad']) : ''}</li>`).join('')}</ul></details>`
     : '<p class="muted small">Belum ada scan di tanggal ini.</p>';
   return formDialog({
     title: `Koreksi presensi ${x.full_name || x.name}`,

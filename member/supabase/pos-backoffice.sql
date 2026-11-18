@@ -237,19 +237,19 @@ declare
 begin
   if coalesce(p_sort, 'baru') not in ('baru', 'kunjungan', 'belanja', 'terakhir', 'nama') then raise exception 'Urutan tidak dikenal.'; end if;
   return (with base as (
-      select p.id, p.full_name, p.whatsapp, p.card_code, p.created_at, p.birth_date, p.gender,
+      select p.id, p.full_name, p.whatsapp, p.card_code, p.created_at, p.birth_date, p.gender, p.role,
              s.visits, s.spent, s.last_visit
         from profiles p
         cross join lateral (select count(*)::int as visits, coalesce(sum(total), 0)::int as spent, max(created_at) as last_visit
                               from sales x where x.member_id = p.id and x.reversed_at is null) s
-       where p.role = 'member' and p.deleted_at is null
+       where p.role in ('member', 'staff', 'manager') and p.deleted_at is null
          and (q is null or lower(coalesce(p.full_name, '')) like '%' || q || '%' or upper(p.card_code) like '%' || upper(q) || '%'
               or (digits is not null and length(digits) >= 4 and regexp_replace(coalesce(p.whatsapp, ''), '\D', '', 'g') like '%' || digits || '%')))
     select json_build_object(
       'total', (select count(*) from base),
-      'all_members', (select count(*) from profiles where role = 'member' and deleted_at is null),
+      'all_members', (select count(*) from profiles where role in ('member', 'staff', 'manager') and deleted_at is null),
       'page', pg, 'page_size', 50,
-      'rows', coalesce((select json_agg(json_build_object('id', b.id, 'name', b.full_name, 'whatsapp', b.whatsapp, 'card_code', b.card_code,
+      'rows', coalesce((select json_agg(json_build_object('id', b.id, 'role', b.role, 'name', b.full_name, 'whatsapp', b.whatsapp, 'card_code', b.card_code,
           'joined', b.created_at, 'birth_date', b.birth_date, 'visits', b.visits, 'spent', b.spent, 'last_visit', b.last_visit,
           'position', cv.card_position, 'cards_done', cv.cards_done,
           'ready', (select count(*) from public._rewards(b.id) r where r.status = 'tersedia')
@@ -271,10 +271,10 @@ language plpgsql stable security definer set search_path = public
 as $$
 declare me uuid := public._require(array['owner'], 'Halaman ini hanya untuk pemilik.'); p profiles;
 begin
-  select * into p from profiles where id = p_id and role = 'member' and deleted_at is null;
+  select * into p from profiles where id = p_id and role in ('member', 'staff', 'manager') and deleted_at is null;
   if p.id is null then raise exception 'Member tidak ditemukan.'; end if;
   return json_build_object(
-    'id', p.id, 'name', p.full_name, 'username', p.username, 'whatsapp', p.whatsapp, 'card_code', p.card_code,
+    'id', p.id, 'role', p.role, 'name', p.full_name, 'username', p.username, 'whatsapp', p.whatsapp, 'card_code', p.card_code,
     'joined', p.created_at, 'birth_date', p.birth_date, 'gender', p.gender, 'age_range', p.age_range,
     'marketing', p.marketing_opt_in, 'stamps', public._total(p.id),
     'card', (select row_to_json(cv) from public._card_view(p.id) cv),

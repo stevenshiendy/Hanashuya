@@ -166,7 +166,7 @@ export function mountMembers(panel, { rpc }) {
     box.innerHTML = `<div class="panel stack">
       <p class="muted small num">${d.total} dari ${d.all_members} member${pages > 1 ? ` · halaman ${d.page + 1} dari ${pages}` : ''}</p>
       ${d.rows.length ? `<div class="table-wrap"><table><thead><tr><th>Nama</th><th>WhatsApp</th><th>Daftar</th><th class="num">Kunjungan</th><th class="num">Belanja</th><th>Terakhir</th><th class="num">Kartu</th><th class="num">Hadiah siap</th></tr></thead><tbody>
-        ${d.rows.map((m) => `<tr><td><button class="btn btn-text" type="button" data-m="${esc(m.id)}">${esc(m.name || '(tanpa nama)')}</button></td>
+        ${d.rows.map((m) => `<tr><td><button class="btn btn-text" type="button" data-m="${esc(m.id)}">${esc(m.name || '(tanpa nama)')}</button>${m.role && m.role !== 'member' ? ' <span class="tag">Staf</span>' : ''}</td>
           <td>${esc(prettyPhone(m.whatsapp))}</td><td>${esc(day(m.joined))}</td>
           <td class="num">${m.visits}</td><td class="num">${esc(rupiah(m.spent))}</td><td>${m.last_visit ? esc(day(m.last_visit)) : '–'}</td>
           <td class="num">${m.position}/10${m.cards_done ? ` · ${m.cards_done} penuh` : ''}</td><td class="num">${m.ready || '–'}</td></tr>`).join('')}
@@ -187,7 +187,7 @@ export function mountMembers(panel, { rpc }) {
     const RST = { tersedia: ['Siap dipakai', 'tag-ok'], dipakai: ['Dipakai', 'tag'], terkunci: ['Belum terbuka', 'tag'], kedaluwarsa: ['Lewat', 'tag'] };
     const tag = (s) => { const [l, c] = RST[s] || [s, 'tag']; return `<span class="tag ${c}">${esc(l)}</span>`; };
     box.innerHTML = `<section class="panel stack" aria-labelledby="md-t">
-      <div class="row-between"><h2 id="md-t">${esc(m.name || '(tanpa nama)')}</h2><button class="btn btn-quiet" type="button" id="md-close">Tutup</button></div>
+      <div class="row-between"><h2 id="md-t">${esc(m.name || '(tanpa nama)')}${m.role && m.role !== 'member' ? ' <span class="tag">Staf</span>' : ''}</h2><button class="btn btn-quiet" type="button" id="md-close">Tutup</button></div>
       <dl class="kv">
         <dt>WhatsApp</dt><dd class="num">${esc(prettyPhone(m.whatsapp))}</dd>
         <dt>Kode kartu</dt><dd class="num">${esc(m.card_code)}</dd>
