@@ -323,6 +323,12 @@ begin
     else array['kembali'] end;
 end $$;
 
+-- First day of real presensi scans: the POS and QR presensi went live on 14 Nov 2026 (Glenn,
+-- 19 Nov 2026). Scheduled days before it count as present, see _att_day.
+create or replace function public._att_pos_start() returns date
+language sql immutable set search_path = public
+as $$ select date '2026-11-14' $$;
+
 -- One person's day, one row per scheduled work block (kind 'jadwal'), plus a row for
 -- any work outside the schedule ('di_luar_jadwal'), or one 'izin' row on approved leave.
 -- Scans are grouped into sessions (Masuk to Pulang); each session goes to the block it
@@ -330,7 +336,7 @@ end $$;
 -- missing scan is already missing or simply has not happened yet.
 -- flags: terlambat, tidak_hadir, tidak_scan_pulang, tidak_scan_kembali, istirahat_lebih,
 --        pulang_awal, pulang_lewat (10 to 20 minutes after the end), lembur, di_luar_jadwal,
---        sedang_bekerja, sedang_istirahat.
+--        sedang_bekerja, sedang_istirahat, hadir_sebelum_pos (scheduled day before the POS start).
 create or replace function public._att_day(p_staff uuid, d date, p_now timestamptz)
 returns table (work_date date, kind text, block_start time, block_end time, shift text, masuk timestamptz, pulang timestamptz,
   worked_min int, break_min int, break_limit int, late_min int, early_min int, overtime_min int, flags text[])
@@ -397,7 +403,13 @@ begin
     late_min := 0; early_min := 0; overtime_min := 0;
     kind := case when r.bi is null then 'di_luar_jadwal' else 'jadwal' end;
     if r.bi is null then f := f || 'di_luar_jadwal'::text; end if;
-    if r.n = 0 then
+    if r.n = 0 and r.bi is not null and d < public._att_pos_start() then
+      -- Before the POS and QR presensi started (Glenn, 19 Nov 2026): no scans exist, so a
+      -- scheduled block counts as worked to the schedule (break taken in full), shown green.
+      masuk := r.bs; pulang := r.be; break_min := r.break_minutes;
+      worked_min := greatest(floor(extract(epoch from (r.be - r.bs)) / 60)::int - r.break_minutes, 0);
+      f := f || 'hadir_sebelum_pos'::text;
+    elsif r.n = 0 then
       if p_now > r.be then f := f || 'tidak_hadir'::text; end if;
     else
       if r.bs is not null and r.s_in > r.bs + make_interval(mins => st.att_late_minutes) then

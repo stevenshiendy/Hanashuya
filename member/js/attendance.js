@@ -20,6 +20,8 @@ const FLAG = {
   pulang_lewat: ['Pulang lewat 10 menit', 'tag-warn'], lembur: ['Lembur, perlu disetujui', 'tag-warn'],
   di_luar_jadwal: ['Di luar jadwal', 'tag-warn'], lokasi_kurang_akurat: ['Lokasi kurang akurat', 'tag-warn'],
   lokasi_booth_belum_diatur: ['Jarak tidak dicek: lokasi booth belum disimpan', 'tag-warn'], sedang_bekerja: ['Sedang bekerja', 'tag-ok'], sedang_istirahat: ['Sedang istirahat', 'tag'],
+  // Scheduled days before the POS started on 14 Nov 2026 count as present (Glenn, 19 Nov 2026).
+  hadir_sebelum_pos: ['Hadir', 'tag-ok'],
 };
 const LEAVE = { menunggu: ['Menunggu', 'tag-warn'], disetujui: ['Disetujui', 'tag-ok'], ditolak: ['Ditolak', 'tag-bad'], dibatalkan: ['Dibatalkan', 'tag'] };
 
@@ -292,7 +294,10 @@ function dayRow(x, isToday) {
     : sched.map((r) => r.kind === 'izin' ? tag(['Izin', 'tag-warn']) : `<span class="dp-block">${esc(r.shift || 'Jadwal')} <span class="num muted">${esc(span(r))}</span></span>`).join('');
   const brk = x.report.reduce((n, r) => n + (r.break_min || 0), 0);
   const onBreak = isToday && x.next?.[0] === 'kembali';
-  const masuk = first('masuk'), pulang = last('pulang'), lastBreak = last('istirahat');
+  // Before the POS started there are no scans: show the schedule's times (hadir_sebelum_pos).
+  const pre = x.report.find((r) => (r.flags || []).includes('hadir_sebelum_pos'));
+  const masuk = first('masuk') || (pre && { at: pre.masuk }), pulang = last('pulang') || (pre && { at: [...x.report].reverse().find((r) => r.pulang)?.pulang });
+  const lastBreak = last('istirahat');
   // Keterangan: what is happening now (today only), then anything that needs a look.
   const notes = [];
   if (isToday) {
