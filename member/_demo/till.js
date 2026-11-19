@@ -4,7 +4,7 @@
 // Till v2 (13 Nov 2026): order note, Bayar 2 cara (campur), refund of some pieces, 50% malam and
 // 50% instruksi, promo counts on the rekap, pre-orders without DP.
 import * as V from './sample-views.js';
-import { localCharges } from '../js/till-offline.js';
+import { localCharges, mixSplit } from '../js/till-offline.js';
 // ?pajak=1 turns on service charge 5% and PBJT 10% added on top; ?pajak=inc puts PBJT inside the price.
 const CHARGES = (() => { const v = new URLSearchParams(location.search).get('pajak'); return v ? { service_on: true, service_pct: 5, pbjt_on: true, pbjt_pct: 10, pbjt_included: v === 'inc' } : null; })();
 import { data as sampleData, addD } from './sample-data.js';
@@ -140,9 +140,9 @@ const hoursAgo = (h, m = 0) => new Date(Date.now() - (h * 60 + m) * 60000).toISO
 const categories = [{ id: 1, name: 'Signature' }, { id: 2, name: 'Mini Choux' }, { id: 3, name: 'Lainnya' }, { id: 4, name: 'Pistachoux' }];
 const products = [
   { code: 'sig1', name: 'Signature 1 pcs', category_id: 1, price: 20000, is_box: false, needs_flavour: true, flavour_surcharge: 0 },
-  { code: 'sig6', name: 'Signature Box isi 6', category_id: 1, price: 120000, is_box: true, needs_flavour: true, flavour_surcharge: 3000 },
-  { code: 'mini15', name: 'Mini Box isi 15', category_id: 2, price: 99000, is_box: true, needs_flavour: true, flavour_surcharge: 3000 },
-  { code: 'mini8', name: 'Mini Box isi 8', category_id: 2, price: 68000, is_box: true, needs_flavour: true, flavour_surcharge: 3000 },
+  { code: 'sig6', name: 'Signature Box isi 6', category_id: 1, price: 120000, is_box: true, needs_flavour: true, flavour_surcharge: 3000, box_pieces: 6, mix_parts: 3, mix_max: 3 },
+  { code: 'mini15', name: 'Mini Box isi 15', category_id: 2, price: 99000, is_box: true, needs_flavour: true, flavour_surcharge: 3000, box_pieces: 15, mix_parts: 3, mix_max: 3 },
+  { code: 'mini8', name: 'Mini Box isi 8', category_id: 2, price: 68000, is_box: true, needs_flavour: true, flavour_surcharge: 3000, box_pieces: 8, mix_parts: 2, mix_max: 2 },
   { code: 'bag', name: 'Paper bag', category_id: 3, price: 5000, is_box: false, needs_flavour: false, flavour_surcharge: 0 },
   { code: 'pistachoux_1_pcs', name: 'Pistachoux 1 pcs', category_id: 4, price: 35000, is_box: false, needs_flavour: false, flavour_surcharge: 0 },
 ];
@@ -205,9 +205,18 @@ function price(p, mkey) {
   for (const it of p.items) {
     const pr = products.find((x) => x.code === it.product) || fail('Produk tidak dikenal atau sedang tidak dijual.');
     let fl = null;
-    if (pr.needs_flavour) fl = flavours.find((f) => f.id === it.flavour) || fail(`Pilih rasa untuk ${pr.name}.`);
-    const sur = fl && fl.surcharge ? pr.flavour_surcharge : 0, unit = pr.price + sur;
-    lines.push({ line: ++n, code: pr.code, name: pr.name, flavour: fl?.id || null, flavour_label: fl?.label || null, qty: it.qty, unit_price: unit, surcharge: sur, line_total: unit * it.qty, discount: 0, free_bag: false, is_box: pr.is_box });
+    // Campur rasa, as _pos_mix in campur-rasa.sql.
+    const mixIn = Array.isArray(it.mix) && it.mix.length > 1 ? it.mix : null;
+    if (mixIn && (!pr.mix_parts || mixIn.length > (pr.mix_max || 1))) fail(`${pr.name} paling banyak ${pr.mix_max || 1} rasa.`);
+    if (mixIn && mixIn.reduce((t, m) => t + m.parts, 0) !== pr.mix_parts) fail(`${pr.name} dibagi ${pr.mix_parts} bagian. Pembagian rasanya belum pas.`);
+    const mixIds = mixIn ? mixIn.map((m) => m.flavour) : null;
+    if (pr.needs_flavour && !mixIds) fl = flavours.find((f) => f.id === it.flavour) || fail(`Pilih rasa untuk ${pr.name}.`);
+    const mix = mixIn ? mixSplit(pr, mixIn) : null;
+    const anySur = mixIds ? mixIds.some((id) => flavours.find((f) => f.id === id)?.surcharge) : fl && fl.surcharge;
+    const sur = anySur ? pr.flavour_surcharge : 0, unit = pr.price + sur;
+    lines.push({ line: ++n, code: pr.code, name: pr.name, flavour: fl?.id || null,
+      flavour_label: mix ? mix.map((x) => `${flavours.find((f) => f.id === x.flavour).label} ${x.pcs}`).join(', ') : fl?.label || null, mix,
+      qty: it.qty, unit_price: unit, surcharge: sur, line_total: unit * it.qty, discount: 0, free_bag: false, is_box: pr.is_box });
     subtotal += unit * it.qty; if (pr.code !== 'bag') goods += unit * it.qty; if (pr.is_box) boxes += it.qty;
   }
   const bags = p.free_bags || 0;

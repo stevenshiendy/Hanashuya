@@ -55,6 +55,25 @@ export function nextLocalNo() {
 /* ------------------------------------------------------------ prices and receipt */
 // The same sums as _pos_price for a walk-in with no promo: price + flavour surcharge,
 // and the free paper bags at Rp0.
+// Campur rasa (19 Nov 2026), as _pos_mix in campur-rasa.sql: a box is cut into mix_parts equal
+// portions (Mini isi 15: 3 of 5) and each flavour takes 1 or more portions.
+// mix: [{ flavour, parts }] -> [{ flavour, pcs }].
+export const mixSplit = (p, mix) => mix.map((m) => ({ flavour: m.flavour, pcs: m.parts * (p.box_pieces / p.mix_parts) }));
+export const mixLabel = (cat, p, mix) => mixSplit(p, mix)
+  .map((x) => `${cat.flavours.find((f) => f.id === x.flavour)?.label || x.flavour} ${x.pcs}`).join(', ');
+// Every way to share `parts` portions between n flavours, at least 1 each: (3, 2) -> [[2, 1], [1, 2]].
+export function mixShares(parts, n) {
+  if (n === 1) return [[parts]];
+  const out = [];
+  for (let k = parts - n + 1; k >= 1; k -= 1) for (const rest of mixShares(parts - k, n - 1)) out.push([k, ...rest]);
+  return out;
+}
+// Price of one unit: the flavour charge is once per box, for a mix when any of its flavours has one.
+export function itemUnit(cat, p, it) {
+  const ids = it.mix ? it.mix.map((m) => m.flavour) : it.flavour ? [it.flavour] : [];
+  return p.price + (ids.some((id) => cat.flavours.find((f) => f.id === id)?.surcharge) ? p.flavour_surcharge : 0);
+}
+
 export function localQuote(cat, items, freeBags) {
   const lines = [];
   let subtotal = 0;
@@ -62,8 +81,10 @@ export function localQuote(cat, items, freeBags) {
     const p = cat.products.find((x) => x.code === it.product);
     const f = cat.flavours.find((x) => x.id === it.flavour);
     if (!p) throw new Error('Produk tidak dikenal. Muat ulang kasir saat internet kembali.');
-    const unit = p.price + (f && f.surcharge ? p.flavour_surcharge : 0);
-    lines.push({ line: lines.length + 1, code: p.code, name: p.name, flavour: f?.id || null, flavour_label: f?.label || null,
+    const unit = itemUnit(cat, p, it);
+    const mix = it.mix && p.box_pieces && p.mix_parts ? mixSplit(p, it.mix) : null;
+    lines.push({ line: lines.length + 1, code: p.code, name: p.name, flavour: mix ? null : f?.id || null,
+      flavour_label: mix ? mixLabel(cat, p, it.mix) : f?.label || null, mix,
       qty: it.qty, unit_price: unit, line_total: unit * it.qty, discount: 0, free_bag: false });
     subtotal += unit * it.qty;
   }

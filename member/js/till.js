@@ -102,6 +102,22 @@ async function loadQueueSlip() { try { S.queueSlip = !!(await rpc('pos_queue_sli
 const product = (code) => (S.cat?.products || []).find((p) => p.code === code);
 const flavour = (id) => (S.cat?.flavours || []).find((f) => f.id === id);
 const unitPrice = (p, f) => p.price + (f && f.surcharge ? p.flavour_surcharge : 0);
+// Campur rasa (Glenn, 19 Nov 2026): a box can hold up to mix_max flavours, split evenly
+// (Signature isi 6 and Mini isi 15: 3, Mini isi 8: 2; campur-rasa.sql). Never in Sampel mode.
+// Campur rasa, steps + portions (Glenn, 19 Nov 2026): 1. jumlah rasa, 2. the flavours, 3. the
+// pembagian when it isn't even (isi 15 or isi 6 with 2 flavours: 10+5 or 5+10, 4+2 or 2+4).
+const mixMax = (p) => (!S.sample && p?.needs_flavour && p.box_pieces && p.mix_parts ? Math.max(1, p.mix_max || 1) : 1);
+const pickShares = (p) => off.mixShares(p.mix_parts, S.pick.n);
+// The mix the sheet has made so far ([{ flavour, parts }]), or null until every step is done.
+function pickMix(p) {
+  const { n, sel } = S.pick;
+  if (n < 2 || sel.length !== n) return null;
+  const sh = pickShares(p), share = sh.length === 1 ? sh[0] : S.pick.share;
+  return share ? sel.map((flavour, i) => ({ flavour, parts: share[i] })) : null;
+}
+const pickReady = (p) => (S.pick.n > 1 ? !!pickMix(p) : !!S.pick.flavour);
+const itemPrice = (p, it) => off.itemUnit(S.cat, p, it);
+const itemLabel = (it) => (it.mix ? off.mixLabel(S.cat, product(it.product), it.mix) : flavour(it.flavour)?.label || '');
 const isStaffOnly = () => S.role === 'staff';
 const canCancel = () => S.role === 'manager' || S.role === 'owner';
 const shortDay = (iso) => new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'short' }).format(new Date(iso));
@@ -271,7 +287,7 @@ function orderPayload() {
   const promo = S.promo ? { ...S.promo } : null;
   return {
     id: S.orderId, channel: 'toko', ticket: S.member?.ticket || null, served_by: S.served,
-    items: S.items.map((it) => ({ product: it.product, flavour: it.flavour, qty: it.qty })),
+    items: S.items.map((it) => (it.mix ? { product: it.product, mix: it.mix, qty: it.qty } : { product: it.product, flavour: it.flavour, qty: it.qty })),
     free_bags: freeBags(), promo,
     gender: S.gender, age_range: S.age,
     note: S.note.trim() || null,
@@ -279,10 +295,13 @@ function orderPayload() {
   };
 }
 
-function addItem(code, flv, qty = 1) {
-  const it = S.items.find((x) => x.product === code && (x.flavour || null) === (flv || null));
+// mix: [{ flavour, parts }] for a box with 2 or more flavours (campur rasa), else null. The same
+// box with the same mix adds to one line.
+function addItem(code, flv, qty = 1, mix = null) {
+  const key = mix ? JSON.stringify(mix) : '';
+  const it = S.items.find((x) => x.product === code && (x.flavour || null) === (flv || null) && (x.mix ? JSON.stringify(x.mix) : '') === key);
   if (it) it.qty = Math.min(50, it.qty + qty);
-  else { S.items.push({ product: code, flavour: flv || null, qty }); if (S.promo) S.promo.line = null; }
+  else { S.items.push({ product: code, flavour: flv || null, mix, qty }); if (S.promo) S.promo.line = null; }
   requote();
 }
 
@@ -492,7 +511,7 @@ function homeLeft(h) {
         ${h.top_products.length ? `<ol class="hm-rank">${h.top_products.slice(0, 4).map((x, i) => `<li><b class="num">${i + 1}</b><span>${esc(x.name)}</span><span class="hm-n num">${x.qty} ${esc(x.unit)}</span>
           <span class="hm-mini" aria-hidden="true"><i style="width:${Math.round(x.qty / topMax * 100)}%"></i></span></li>`).join('')}</ol>` : '<p class="muted">Belum ada penjualan hari ini.</p>'}</section>
       <section class="hm-panel" aria-labelledby="hm-fl-t"><h2 id="hm-fl-t">Produk terjual per rasa</h2>
-        <dl class="hm-sold">${h.by_flavour.map((f) => `<dt>${esc(f.label)}</dt><dd class="num">${f.qty}</dd>`).join('')}</dl></section>
+        <dl class="hm-sold">${h.by_flavour.map((f) => `<dt>${esc(f.label)}</dt><dd class="num">${Number(f.qty).toLocaleString('id-ID')}</dd>`).join('')}</dl></section>
     </div></div>`;
 }
 function homeRight(h) {
@@ -802,11 +821,17 @@ function tilesHtml(on) {
 }
 
 function flavourTiles(p, tall) {
+  const multi = !tall && mixMax(p) > 1 && S.pick.n > 1, sel = multi ? S.pick.sel : [], mix = multi ? pickMix(p) : null;
+  // Pieces per flavour on each chosen tile, once the pembagian is known.
+  const split = mix ? Object.fromEntries(off.mixSplit(p, mix).map((x) => [x.flavour, x.pcs])) : {};
   return `<div class="tl-fgrid${tall ? ' is-tall' : ''}">${S.cat.flavours.map((f) => {
-    const on = tall ? (S.pick.counts[f.id] || 0) > 0 : S.pick.flavour === f.id;
-    return `<button class="tl-ftile${on ? ' is-on' : ''}" type="button" data-act="flavour" data-v="${esc(f.id)}" aria-pressed="${on}">
+    const on = tall ? (S.pick.counts[f.id] || 0) > 0 : multi ? sel.includes(f.id) : S.pick.flavour === f.id;
+    // All flavours chosen: the others grey out until one is tapped off.
+    const full = multi && !on && sel.length >= S.pick.n;
+    return `<button class="tl-ftile${on ? ' is-on' : ''}" type="button" data-act="flavour" data-v="${esc(f.id)}" aria-pressed="${on}"${full ? ' disabled' : ''}>
       <b>${esc(f.label)}</b><span class="num">${rupiah(unitPrice(p, f))}</span>
-      ${tall && S.pick.counts[f.id] ? `<span class="tl-cnt num" aria-label="${S.pick.counts[f.id]} ditambahkan">${S.pick.counts[f.id]}</span>` : ''}</button>`;
+      ${tall && S.pick.counts[f.id] ? `<span class="tl-cnt num" aria-label="${S.pick.counts[f.id]} ditambahkan">${S.pick.counts[f.id]}</span>` : ''}
+      ${split[f.id] ? `<span class="tl-cnt num" aria-label="${split[f.id]} pcs">${split[f.id]}</span>` : ''}</button>`;
   }).join('')}</div>`;
 }
 
@@ -831,18 +856,32 @@ function renderLeft() {
   if (el._sheet && !sheetWasOpen) queueMicrotask(() => $('.tl-sheet .tl-ftile', el)?.focus({ preventScroll: true }));
   if (S.left === 'flavour' && S.pick) {
     const p = product(S.pick.code), [n, d] = splitName(p.name);
-    const f = flavour(S.pick.flavour);
+    const max = mixMax(p), nf = S.pick.n, mix = nf > 1 ? pickMix(p) : null, ready = pickReady(p);
+    const pickIt = mix ? { mix } : { flavour: S.pick.flavour };
+    const shares = max > 1 && nf > 1 ? pickShares(p) : [];
+    const per = p.box_pieces / p.mix_parts;
+    const left = nf - S.pick.sel.length;
+    const hint = nf < 2 ? '' : left > 0 ? `Pilih ${left} rasa lagi.` : !mix ? 'Pilih pembagiannya.' : '';
     el.insertAdjacentHTML('beforeend', `<div class="tl-scrim" data-act="pick-close"></div>
       <div class="tl-sheet" role="dialog" aria-label="Pilih rasa ${esc(p.name)}">
         <div class="tl-sh-head"><span><span class="tl-sh-n">${esc(S.sample ? sampleName(p.code) : n)}</span> <span class="muted">${S.sample ? 'sampel, per pcs' : `${esc(d)} · ${rupiah(p.price)}`}</span></span>
           <button class="tl-link" type="button" data-act="pick-close">Batal</button></div>
-        <p class="tl-h">Pilih rasa</p>
+        ${max > 1 ? `<p class="tl-h">1. Jumlah rasa</p>
+        <div class="tl-chips" role="group" aria-label="Jumlah rasa">${Array.from({ length: max }, (_, i) => i + 1).map((k) =>
+          `<button type="button" class="tl-chip${nf === k ? ' is-on' : ''}" aria-pressed="${nf === k}" data-act="mix-n" data-v="${k}">${k} rasa</button>`).join('')}</div>
+        <p class="tl-h">2. ${nf > 1 ? `Pilih ${nf} rasa` : 'Pilih rasa'}</p>` : '<p class="tl-h">Pilih rasa</p>'}
         ${flavourTiles(p, false)}
+        ${shares.length > 1 && left === 0 ? `<p class="tl-h">3. Pembagian isi ${p.box_pieces}</p>
+        <div class="tl-chips" role="group" aria-label="Pembagian">${shares.map((sh, i) => {
+          const on = JSON.stringify(S.pick.share) === JSON.stringify(sh);
+          return `<button type="button" class="tl-chip${on ? ' is-on' : ''}" aria-pressed="${on}" data-act="mix-share" data-i="${i}">${esc(S.pick.sel.map((id, j) => `${flavour(id)?.label} ${sh[j] * per}`).join(' · '))}</button>`;
+        }).join('')}</div>` : ''}
+        ${max > 1 && nf > 1 ? `<p class="tl-mix" aria-live="polite">${mix ? `Isi ${p.box_pieces}: <b>${esc(off.mixLabel(S.cat, p, mix))}</b>` : esc(hint)}</p>` : ''}
         <div class="tl-add">
           <span class="tl-step is-big"><button type="button" data-act="pick-qty" data-d="-1" aria-label="Kurangi" ${S.pick.qty <= 1 ? 'disabled' : ''}>−</button>
             <output class="num" aria-live="polite">${S.pick.qty}</output>
             <button type="button" data-act="pick-qty" data-d="1" aria-label="Tambah">+</button></span>
-          <button class="btn tl-btn" type="button" data-act="pick-add" ${f ? '' : 'disabled'}><span>Tambah</span>${f ? `<span class="num">${S.sample ? `${S.pick.qty} pcs` : rupiah(unitPrice(p, f) * S.pick.qty)}</span>` : ''}</button>
+          <button class="btn tl-btn" type="button" data-act="pick-add" ${ready ? '' : 'disabled'}><span>Tambah</span>${ready ? `<span class="num">${S.sample ? `${S.pick.qty} pcs` : rupiah(itemPrice(p, pickIt) * S.pick.qty)}</span>` : ''}</button>
         </div>
       </div>`);
   }
@@ -1104,15 +1143,15 @@ function linesHtml() {
   const q = !S.quoting && S.quote ? S.quote : null;
   const pick = needsLine();
   const rows = S.items.map((it, i) => {
-    const p = product(it.product), f = flavour(it.flavour);
+    const p = product(it.product);
     const ql = q?.lines?.[i];
-    const amount = ql ? ql.line_total - ql.discount : unitPrice(p, f) * it.qty;
+    const amount = ql ? ql.line_total - ql.discount : itemPrice(p, it) * it.qty;
     const disc = ql && ql.discount > 0 ? ` · ${esc(q.promo?.label || 'promo')} −${rupiah(ql.discount)}` : '';
     const chosen = S.promo?.line === i + 1;
     return `<div class="tl-line${pick ? ' is-pick' : ''}${chosen ? ' is-chosen' : ''}">
       ${pick ? `<button class="tl-line-pick" type="button" data-act="promo-line" data-i="${i}">Promo untuk ${esc(p.name)}</button>` : ''}
       <b>${esc(p.name)}</b><b class="num">${rupiah(amount)}</b>
-      <span class="tl-sub"><span>${esc(f?.label || '')}${disc}</span>
+      <span class="tl-sub"><span>${esc(itemLabel(it))}${disc}</span>
         <span class="tl-step"><button type="button" data-act="qty" data-i="${i}" data-d="-1" aria-label="Kurangi ${esc(p.name)}">−</button>
           <output class="num">${it.qty}</output>
           <button type="button" data-act="qty" data-i="${i}" data-d="1" aria-label="Tambah ${esc(p.name)}">+</button></span></span></div>`;
@@ -1177,7 +1216,7 @@ function renderRight() {
   const el = $('#tl-right'); if (!el) return;
   if (S.sample) return renderSampleRight(el);
   const q = !S.quoting && S.quote ? S.quote : null;
-  const estimate = S.items.reduce((t, it) => t + unitPrice(product(it.product), flavour(it.flavour)) * it.qty, 0);
+  const estimate = S.items.reduce((t, it) => t + itemPrice(product(it.product), it) * it.qty, 0);
   const total = q ? q.total : off.localCharges(S.cat.charges, estimate, false).total;
   const per = S.cat.rupiah_per_stamp || 50000;
   const liveOnly = !S.online && (S.member || S.promo);
@@ -2217,7 +2256,7 @@ async function todayAction(act, id, btn) {
 
 /* ---------------------------------------------------------------- taps */
 // What can't change while Konfirmasi pesanan is on its way.
-const LOCKED = new Set(['tile', 'flavour', 'pick-qty', 'pick-add', 'qty', 'bags', 'promo', 'promo-off', 'promo-line', 'member-clear',
+const LOCKED = new Set(['tile', 'flavour', 'mix-n', 'mix-share', 'pick-qty', 'pick-add', 'qty', 'bags', 'promo', 'promo-off', 'promo-line', 'member-clear',
   'find', 'scan', 'voucher', 'join', 'served', 'gender', 'age', 'sample-on', 'bogo-start', 'confirm', 'note-open', 'half-ask']);
 // The order note is kept as it is typed (no re-render, so the keyboard stays up).
 app.addEventListener('input', (e) => {
@@ -2240,15 +2279,27 @@ async function onTap(e) {
     case 'tile': {
       const p = product(b.dataset.code); if (!p) return;
       if (!p.needs_flavour) { addItem(p.code, null); return; } // the new line on the right is the confirmation
-      S.pick = { code: p.code, flavour: null, qty: 1, counts: {} }; S.left = 'flavour'; renderLeft(); return;
+      S.pick = { code: p.code, flavour: null, n: 1, sel: [], share: null, qty: 1, counts: {} }; S.left = 'flavour'; renderLeft(); return;
     }
     case 'flavour': {
       if (PICKER === 'inplace') {
         S.pick.counts[b.dataset.v] = (S.pick.counts[b.dataset.v] || 0) + 1;
         addItem(S.pick.code, b.dataset.v); renderLeft();
+      } else if (S.pick.n > 1) {
+        // Campur rasa step 2: a tap turns a flavour on or off, up to the jumlah rasa.
+        const m = S.pick.sel, at = m.indexOf(b.dataset.v);
+        if (at >= 0) m.splice(at, 1); else if (m.length < S.pick.n) m.push(b.dataset.v);
+        S.pick.share = null; S.pick.flavour = m[0] || null; renderLeft();
       } else { S.pick.flavour = b.dataset.v; renderLeft(); }
       return;
     }
+    case 'mix-n': {
+      // Step 1. Flavours already tapped are kept, as far as they fit.
+      const k = Number(b.dataset.v), had = S.pick.n > 1 ? S.pick.sel : S.pick.flavour ? [S.pick.flavour] : [];
+      S.pick.n = k; S.pick.sel = k > 1 ? had.slice(0, k) : []; S.pick.share = null;
+      S.pick.flavour = had[0] || null; renderLeft(); return;
+    }
+    case 'mix-share': S.pick.share = pickShares(product(S.pick.code))[Number(b.dataset.i)] || null; renderLeft(); return;
     case 'pick-qty': S.pick.qty = Math.max(1, Math.min(50, S.pick.qty + Number(b.dataset.d))); renderLeft(); return;
     case 'pick-add':
       if (S.sample) {
@@ -2256,7 +2307,10 @@ async function onTap(e) {
         if (x) x.qty = Math.min(30, x.qty + S.pick.qty); else S.sample.items.push({ product: S.pick.code, flavour: S.pick.flavour, qty: S.pick.qty });
         S.pick = null; S.left = 'tiles'; renderLeft(); renderRight(); return;
       }
-      addItem(S.pick.code, S.pick.flavour, S.pick.qty); S.pick = null; S.left = 'tiles'; renderLeft(); return;
+      if (!pickReady(product(S.pick.code))) return;
+      if (S.pick.n > 1) addItem(S.pick.code, null, S.pick.qty, pickMix(product(S.pick.code)));
+      else addItem(S.pick.code, S.pick.flavour, S.pick.qty);
+      S.pick = null; S.left = 'tiles'; renderLeft(); return;
     case 'sample-on': stopCamera(); S.sample = { id: newId(), items: [] }; S.sampleQuota = null; S.left = 'tiles'; S.pick = null; renderLeft(); renderRight(); if (S.online) loadSampleQuota(); return;
     case 'sample-off': S.sample = null; S.pick = null; S.left = 'tiles'; renderLeft(); renderRight(); return;
     case 'sample-qty': {
