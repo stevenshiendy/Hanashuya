@@ -36,7 +36,7 @@ begin
         from pos_orders o
         left join profiles mb on mb.id = o.member_id
         left join profiles sv on sv.id = o.served_by
-       where o.sale_day between d1 and d2
+       where o.sale_day between d1 and d2 and o.replaced_at is null
          and (st is null or (st = 'batal' and o.status in ('batal', 'refund')) or o.status = st)
          and (q is null or lower(o.receipt_no) like '%' || q || '%' or lower(coalesce(o.local_no, '')) like '%' || q || '%' or lower(coalesce(mb.full_name, '')) like '%' || q || '%'
               or lower(coalesce(sv.full_name, '')) like '%' || q || '%' or lower(coalesce(o.promo_label, '')) like '%' || q || '%'
@@ -44,7 +44,7 @@ begin
        order by o.sold_at desc limit 300) x), '[]'),
     'total_rows', (select count(*) from pos_orders o
         left join profiles mb on mb.id = o.member_id left join profiles sv on sv.id = o.served_by
-       where o.sale_day between d1 and d2
+       where o.sale_day between d1 and d2 and o.replaced_at is null
          and (st is null or (st = 'batal' and o.status in ('batal', 'refund')) or o.status = st)
          and (q is null or lower(o.receipt_no) like '%' || q || '%' or lower(coalesce(o.local_no, '')) like '%' || q || '%' or lower(coalesce(mb.full_name, '')) like '%' || q || '%'
               or lower(coalesce(sv.full_name, '')) like '%' || q || '%' or lower(coalesce(o.promo_label, '')) like '%' || q || '%'

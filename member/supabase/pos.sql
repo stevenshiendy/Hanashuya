@@ -551,6 +551,9 @@ alter table public.pos_orders add constraint pos_orders_customer_name_check chec
 alter table public.pos_orders add column if not exists promo_by uuid references public.profiles (id) on delete set null;
 -- Partial refunds: what has gone back so far (rupiah) and per line (pieces).
 alter table public.pos_orders add column if not exists refunded int not null default 0;
+-- Ubah pesanan (19 Nov 2026, Glenn: a change before payment needs no flag): the closed invoice keeps
+-- status batal for the record and the log, but replaced_at keeps it off the order lists.
+alter table public.pos_orders add column if not exists replaced_at timestamptz;
 alter table public.pos_orders drop constraint if exists pos_orders_refunded_check;
 alter table public.pos_orders add constraint pos_orders_refunded_check check (refunded between 0 and total);
 alter table public.pos_order_items add column if not exists refunded_qty int not null default 0;
@@ -1397,7 +1400,7 @@ begin
   if exists (select 1 from pos_void_requests v where v.order_id = o.id and v.status = 'menunggu') then
     raise exception 'Pesanan ini sedang menunggu keputusan batal dari manajer.';
   end if;
-  update pos_orders set status = 'batal' where id = o.id;
+  update pos_orders set status = 'batal', replaced_at = now() where id = o.id;
   update redemptions set reversed_at = now(), reversed_by = me where order_id = o.id and reversed_at is null;
   if o.member_id is not null then perform public._sync_cycles(o.member_id); end if;
   perform public._log('pos_ubah_pesanan', jsonb_build_object('order', o.id, 'receipt', o.receipt_no, 'reason', 'Diubah sebelum dibayar'));
@@ -1534,7 +1537,7 @@ begin
       case when o.member_id is not null then public._first_name(mp.full_name) end as member,
       exists (select 1 from pos_void_requests v where v.order_id = o.id and v.status = 'menunggu') as void_pending
     from pos_orders o left join profiles sp on sp.id = o.served_by left join profiles mp on mp.id = o.member_id
-    where o.outlet_id = 'papaya-bdg' and o.sale_day = public._local(now())::date) x), '[]');
+    where o.outlet_id = 'papaya-bdg' and o.sale_day = public._local(now())::date and o.replaced_at is null) x), '[]');
 end $$;
 
 -- ---------------------------------------------------------------- shifts

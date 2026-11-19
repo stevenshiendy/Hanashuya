@@ -166,7 +166,7 @@ begin
     union all
     select 'o' || o.id, o.id, o.receipt_no, o.sold_at, o.sold_at, o.status, o.total, true, public._pos_pay_label(o.payment_method), null, null, null, null, null, 'selesai'
     from pos_orders o
-    where o.sale_day between p_from and p_to and o.status in ('batal', 'refund')
+    where o.sale_day between p_from and p_to and o.status in ('batal', 'refund') and o.replaced_at is null
       and not exists (select 1 from pos_void_requests v where v.order_id = o.id)) x), '[]');
 end $$;
 
