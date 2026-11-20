@@ -41,7 +41,9 @@ begin
         sh.counted_cash - sh.expected_cash as difference, sh.printed_at, sh.reprints,
         coalesce((select sum(amount) from pos_cash_moves c where c.shift_id = sh.id and c.kind = 'setor'), 0) as setor
       from pos_shifts sh
-      where public._local(sh.opened_at)::date between p_from and p_to) x), '[]'));
+      -- A shift belongs to the day its rekap closed (20 Nov 2026: shifts run rekap to rekap, so the one
+      -- holding 19 Nov's sales opened on 18 Nov). The shift still running counts as today.
+      where public._local(coalesce(sh.closed_at, now()))::date between p_from and p_to) x), '[]'));
 end $$;
 
 create or replace function public.owner_save_cash_settings(p_float int, p_flag_at int) returns json

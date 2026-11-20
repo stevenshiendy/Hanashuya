@@ -35,7 +35,7 @@ export function mountCashRekap(panel, { rpc }) {
   panel.innerHTML = `
   <div class="panel stack">
     <h1>Rekap kas</h1>
-    <p class="muted small">Staf menghitung laci tanpa melihat uang modal atau selisih. Di sini terlihat semuanya: modal, seharusnya di laci, yang dihitung, dan selisihnya. Shift berjalan dari rekap ke rekap, jadi setiap penjualan masuk ke satu shift.</p>
+    <p class="muted small">Staf menghitung laci tanpa melihat uang modal atau selisih. Di sini terlihat semuanya: modal, seharusnya di laci, yang dihitung, dan selisihnya. Shift berjalan dari rekap ke rekap, jadi setiap penjualan masuk ke satu shift. Shift tercatat di tanggal rekapnya ditutup; shift yang masih berjalan ada di hari ini.</p>
     ${rangeHtml({ preset: st.preset, from: st.from, to: st.to })}
   </div>
   <div id="kas-body">${loadingHtml}</div>`;
