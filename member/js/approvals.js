@@ -6,10 +6,12 @@ import { $, $$, esc, rpc, busy, toast, rupiah, when } from './lib.js';
 import { countReview } from './stock.js';
 
 const PAY = { tunai: 'Tunai', qris: 'QRIS', debit: 'Debit', transfer: 'Transfer', gratis: 'Gratis' };
-let root;
+let root, after = null;
 
-export function mountApprovals(panel) {
+// opts.onDecide runs after each decision (the owner page refreshes its counts).
+export function mountApprovals(panel, opts = {}) {
   root = panel;
+  after = opts.onDecide || null;
   root.innerHTML = '<p class="muted" role="status">Memuat…</p>';
   load();
 }
@@ -91,5 +93,6 @@ function ask(btn) {
       toast(approve ? 'Disetujui' : 'Ditolak');
     } catch (e) { toast(e.message); }
     await load();
+    after?.();
   });
 }

@@ -72,7 +72,7 @@ function loyalty(name, a) {
 // ?as=manager (13 Nov 2026): the page as a manager sees it. Like the SQL, only the read-only report
 // calls answer; anything else is refused, so a view that still asks for owner data shows up at once.
 const AS_MANAGER = new URLSearchParams(location.search).get('as') === 'manager';
-const MANAGER_OK = /^(whoami|report_dashboard|owner_pos_stats|owner_pos_report|owner_pos_profit|owner_laporan|owner_shift_detail|owner_purchase_report|owner_other_report|acc_(sync|accounts|journals|ledger|trial|pnl|balance_sheet|balance_monthly|journal_lines)|pos_void_overview|pos_commission_payouts|commission_(settings|dashboard|set_enabled|set_staff|set_schedule)|pos_commission_mark_paid|stock_[a-z_]+|staff_daily_summary)$/;
+const MANAGER_OK = /^(whoami|report_dashboard|owner_pos_stats|owner_pos_report|owner_pos_profit|owner_laporan|owner_shift_detail|owner_purchase_report|owner_other_report|acc_(sync|accounts|journals|ledger|trial|pnl|balance_sheet|balance_monthly|journal_lines)|pos_void_overview|pos_commission_payouts|commission_(settings|dashboard|set_enabled|set_staff|set_schedule)|pos_commission_mark_paid|stock_[a-z_]+|staff_daily_summary|pos_void_list|manager_pending_undo|pos_decide_void|owner_decide_undo)$/;
 export async function rpc(name, args = {}) {
   if (AS_MANAGER && !MANAGER_OK.test(name)) throw new Error('Halaman ini hanya untuk pemilik.');
   if (name === 'whoami') return AS_MANAGER ? { id: 'm-ranny', role: 'manager', full_name: 'Manajer Uji', whatsapp: '6281444444444' }
@@ -86,6 +86,15 @@ export async function rpc(name, args = {}) {
     return { ...d, role: 'manager', lapsed: [], last_backup: null, undo: [], staff: d.staff.map((x) => ({ ...x, whatsapp: null, email: null })) };
   }
   if (/^owner_member_(groups|action_list|overview)$/.test(name)) return insightsFake(name, args);
+  // Persetujuan (20 Nov 2026): requests waiting for the owner or a manager.
+  const asks = globalThis.__asks ||= {
+    voids: [{ id: 1, kind: 'batal', receipt_no: 'HS-261120-4821', total: 99000, payment_method: 'qris', requested_by: 'Rany', created_at: new Date(Date.now() - 18 * 60000).toISOString(), reason: 'Pesanan ShopeeFood, salah input' }],
+    undo: [{ id: 7, kind: 'penjualan', receipt_no: null, total: 120000, stamps: 2, member: 'Marsela', requested_by: 'Fajar', created_at: new Date(Date.now() - 95 * 60000).toISOString(), reason: 'Stempel masuk ke kartu yang salah' }],
+  };
+  if (name === 'pos_void_list') return asks.voids.slice();
+  if (name === 'manager_pending_undo') return asks.undo.slice();
+  if (name === 'pos_decide_void') { asks.voids = asks.voids.filter((v) => v.id !== args.p_id); return { ok: true }; }
+  if (name === 'owner_decide_undo') { asks.undo = asks.undo.filter((v) => v.id !== args.p_id); return { ok: true }; }
   if (/^owner_sample_/.test(name)) return sampleFake(name, args);
   if (name === 'owner_charges') return globalThis.__charges ||= { service_on: false, service_pct: 5, pbjt_on: false, pbjt_pct: 10, pbjt_included: false };
   if (name === 'owner_set_charges') { const p = args.p; if (Number(p.pbjt_pct) > 10) throw new Error('PBJT paling tinggi 10 persen (UU 1/2022).'); globalThis.__charges = { ...p, service_pct: Number(p.service_pct), pbjt_pct: Number(p.pbjt_pct) }; return globalThis.__charges; }

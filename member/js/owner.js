@@ -19,11 +19,13 @@ import { mountReportHub } from './owner-laporan2.js';
 import * as rail from './side-rail.js';
 import { rangeHtml, wireRange, presetRange, KEYS } from './owner-range.js';
 import { ownerSearch } from './owner-search.js';
+import { loadPending, pendingItems, askBarHtml, popNew, mountOwnerApprovals } from './owner-approvals.js';
 
 const sideRail = rail.sideRail;
 // The owner menu: [group key, rail icon, heading, [tab id, #hash, label]...].
 const MENU = [
-  ['beranda', 'home', '', [['t-sum', 'ringkasan', 'Ringkasan']]],
+  // Persetujuan (20 Nov 2026): the till's requests decided here too; Ringkasan shows a bar and a pop-up.
+  ['beranda', 'home', '', [['t-sum', 'ringkasan', 'Ringkasan'], ['t-appr', 'persetujuan', 'Persetujuan']]],
   ['penjualan', 'doc', 'Penjualan', [['t-ord', 'pesanan', 'Pesanan'],
     ['t-sales', 'penjualan', 'Penjualan member'], ['t-kas', 'rekap-kas', 'Rekap kas']]],
   // Laporan group (Glenn, 12 Nov 2026, like VireoPOS): every report in one place.
@@ -59,13 +61,13 @@ const MENU = [
 ];
 // Hashes that no longer name a view. Every other old hash (produk, stok, staf, absensi,
 // member, promo, laporan-pos, ...) is still the first view of its feature.
-const ALIAS = { pengaturan: 'cadangan', persetujuan: 'absen-staf', rekap: 'absen-staf', 'profil-staf': 'absen-staf',
+const ALIAS = { pengaturan: 'cadangan', rekap: 'absen-staf', 'profil-staf': 'absen-staf',
   'barang-masuk': 'stok-masuk', 'stok-opname': 'opname-transaksi' };
 const isLink = (item) => !!item[3];
 // A manager signs in here too (Glenn, 13 Nov 2026) and sees the reports read-only: Ringkasan, the Laporan
 // group, the Transaksi lists and Laporan akunting. Settings, staff accounts, products and prices, backups,
 // promo setup, vouchers and member data stay with the owner (the SQL refuses them for a manager as well).
-const MANAGER_VIEWS = new Set(['ringkasan', 'stok-laporan', 'laporan-pembelian', 'laporan-pos', 'laba-kotor', 'laporan-sampel', 'laporan-lainnya',
+const MANAGER_VIEWS = new Set(['ringkasan', 'persetujuan', 'stok-laporan', 'laporan-pembelian', 'laporan-pos', 'laba-kotor', 'laporan-sampel', 'laporan-lainnya',
   'purchase-order', 'penerimaan-barang', 'stok-masuk', 'stok-keluar', 'opname-transaksi', 'penyesuaian-stok', 'kartu-stok',
   'dalam-perjalanan', 'proses-komisi', 'pembatalan', 'laporan-akunting',
   // Komisi: a manager may switch commission on or off per staff (Glenn, 14 Nov 2026); the rules stay owner-only.
@@ -144,7 +146,7 @@ async function boot() {
   </div>`;
   const P = (id) => $('#' + id);
   const loaders = {
-    ringkasan: summary, 'laporan-pos': () => mountOwnerReports(P('p-rep'), { rpc }), 'laba-kotor': () => mountOwnerReports(P('p-profit'), { rpc, part: 'laba' }),
+    ringkasan: summary, persetujuan: () => mountOwnerApprovals(P('p-appr'), { rpc, onChange: refreshAsk }), 'laporan-pos': () => mountOwnerReports(P('p-rep'), { rpc }), 'laba-kotor': () => mountOwnerReports(P('p-profit'), { rpc, part: 'laba' }),
     'laporan-pembelian': () => mountLaporan(P('p-lbuy'), { rpc, part: 'pembelian' }), 'laporan-lainnya': () => mountLaporan(P('p-lother'), { rpc, part: 'lainnya' }),
     'purchase-order': () => mountTransaksi(P('p-po'), { rpc, part: 'po', readOnly: READ_ONLY }), 'penerimaan-barang': () => mountTransaksi(P('p-recv'), { rpc, part: 'penerimaan', readOnly: READ_ONLY }),
     'stok-masuk': () => mountTransaksi(P('p-in'), { rpc, part: 'stok-masuk', readOnly: READ_ONLY }), 'stok-keluar': () => mountTransaksi(P('p-out'), { rpc, part: 'stok-keluar', readOnly: READ_ONLY }),
@@ -200,6 +202,10 @@ async function boot() {
     return done;
   });
   links.forEach((l) => l.addEventListener('click', () => $('#' + l.dataset.link).click()));
+  openApprovals = () => go('persetujuan');
+  refreshAsk();
+  // New requests show up without a reload: the count on the menu and the Ringkasan bar every minute.
+  setInterval(() => { if (!document.hidden) refreshAsk(); }, 60000);
   if (typeof sideRail === 'function') sideRail($('.side'));
 
   // Global search (13 Nov 2026): any view by name, or an order by its HS- or L- number.
@@ -274,12 +280,7 @@ async function summary() {
   </div>
   ${rangeHtml({ preset: sumRange.preset, from: sumRange.from, to: sumRange.to })}
   <div id="sum-pos" class="stack-lg" aria-busy="true"><div class="kp-tiles">${'<div class="kp-tile"><div class="skeleton"></div></div>'.repeat(4)}</div></div>
-  ${d.undo.length ? `<section class="panel stack" aria-labelledby="undo-title">
-    <h2 id="undo-title">Permintaan pembatalan (${d.undo.length})</h2>
-    <ul class="list">${d.undo.map((u) => `<li><span class="grow"><strong>${esc(u.kind === 'penjualan' ? `${u.receipt_no ? 'Struk ' + u.receipt_no : 'Penjualan ' + rupiah(u.total || 0)}, ${u.stamps} stempel` : u.reward_label)}</strong> untuk ${esc(u.member)}<br>
-      <span class="muted small">${esc(u.requested_by || 'Staf')}, ${esc(when(u.created_at))}: ${esc(u.reason)}</span></span>
-      <span class="row"><button class="btn" type="button" data-undo="${u.id}" data-ok="1">Setujui</button><button class="btn btn-quiet" type="button" data-undo="${u.id}" data-ok="0">Tolak</button></span></li>`).join('')}</ul>
-  </section>` : ''}
+  <div id="sum-ask"></div>
   ${t.sales === 0 ? `<div class="panel stack"><h2>Belum ada penjualan ${d.days === 1 ? 'di tanggal ini' : 'di rentang ini'}</h2><p class="muted">Angka di sini terisi begitu kasir mencatat penjualan di halaman kasir.</p><a class="btn" href="kasir">Buka halaman kasir</a></div>` : `
   <div class="stats">
     <div class="stat"><b>${t.sales}</b><span>Penjualan</span></div>
@@ -347,11 +348,22 @@ async function summary() {
   };
   wireRange(p, { onChange: (v) => { Object.assign(sumRange, v); setUrl(); summary(); } });
   posHighlights($('#sum-pos', p), d.from, d.to);
-  $$('[data-undo]', p).forEach((b) => b.addEventListener('click', async () => {
-    busy(b, true);
-    try { await rpc('owner_decide_undo', { p_id: Number(b.dataset.undo), p_approve: b.dataset.ok === '1' }); toast(b.dataset.ok === '1' ? 'Dibatalkan' : 'Ditolak'); summary(); }
-    catch (e) { toast(e.message); busy(b, false); }
-  }));
+  refreshAsk();
+}
+
+/* ---------------- Persetujuan count: the menu item, the Ringkasan bar and the pop-up (20 Nov 2026) */
+let openApprovals = () => {};
+async function refreshAsk() {
+  let items;
+  try { items = pendingItems(await loadPending(rpc)); } catch { return; }
+  const n = items.filter((x) => x.decide).length;
+  const tab = $('#t-appr .side-t');
+  if (tab) tab.innerHTML = n ? `Persetujuan <span class="tl-count num">${n}</span>` : 'Persetujuan';
+  const box = $('#sum-ask');
+  if (!box || $('#p-sum')?.hidden) return;
+  box.innerHTML = askBarHtml(items);
+  $('[data-ap-open]', box)?.addEventListener('click', () => openApprovals());
+  popNew(items, () => openApprovals());
 }
 
 /* ---------------- Ringkasan: KPI tiles and Grafik penjualan (Glenn, 13 Nov 2026) */
