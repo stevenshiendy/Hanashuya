@@ -473,6 +473,57 @@ async function fake(name, a) {
       return { ...rekapOf(closedShift), next_shift: shiftJson() };
     }
     case 'pos_shift_rekap': return rekapOf(closedShift || null);
+    // Laporan (till-laporan.sql, 24 Nov 2026): sample figures for the five reports.
+    case 'till_report_rekap': {
+      const shifts = [V.lastClosedShift(), V.currentShift()].filter(Boolean).map((sh) => withPromos(V.rekapOf(sh, full), false));
+      return { date: a.p_date, full, shifts };
+    }
+    case 'till_report_sales': {
+      const h = V.posHome();
+      return { date: a.p_date, revenue: h.revenue, orders: h.orders, average: h.average, service_charge: 0, pbjt: 0, discount: 18000,
+        units: h.products_sold, cancelled_count: h.cancelled_count || 1, cancelled_amount: h.cancelled_amount || 71000,
+        pending_count: h.pending_count || 0, pending_amount: h.pending_amount || 0,
+        by_method: { ...h.by_method, lain: 0 },
+        products: h.top_products.map((x, i) => ({ ...x, net: [272000, 352000, 420000, 64000, 30000][i] || 20000 })),
+        by_category: [], hourly: h.hourly, by_flavour: h.by_flavour };
+    }
+    case 'till_report_stock': {
+      const t = (h, m) => new Date(`${a.p_date || '2026-11-24'}T${h}:${m}:00+07:00`).toISOString();
+      return { date: a.p_date, count: null,
+        items: [
+          { id: 1, name: 'Kulit choux', unit: 'pcs', masuk: 60, terjual: 24, sampel: 6, keluar: 3, selisih: 0, closing: 87 },
+          { id: 2, name: 'Vla vanilla', unit: 'kg', masuk: 2, terjual: 0.6, sampel: 0.1, keluar: 0, selisih: -0.2, closing: 2.4 },
+          { id: 3, name: 'Kotak Mini isi 15', unit: 'pcs', masuk: 0, terjual: 4, sampel: 0, keluar: 0, selisih: 0, closing: 6 },
+          { id: 4, name: 'Paper bag', unit: 'pcs', masuk: 0, terjual: 9, sampel: 0, keluar: 1, selisih: 0, closing: 41 }],
+        goods_in: [
+          { item: 'Kulit choux', unit: 'pcs', qty: 60, at: t('09', '12'), responsible: 'Fajar', supplier: 'Dapur Hanashuya', status: 'aktif' },
+          { item: 'Vla vanilla', unit: 'kg', qty: 2, at: t('09', '15'), responsible: 'Fajar', supplier: 'Dapur Hanashuya', status: 'aktif' }],
+        outs: [
+          { item: 'Kulit choux', unit: 'pcs', kind: 'sampel', qty: 6, at: t('14', '05'), by: 'Kevin', reason: null, cancelled: false },
+          { item: 'Kulit choux', unit: 'pcs', kind: 'rusak', qty: 3, at: t('16', '40'), by: 'Kevin', reason: 'Jatuh saat isi vla', cancelled: false },
+          { item: 'Paper bag', unit: 'pcs', kind: 'buang', qty: 1, at: t('18', '02'), by: 'Fajar', reason: 'Sobek', cancelled: false }] };
+    }
+    case 'till_report_att': {
+      const t = (h, m) => new Date(`${a.p_date || '2026-11-24'}T${h}:${m}:00+07:00`).toISOString();
+      const r = (start, end, o = {}) => ({ kind: 'jadwal', start, end, break_min: 0, late_min: 0, overtime_min: 0, flags: [], ...o });
+      return { date: a.p_date, people: [
+        { name: 'Fajar', full_name: 'Fajar Prihantoro', report: [r('08:00', '18:00', { break_min: 51, late_min: 20, flags: ['terlambat'] })],
+          scans: [{ action: 'masuk', at: t('08', '20') }, { action: 'istirahat', at: t('13', '35') }, { action: 'kembali', at: t('14', '26') }, { action: 'pulang', at: t('18', '03') }] },
+        { name: 'Kevin', full_name: 'Kevin Wijaya', report: [r('13:00', '21:00')], scans: [{ action: 'masuk', at: t('12', '58') }] },
+        { name: 'Rany', full_name: 'Rany Marlina', report: [{ kind: 'izin', flags: [] }], scans: [] }] };
+    }
+    case 'till_report_member': {
+      const t = (h, m) => new Date(`${a.p_date || '2026-11-24'}T${h}:${m}:00+07:00`).toISOString();
+      return { date: a.p_date, new_members: 1,
+        sales: [
+          { at: t('18', '12'), member: 'Rina', total: 176000, stamps: 3, by: 'Kevin', reversed: false },
+          { at: t('16', '05'), member: 'Dimas', total: 88000, stamps: 1, by: 'Kevin', reversed: false },
+          { at: t('13', '21'), member: 'Sari', total: 132000, stamps: 2, by: 'Fajar', reversed: false },
+          { at: t('10', '44'), member: 'Budi', total: 64000, stamps: 1, by: 'Fajar', reversed: false }],
+        redemptions: [
+          { at: t('16', '06'), member: 'Dimas', label: 'Diskon 10%', kind: 'stempel', by: 'Kevin', reversed: false },
+          { at: t('10', '45'), member: 'Budi', label: 'Diskon 50% untuk 1 produk', kind: 'welcome', by: 'Fajar', reversed: false }] };
+    }
     case 'pos_rekap_printed': {
       if (printedAt && !full) fail(`Rekap hari ini sudah dicetak jam ${time(printedAt)}. Minta manajer atau pemilik kalau perlu cetak ulang.`);
       const reprint = !!printedAt; printedAt ||= now();

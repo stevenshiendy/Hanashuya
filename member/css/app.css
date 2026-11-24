@@ -1224,3 +1224,32 @@ table.fs-table { width: 100%; border-collapse: collapse; font-variant-numeric: t
 .dp-quick { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-md); }
 .dt-dlg h2[tabindex="-1"]:focus { outline: none; }
 .dp-histbox summary { cursor: pointer; }
+
+/* Laporan on the till (Glenn, 24 Nov 2026, draft A): report list on the left, the day on top,
+   one report at a time. js/till-laporan.js. */
+.tl-main.is-till:has(> .lp) { overflow: hidden; }
+.lp { display: grid; grid-template-columns: clamp(200px, 20vw, 240px) minmax(0, 1fr); height: 100%; min-height: 0; }
+.lp-nav { display: grid; gap: var(--space-sm); align-content: start; padding: var(--space-lg); background: var(--color-paper-2); border-right: var(--rule-hair) solid var(--color-rule); overflow-y: auto; }
+.lp-nav .hm-tool[aria-current="page"] { border-color: var(--color-ink); box-shadow: inset 4px 0 0 var(--color-accent); }
+.lp-main { display: grid; gap: var(--space-md); align-content: start; padding: var(--space-lg); overflow-y: auto; min-height: 0; }
+.lp-top { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; justify-content: space-between; }
+.lp-day { display: flex; flex-wrap: wrap; gap: var(--space-xs); align-items: center; }
+.lp-day input { width: auto; min-height: var(--tl-tap); }
+.lp-two { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: var(--space-md); align-items: start; }
+.lp-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--space-md); }
+.lp-rows .tl-use { white-space: nowrap; }
+.lp-rows tr.is-on td { background: var(--color-accent-tint); }
+.lp-acts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-sm); }
+.lp-hours { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2xs); }
+.lp-hours li { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) minmax(7rem, auto); gap: var(--space-sm); align-items: center; font-size: var(--text-sm); }
+.lp-hours .hm-mini { grid-column: auto; }
+.lp-hours li > :last-child { text-align: right; }
+.lp-neg { color: var(--color-accent); font-weight: 500; }
+@media (max-width: 900px) {
+  .lp { grid-template-columns: 1fr; height: auto; }
+  .tl-main.is-till:has(> .lp) { overflow-y: auto; }
+  .lp-nav { display: flex; overflow-x: auto; border-right: 0; border-bottom: var(--rule-hair) solid var(--color-rule); padding: var(--space-sm) var(--space-md); }
+  .lp-nav .hm-sec { display: none; }
+  .lp-nav .hm-tool { flex: 0 0 auto; }
+  .lp-two { grid-template-columns: 1fr; }
+}

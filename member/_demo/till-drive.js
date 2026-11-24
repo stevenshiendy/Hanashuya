@@ -25,7 +25,9 @@ async function placed() { await order(); await act('promo'); await act('promo-li
   if (s === 'home-orders') await act('chart', '[data-v="orders"]');
   if (s === 'stock') await act('stock');
   if (s === 'approve') await act('approve');
-  if (s && !['home', 'home-orders', 'stock', 'approve', 'close', 'closed', 'closed-80'].includes(s) && document.querySelector('[data-act="sell"]')) await act('sell');
+  // ?s=laporan[&lp=jual|stok|absen|member]
+  if (s === 'laporan') { await act('laporan'); const lp = new URLSearchParams(location.search).get('lp'); if (lp) await tap(`[data-lp="${lp}"]`); await wait(300); }
+  if (s && !['home', 'home-orders', 'stock', 'approve', 'laporan', 'close', 'closed', 'closed-80'].includes(s) && document.querySelector('[data-act="sell"]')) await act('sell');
   if (s === 's1') await order();
   if (s === 's2a' || s === 's2b') {
     await member(); await add('sig1', 'vanilla');

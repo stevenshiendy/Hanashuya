@@ -164,6 +164,8 @@ Hanashuya is replacing VireoPOS with its own till on this database, so a member 
 8. `pos-backoffice.sql`: the owner's Pesanan, Promo and Member tabs, harga pokok per stock item and the Laba kotor report.
 9. `pos-cash.sql`: the owner's Rekap kas list (`owner_cash_shifts`) and Uang modal laci settings (`owner_save_cash_settings`). The till side of blind cash, back-to-back shifts and the rekap is in `pos.sql`.
 
+Last of all, after every other SQL file: `till-laporan.sql`, the till's Laporan screen (Rekap kas, Penjualan, Stok, Presensi, Member for any day; staff get the blind figures). It replaces `_pos_rekap_shift` and `pos_rekap_printed` from `pos.sql`, so run it again after re-running `pos.sql`.
+
 **Rules the database enforces.**
 
 - Prices, discounts and totals are worked out on the server; the tablet only sends what was ordered.

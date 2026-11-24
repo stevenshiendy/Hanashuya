@@ -25,6 +25,7 @@ import { rekapReceipt, rekapPdf, rekapFile, rekapChargeRows } from './receipt-re
 import { sharePdf } from './pdf.js';
 import * as off from './till-offline.js';
 import { openReservations } from './till-reservasi.js';
+import { mountLaporan } from './till-laporan.js';
 
 // Glenn picked the sheet (12 Nov 2026). 'inplace' is kept only for ?rasa=inplace testing.
 const FLAVOUR_PICKER = 'sheet';
@@ -387,6 +388,7 @@ function render() {
   if (S.screen === 'closed') return renderClosed();
   if (S.screen === 'close') return renderClose();
   if (S.screen === 'today') return renderToday();
+  if (S.screen === 'laporan') return mountLaporan(app, { printRekap, shareRekap });
   if (PAY_SCREENS.includes(S.screen)) return renderPay();
   if (S.screen === 'done') return renderDone();
   app.innerHTML = `<div class="tl-order"><section class="tl-left" id="tl-left" aria-label="Produk"></section>
@@ -526,6 +528,7 @@ function homeRight(h) {
     ${tool('home-today', 'Pesanan hari ini', h ? `${h.orders} dibayar` : 'Semua pesanan')}
     ${tool('home-rsv', 'Pesanan di muka', 'Ambil, bayar penuh', !open)}
     ${tool('home-close', 'Tutup shift', 'Hitung laci, cetak rekap', !open)}
+    ${tool('laporan', 'Laporan', 'Rekap kas, penjualan, stok')}
     <span class="hm-sec">Presensi staf</span>
     <div class="hm-pair">${tool('qr-absen', 'QR presensi', 'Masuk, pulang')}
     ${tool('qr-istirahat', 'QR istirahat', 'Mulai, selesai')}</div>
@@ -2129,7 +2132,7 @@ function renderClosed() {
 // the owner reprint; their copy says CETAK ULANG.
 async function printRekap(k, btn, msg = $('#tl-print-msg')) {
   const say = (t, kind = 'ok') => (msg ? notice(msg, t, kind) : toast(t));
-  if (k.printed_at && isStaffOnly()) { say(`Rekap hari ini sudah dicetak jam ${k.printed_time}. Minta manajer atau pemilik kalau perlu cetak ulang.`, 'warn'); return; }
+  if (k.printed_at && isStaffOnly()) { say(`Rekap shift ${k.start} sampai ${k.end || 'sekarang'} sudah dicetak jam ${k.printed_time || time(k.printed_at)}. Minta manajer atau pemilik kalau perlu cetak ulang.`, 'warn'); return; }
   if (btn) busy(btn, true, 'Mencetak…');
   try {
     const reprint = !!k.printed_at;
@@ -2404,6 +2407,7 @@ async function onTap(e) {
       return;
     }
     case 'home-close': goTo('close'); return;
+    case 'laporan': goTo('laporan'); return;
     case 'approve': if (canCancel()) goTo('approve'); return;
     case 'stock': S.stockMode = null; goTo('stock'); return;
     case 'qr-absen': case 'qr-istirahat': S.qrKind = act === 'qr-istirahat' ? 'istirahat' : 'absen'; if (S.screen === 'qr') renderQr(); else goTo('qr'); return;
