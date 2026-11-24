@@ -486,7 +486,7 @@ async function approvePart(p, opts, which) {
   </section>` : ''}
   ${ov ? `<section class="panel stack" aria-labelledby="am-ot">
     <${hl} id="am-ot">Lembur 14 hari terakhir</${hl}>
-    <p class="muted small">Lembur dihitung dari jam selesai jadwal, kalau pulang 20 menit atau lebih setelahnya. Baru dihitung setelah disetujui.</p>
+    <p class="muted small">Lembur dihitung dari jam selesai jadwal, kalau pulang 1 jam atau lebih setelahnya. Baru dihitung setelah disetujui.</p>
     ${ot.length ? `<ul class="list">${ot.map((o) => `<li><span class="grow"><strong>${esc(o.name)}</strong>, ${esc(dmy(o.date))}, jadwal ${esc(o.start)} sampai ${esc(o.end)}<br>
       <span class="muted small">Pulang ${esc(time(o.pulang))}, lembur ${hm(o.minutes)}${o.status !== 'menunggu' ? `. ${o.status === 'disetujui' ? `Disetujui ${hm(o.approved_min)}` : 'Ditolak'} oleh ${esc(o.decided_by || '')}` : ''}</span></span>
       ${o.is_me ? '<span class="muted small">Lembur Anda sendiri</span>' : `<span class="row ap-actions">
@@ -1292,7 +1292,7 @@ const dur = (n) => n >= 60 ? `${Math.floor(n / 60)} jam${n % 60 ? ` ${n % 60} me
 const OFF = 'Anda akan tercatat melakukan presensi di luar jadwal.';
 
 function scanWarnings(action, s, fl) {
-  const rules = { late: 10, out: 10, overtime: 20, ...(s.rules || {}) };
+  const rules = { late: 10, out: 10, overtime: 60, ...(s.rules || {}) };
   const day = s.week?.[0], now = nowMin(), out = [];
   const blocks = (day?.blocks || []).filter((b) => b.kind === 'kerja' && b.start && b.end).map((b) => ({ ...b, bs: toMin(b.start), be: toMin(b.end) }));
   // The block a session belongs to: the one it overlaps, or one starting within 2 hours (as in _att_day).

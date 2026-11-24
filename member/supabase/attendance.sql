@@ -31,7 +31,7 @@
 --   late       clock-in more than 10 minutes after the scheduled start (late minutes are
 --              counted from the start)
 --   clock-out  expected within 10 minutes after the scheduled end
---   overtime   still clocked in 20 minutes after the scheduled end: counted from the
+--   overtime   still clocked in 60 minutes (settings.att_overtime_after; 20 until 24 Nov 2026) after the scheduled end: counted from the
 --              scheduled end, counts only once a manager or the owner approves it
 --   break      1 hour per shift; a longer break is flagged
 --   leave      requested at the latest 7 days before the day; manager or owner decides
@@ -44,7 +44,7 @@
 -- ---------------------------------------------------------------- settings
 alter table public.settings add column if not exists att_late_minutes int not null default 10 check (att_late_minutes >= 0);
 alter table public.settings add column if not exists att_out_minutes int not null default 10 check (att_out_minutes >= 0);
-alter table public.settings add column if not exists att_overtime_after int not null default 20 check (att_overtime_after >= 0);
+alter table public.settings add column if not exists att_overtime_after int not null default 60 check (att_overtime_after >= 0);
 alter table public.settings add column if not exists att_qr_seconds int not null default 20 check (att_qr_seconds between 15 and 600);
 -- 20 seconds since 11 Nov 2026 (Glenn, to stop staff clocking in for each other). A
 -- database that still has the old 60 is moved to 20 once.
@@ -335,7 +335,7 @@ as $$ select date '2026-11-14' $$;
 -- overlaps most (or the nearest block starting within 2 hours). p_now decides whether a
 -- missing scan is already missing or simply has not happened yet.
 -- flags: terlambat, tidak_hadir, tidak_scan_pulang, tidak_scan_kembali, istirahat_lebih,
---        pulang_awal, pulang_lewat (10 to 20 minutes after the end), lembur, di_luar_jadwal,
+--        pulang_awal, pulang_lewat (10 to 59 minutes after the end), lembur, di_luar_jadwal,
 --        sedang_bekerja, sedang_istirahat, hadir_sebelum_pos (scheduled day before the POS start).
 create or replace function public._att_day(p_staff uuid, d date, p_now timestamptz)
 returns table (work_date date, kind text, block_start time, block_end time, shift text, masuk timestamptz, pulang timestamptz,
