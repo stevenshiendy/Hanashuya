@@ -345,9 +345,9 @@ function pairs(live, start, end) {
   return out;
 }
 const pairRow = (kind, p, first) => `<div class="dp-pair" data-pair="${kind}">
-  <label class="field"><span>${kind === 'kerja' ? 'Masuk' : 'Mulai istirahat'}</span><input type="time" step="60" data-start value="${esc(p.start || '')}"></label>
-  <label class="field"><span>${kind === 'kerja' ? 'Pulang' : 'Selesai istirahat'}</span><input type="time" step="60" data-end value="${esc(p.end || '')}"></label>
-  ${first ? '<span></span>' : '<button class="btn btn-text" type="button" data-drop>Hapus</button>'}</div>`;
+  <label class="field"><span>${kind === 'kerja' ? 'Masuk' : 'Mulai'}</span><input type="time" step="60" data-start value="${esc(p.start || '')}"></label>
+  <label class="field"><span>${kind === 'kerja' ? 'Pulang' : 'Selesai'}</span><input type="time" step="60" data-end value="${esc(p.end || '')}"></label>
+  ${first ? '' : `<button class="btn btn-text dp-drop" type="button" data-drop>Hapus ${kind === 'kerja' ? 'jam ini' : 'istirahat ini'}</button>`}</div>`;
 
 function fixDialog(x, date, done) {
   const live = x.scans.filter((s) => !s.voided);
@@ -358,22 +358,48 @@ function fixDialog(x, date, done) {
       ${s.via === 'koreksi' ? `<span class="muted small">ditambah${byWho(s.created_by_name, s.created_at)}: ${esc(s.reason)}</span>` : ''}
       ${s.voided ? `<span class="muted small">dibatalkan${byWho(s.voided_by_name, s.voided_at)}: ${esc(s.void_reason)}</span>` : ''}</span>${s.voided ? tag(['Dibatalkan', 'tag-bad']) : ''}</li>`).join('')}</ul></details>`
     : '<p class="muted small">Belum ada scan di tanggal ini.</p>';
+  // Isi cepat (Glenn, 24 Nov 2026): Hadir fills Masuk and Pulang from the schedule, Tidak hadir
+  // empties every box. Both only fill the form; nothing is saved until Simpan koreksi.
+  const blocks = x.report.filter((r) => r.kind !== 'di_luar_jadwal' && r.kind !== 'izin' && r.start && r.end);
   return formDialog({
     title: `Koreksi presensi ${x.full_name || x.name}`,
     submitLabel: 'Simpan koreksi',
-    html: `<p class="muted small">${esc(dmy(date))}. Ubah jam yang salah, isi yang lupa, kosongkan yang tidak ada.</p>
-      <div class="stack-sm" data-list="kerja"><p class="h-small">Jam kerja</p>${work.map((p, i) => pairRow('kerja', p, i === 0)).join('')}</div>
-      <div class="stack-sm" data-list="istirahat"><p class="h-small">Istirahat</p>${brk.map((p) => pairRow('istirahat', p, false)).join('')}
+    focusField: false,
+    html: `<p class="muted">${esc(dmy(date))}${blocks.length ? `, jadwal <span class="num">${esc(blocks.map(span).join(', '))}</span>` : ', tidak ada jadwal'}.</p>
+      <div class="dp-sec stack-sm"><p class="h-small">Isi cepat</p>
+        <div class="dp-quick">
+          <button class="btn btn-quiet" type="button" data-quick="hadir"${blocks.length ? '' : ' disabled'}>Hadir</button>
+          <button class="btn btn-quiet" type="button" data-quick="absen">Tidak hadir</button></div>
+        <p class="muted small" data-quick-note>${blocks.length ? 'Hadir mengisi jam masuk dan pulang sesuai jadwal.' : 'Hadir perlu jadwal di tanggal ini.'}</p></div>
+      <div class="dp-sec stack-sm" data-list="kerja"><p class="h-small">Jam kerja</p>${work.map((p, i) => pairRow('kerja', p, i === 0)).join('')}</div>
+      <div class="dp-sec stack-sm" data-list="istirahat"><p class="h-small">Istirahat</p>${brk.map((p) => pairRow('istirahat', p, false)).join('')}
         <div><button class="btn btn-quiet" type="button" data-more="istirahat">Tambah istirahat</button></div></div>
-      <label class="field"><span>Alasan <span class="hint is-req">wajib</span></span><input type="text" name="reason" placeholder="Contoh: lupa scan pulang" required></label>
-      ${hist}
-      <p class="muted small">Koreksi tercatat dengan nama Anda dan alasannya. Jam yang tidak diubah tetap seperti scan aslinya.</p>`,
+      <label class="field dp-sec"><span>Alasan <span class="hint is-req">wajib</span></span><input type="text" name="reason" placeholder="Contoh: lupa scan pulang" required>
+        <span class="muted small">Tercatat dengan nama Anda. Jam yang tidak diubah tetap seperti scan aslinya.</span></label>
+      ${hist}`,
     onOpen: (f) => {
+      const list = (k) => $(`[data-list="${k}"]`, f);
+      const note = $('[data-quick-note]', f);
+      const reason = f.elements.reason;
+      // Quick fill writes a reason only when the box is empty or still holds its own earlier text.
+      const setReason = (t) => { if (!reason.value.trim() || reason.dataset.auto) { reason.value = t; reason.dataset.auto = '1'; } };
+      reason.addEventListener('input', () => { delete reason.dataset.auto; });
       f.addEventListener('click', (e) => {
         const drop = e.target.closest('[data-drop]');
         if (drop) { drop.closest('.dp-pair').remove(); return; }
         const more = e.target.closest('[data-more]');
-        if (more) more.parentElement.insertAdjacentHTML('beforebegin', pairRow(more.dataset.more, {}, false));
+        if (more) { more.parentElement.insertAdjacentHTML('beforebegin', pairRow(more.dataset.more, {}, false)); return; }
+        const quick = e.target.closest('[data-quick]');
+        if (!quick) return;
+        const hadir = quick.dataset.quick === 'hadir';
+        // Work rows: one per schedule block for Hadir, one empty row for Tidak hadir.
+        $$('.dp-pair', list('kerja')).forEach((r) => r.remove());
+        const rows = hadir ? blocks.map((x0) => ({ start: x0.start, end: x0.end })) : [{}];
+        list('kerja').insertAdjacentHTML('beforeend', rows.map((p, i) => pairRow('kerja', p, i === 0)).join(''));
+        // Tidak hadir also empties the breaks; Hadir leaves them as they are.
+        if (!hadir) $$('.dp-pair', list('istirahat')).forEach((r) => { $('[data-start]', r).value = ''; $('[data-end]', r).value = ''; });
+        setReason(hadir ? 'Hadir sesuai jadwal' : 'Tidak hadir');
+        note.textContent = hadir ? `Terisi sesuai jadwal ${blocks.map(span).join(', ')}. Tekan Simpan koreksi.` : 'Semua jam dikosongkan. Tekan Simpan koreksi.';
       });
     },
     onSubmit: async (f) => {

@@ -1214,6 +1214,13 @@ table.fs-table { width: 100%; border-collapse: collapse; font-variant-numeric: t
 .tl-notes li { align-items: center; }
 
 /* Koreksi presensi, one form per day (14 Nov 2026): Masuk/Pulang and each istirahat as a pair. */
-.dp-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 5rem; gap: var(--space-sm); align-items: end; }
-.dp-pair .btn-text { justify-self: start; min-height: 44px; }
+/* 24 Nov 2026 (Glenn: "too packed"): two columns with room between them, Hapus on its own line,
+   more space between the sections, and inputs that shrink so the iPhone time boxes don't overlap. */
+.dp-sec { margin-top: var(--space-sm); }
+.dp-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-xs) var(--space-md); align-items: end; }
+.dp-pair + .dp-pair { margin-top: var(--space-sm); }
+.dp-pair input { min-width: 0; }
+.dp-drop { grid-column: 1 / -1; justify-self: start; min-height: 44px; }
+.dp-quick { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-md); }
+.dt-dlg h2[tabindex="-1"]:focus { outline: none; }
 .dp-histbox summary { cursor: pointer; }

@@ -86,7 +86,9 @@ export function confirmDialog({ title, text, confirmLabel = 'Ya', cancelLabel = 
 // A form in a dialog. html is trusted markup (escape values yourself). onOpen(form, dlg) wires it up;
 // onSubmit(form, dlg) may throw: the message shows in the dialog and it stays open. buttons: extra
 // buttons [{ label, danger, onClick(form, dlg) }] next to Simpan (they may throw too; returning false keeps the dialog open).
-export function formDialog({ title, html, submitLabel = 'Simpan', cancelLabel = 'Batal', wide = false, onOpen, onSubmit, buttons = [] }) {
+// focusField: false keeps focus on the title, for forms whose first field is a time or date box
+// (on a phone, focusing it opens the picker straight away; Glenn, 24 Nov 2026).
+export function formDialog({ title, html, submitLabel = 'Simpan', cancelLabel = 'Batal', wide = false, onOpen, onSubmit, buttons = [], focusField = true }) {
   return new Promise((resolve) => {
     const dlg = makeDialog(title, wide);
     dlg.querySelector('[data-body]').innerHTML = `<form class="stack" novalidate data-form>${html}
@@ -117,9 +119,12 @@ export function formDialog({ title, html, submitLabel = 'Simpan', cancelLabel = 
     buttons.forEach((b, i) => form.querySelector(`[data-extra="${i}"]`).addEventListener('click', (e) => run(b.onClick, e.currentTarget)));
     form.querySelector('[data-no]').addEventListener('click', () => dlg.close());
     dlg.addEventListener('close', () => resolve(done));
+    const h = dlg.querySelector('h2');
+    if (!focusField) { h.tabIndex = -1; h.autofocus = true; }
     dlg.showModal();
     onOpen?.(form, dlg);
-    (form.querySelector('input:not([type="hidden"]), select, textarea') || form.querySelector('button'))?.focus();
+    if (focusField) (form.querySelector('input:not([type="hidden"]), select, textarea') || form.querySelector('button'))?.focus();
+    else h.focus();
   });
 }
 
