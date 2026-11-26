@@ -80,7 +80,8 @@ export const employerMode = (emp) => (emp === 'Hanashuya' ? 'kalender' : '26-25'
 // pay: { staff_id: { base_salary, meal_per_day, transport, overtime_rate, join_date, job_title } }
 // from owner_pay_list (owner only; empty for a manager, then the pay cells stay 0 to type in).
 // withPay false: the copy for staff (Absensi and Kuota jam only, no Gaji sheet).
-export function buildGajiBook(X, { groups: groupList, staff = [], today, pay = {}, withPay = true }) {
+// scans: { staff_id: { 'YYYY-MM-DD': [{ action, at, via }] } } from att_day_report, for the scan columns.
+export function buildGajiBook(X, { groups: groupList, staff = [], today, pay = {}, withPay = true, scans = null }) {
   const byId = Object.fromEntries(staff.map((s) => [s.id, s]));
   const groups = groupList.filter((g) => g.people.length);
   const people = groups.flatMap((g) => g.people);
@@ -220,7 +221,7 @@ export function buildGajiBook(X, { groups: groupList, staff = [], today, pay = {
   gs['!cols'] = [{ wch: 5 }, { wch: 26 }, { wch: 11 }, { wch: 9 }, { wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 7 }, { wch: 6 }, { wch: 7 }, { wch: 8 }, { wch: 6 },
     { wch: 11 }, { wch: 12 }, { wch: 7 }, { wch: 8 }, { wch: 12 }, { wch: 11 }, { wch: 13 }, { wch: 11 }, { wch: 16 }];
 
-  const quota = quotaSheet(groups, today);
+  const quota = quotaSheet(groups, today, scans);
   [ws, gs, quota].forEach(setRowHeights);
   const wb = X.utils.book_new();
   X.utils.book_append_sheet(wb, ws, 'Absensi');
@@ -235,7 +236,7 @@ export function buildGajiBook(X, { groups: groupList, staff = [], today, pay = {
 // Only days with a Masuk count toward the quota, as in the app's "Kurang dari target".
 const HARI = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const clock = (iso) => iso ? new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso)).replace(':', '.') : '';
-function quotaSheet(groups, today) {
+function quotaSheet(groups, today, scans) {
   const q = {};
   const put = (r, c, v, s, f, z) => {
     const cell = { v: v ?? '', t: typeof v === 'number' ? 'n' : 's', s };
@@ -244,13 +245,16 @@ function quotaSheet(groups, today) {
     q[col(c) + (r + 1)] = cell;
   };
   const H = '0.00', bold = st(null, { b: true, left: true, noBorder: true }), txt = st(null, { left: true });
-  const head = ['Tanggal', 'Hari', 'Jadwal', 'Masuk', 'Pulang', 'Istirahat (menit)', 'Jam kerja', 'Kuota (jam)', 'Selisih (jam)', 'Keterangan'];
+  // Waktu scan (Glenn, 26 Nov 2026: "must write waktu scan clearly"): every scan of the day in its
+  // own column, HH.MM in WIB; a scan added by a correction carries a * (see the note under the title).
+  const head = ['Tanggal', 'Hari', 'Jadwal', 'Scan Masuk', 'Scan Istirahat', 'Scan Kembali', 'Scan Pulang', 'Istirahat (menit)', 'Jam kerja', 'Kuota (jam)', 'Selisih (jam)', 'Keterangan'];
+  const ACTS = ['masuk', 'istirahat', 'kembali', 'pulang'];
   let r = 0;
   for (const { employer, from, to, people } of groups) {
     for (const p of people) {
       const quota = (p.work_target_min ?? 540) / 60;
       put(r, 0, `KUOTA JAM KERJA: ${(p.full_name || p.name).toUpperCase()} (${employer.toUpperCase()})`, bold); r++;
-      put(r, 0, `Periode ${periodTitle(from, to)} · kuota ${quota.toLocaleString('id-ID')} jam per hari kerja (di luar istirahat)`, st(null, { left: true, noBorder: true })); r++;
+      put(r, 0, `Periode ${periodTitle(from, to)} · kuota ${quota.toLocaleString('id-ID')} jam per hari kerja (di luar istirahat) · waktu scan dalam WIB, * = dicatat lewat koreksi, bukan scan QR`, st(null, { left: true, noBorder: true })); r++;
       head.forEach((h, i) => put(r, i, h, st(C.orange, { b: true, wrap: true }))); r++;
       const top = r + 1;
       for (const d of dayList(from, to)) {
@@ -259,6 +263,10 @@ function quotaSheet(groups, today) {
         const worked = rows.reduce((a, x) => a + (x.worked_min || 0), 0);
         const plan = rows.filter((x) => x.start).map((x) => `${x.shift ? x.shift + ' ' : ''}${x.start.replace(':', '.')}-${x.end.replace(':', '.')}`).join(', ');
         const ins = rows.map((x) => x.masuk).filter(Boolean).sort(), outs = rows.map((x) => x.pulang).filter(Boolean).sort();
+        const daySc = scans?.[p.id]?.[d];
+        // Times per action; without the scan list (older data or a failed read) Masuk and Pulang come from the recap.
+        const times = (act) => daySc ? daySc.filter((e) => e.action === act).map((e) => clock(e.at) + (e.via === 'koreksi' ? '*' : '')).join(', ')
+          : act === 'masuk' ? clock(ins[0]) : act === 'pulang' ? clock(outs[outs.length - 1]) : '';
         // Today has not passed yet (Glenn, 26 Nov 2026): its hours so far are shown, but it is not
         // judged against the quota and stays out of the totals until the day is over.
         const open = mark === 'ON' && d >= today;
@@ -270,30 +278,30 @@ function quotaSheet(groups, today) {
         put(r, 0, d.split('-').reverse().join('/'), st(fill));
         put(r, 1, HARI[w], st(fill, { left: true }));
         put(r, 2, plan, st(fill, { left: true }));
-        put(r, 3, clock(ins[0]), st(fill)); put(r, 4, clock(outs[outs.length - 1]), st(fill));
-        put(r, 5, rows.reduce((a, x) => a + (x.break_min || 0), 0), st(fill));
-        put(r, 6, jam(worked), st(fill), null, H);
-        put(r, 7, on ? quota : 0, st(fill), null, H);
-        put(r, 8, on ? jam(worked) - quota : 0, st(fill, { b: short }), on ? `G${R}-H${R}` : null, H);
-        put(r, 9, note, st(fill, { left: true, color: mark === 'A' ? C.white : undefined }));
+        ACTS.forEach((act, i) => put(r, 3 + i, times(act), st(fill, { wrap: true })));
+        put(r, 7, rows.reduce((a, x) => a + (x.break_min || 0), 0), st(fill));
+        put(r, 8, jam(worked), st(fill), null, H);
+        put(r, 9, on ? quota : 0, st(fill), null, H);
+        put(r, 10, on ? Math.round((jam(worked) - quota) * 100) / 100 : 0, st(fill, { b: short }), on ? `I${R}-J${R}` : null, H);
+        put(r, 11, note, st(fill, { left: true, color: mark === 'A' ? C.white : undefined }));
         r++;
       }
       const bot = r;
-      const sumRow = (label, v, f, z = H) => { put(r, 5, label, st(null, { b: true, left: true })); put(r, 6, v, st(null, { b: true }), f, z); r++; };
+      const sumRow = (label, v, f, z = H) => { put(r, 7, label, st(null, { b: true, left: true })); put(r, 8, v, st(null, { b: true }), f, z); r++; };
       const ds = (p.days || []).filter((x) => x.date >= from && x.date <= to);
       const workedDays = new Set(ds.filter((x) => x.masuk && x.date < today).map((x) => x.date));
       const perDay = [...workedDays].map((d) => ds.filter((x) => x.date === d).reduce((a, x) => a + (x.worked_min || 0), 0) / 60);
-      sumRow('Hari kerja', workedDays.size, `COUNTIF(J${top}:J${bot},"Cukup")+COUNTIF(J${top}:J${bot},"Kurang dari kuota")`, '0');
-      sumRow('Total jam kerja', jam(perDay.reduce((a, x) => a + x * 60, 0)), `SUMIF(J${top}:J${bot},"Cukup",G${top}:G${bot})+SUMIF(J${top}:J${bot},"Kurang dari kuota",G${top}:G${bot})`);
-      sumRow('Total kuota', workedDays.size * quota, `SUM(H${top}:H${bot})`);
-      sumRow('Total kurang', perDay.reduce((a, x) => a + Math.max(quota - x, 0), 0), `-SUMIF(I${top}:I${bot},"<0")`);
-      sumRow('Total lebih', perDay.reduce((a, x) => a + Math.max(x - quota, 0), 0), `SUMIF(I${top}:I${bot},">0")`);
-      sumRow('Hari kurang dari kuota', perDay.filter((x) => x < quota).length, `COUNTIF(J${top}:J${bot},"Kurang dari kuota")`, '0');
+      sumRow('Hari kerja', workedDays.size, `COUNTIF(L${top}:L${bot},"Cukup")+COUNTIF(L${top}:L${bot},"Kurang dari kuota")`, '0');
+      sumRow('Total jam kerja', jam(perDay.reduce((a, x) => a + x * 60, 0)), `SUMIF(L${top}:L${bot},"Cukup",I${top}:I${bot})+SUMIF(L${top}:L${bot},"Kurang dari kuota",I${top}:I${bot})`);
+      sumRow('Total kuota', workedDays.size * quota, `SUM(J${top}:J${bot})`);
+      sumRow('Total kurang', perDay.reduce((a, x) => a + Math.max(quota - x, 0), 0), `-SUMIF(K${top}:K${bot},"<0")`);
+      sumRow('Total lebih', perDay.reduce((a, x) => a + Math.max(x - quota, 0), 0), `SUMIF(K${top}:K${bot},">0")`);
+      sumRow('Hari kurang dari kuota', perDay.filter((x) => x < quota).length, `COUNTIF(L${top}:L${bot},"Kurang dari kuota")`, '0');
       r += 2;
     }
   }
   if (!r) put(0, 0, 'Belum ada akun staf.', bold);
-  q['!ref'] = `A1:J${Math.max(r, 1)}`;
-  q['!cols'] = [{ wch: 11 }, { wch: 8 }, { wch: 26 }, { wch: 7 }, { wch: 7 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 18 }];
+  q['!ref'] = `A1:L${Math.max(r, 1)}`;
+  q['!cols'] = [{ wch: 11 }, { wch: 8 }, { wch: 24 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 22 }];
   return q;
 }

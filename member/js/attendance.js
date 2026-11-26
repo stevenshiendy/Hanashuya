@@ -1048,7 +1048,18 @@ function gajiPart(p, opts) {
       const pay = forStaff ? {} : Object.fromEntries((await rpc('owner_pay_list').catch((e) => { if (!/pemilik/i.test(e.message)) payErr = e.message; return []; }))
         .map((x) => [x.staff_id, x]));
       if (payErr) notice($('#am-gj-msg', p), `Gaji staf tidak terbaca, kolom gaji di file kosong: ${payErr}`, 'warn');
-      const wb = buildGajiBook(window.XLSX, { groups, staff, today: ymd(), pay, withPay: !forStaff });
+      // Every scan per day for the Waktu scan columns (att_day_report, one call per date, 6 at a time).
+      const dates = [...new Set(groups.flatMap((g) => { const out = []; for (let d = g.from; d <= g.to && d <= ymd(); d = addDays(d, 1)) out.push(d); return out; }))];
+      let scans = {};
+      try {
+        for (let i = 0; i < dates.length; i += 6) {
+          const reps = await Promise.all(dates.slice(i, i + 6).map((d) => rpc('att_day_report', { p_date: d, p_staff: null })));
+          for (const rep of reps) for (const x of rep.people) {
+            (scans[x.id] ||= {})[rep.date] = (x.scans || []).filter((e) => !e.voided).map(({ action, at, via }) => ({ action, at, via }));
+          }
+        }
+      } catch { scans = null; }
+      const wb = buildGajiBook(window.XLSX, { groups, staff, today: ymd(), pay, withPay: !forStaff, scans });
       const base = forStaff ? 'absensi' : 'absensi-gaji';
       window.XLSX.writeFile(wb, mode() === 'custom' ? `${base}-${a}-sampai-${z}.xlsx` : `${base}-${month()}.xlsx`);
     } catch (err) { notice($('#am-gj-msg', p), err.message); }
