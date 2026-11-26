@@ -9,6 +9,7 @@
 import { configured, $, $$, esc, rpc, busy, notice, toast, time, mountLogin, setupMissing, session, signOut, tabs, prettyPhone, qrSvg } from './lib.js';
 import { parseScheduleRows, WEEKDAYS } from './schedule.js';
 import { formDialog, confirmDialog } from './data-table.js';
+import { buildGajiBook, monthPeriod, periodTitle } from './att-gaji-xlsx.js';
 
 const TZ = 'Asia/Jakarta';
 const ACTION = { masuk: 'Masuk', istirahat: 'Istirahat', kembali: 'Kembali', pulang: 'Pulang' };
@@ -253,7 +254,7 @@ function locPanel(box, t) {
 // 'setuju' (leave and overtime together) stays for the manager tablet view; the owner menu
 // has 'izin' and 'lembur' as two items (Glenn, 11 Nov).
 const PARTS = { hari: dayPart, staf: staffPart, setuju: approvePart, izin: (p, o) => approvePart(p, o, 'izin'), lembur: (p, o) => approvePart(p, o, 'lembur'),
-  jadwal: schedulePart, rekap: recapPart, profil: profilePart };
+  jadwal: schedulePart, rekap: recapPart, gaji: gajiPart, profil: profilePart };
 // On the owner page each part is the whole view, so its first title is the page h1 (Glenn, 12 Nov 2026:
 // "titles must be the same size wherever"); inside the manager's Absensi switch it stays an h2.
 const hx = (el) => (el.closest('[data-top]') ? 'h1' : 'h2');
@@ -539,6 +540,17 @@ async function approvePart(p, opts, which) {
 }
 
 /* ---------- shifts and schedule */
+// The styled SheetJS build (same 0.18.5 core plus cell colours) for the payroll workbook.
+// It is a superset of the plain build, so it may replace window.XLSX.
+function loadStyledSheetJS() {
+  if (window.XLSX?.style_version) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js';
+    s.onload = res; s.onerror = () => rej(new Error('Pembuat file Excel gagal dimuat. Periksa internet.'));
+    document.head.append(s);
+  });
+}
 function loadSheetJS() {
   if (window.XLSX) return Promise.resolve();
   return new Promise((res, rej) => {
@@ -874,6 +886,10 @@ async function schedulePart(p) {
   });
 }
 
+// The payroll month shown first: the latest period already closed (26-25 file): from the
+// 26th that is this month, before it last month.
+const gajiMonth = () => { const t = ymd(); return Number(t.slice(8)) > 25 ? t.slice(0, 7) : addMonths(t.slice(0, 8) + '01', -1).slice(0, 7); };
+
 /* ---------- recap for any period (Glenn, 11 Nov: week, month or custom) */
 const hours = (m) => (Math.round((m / 60) * 100) / 100).toLocaleString('id-ID');
 const DAY_KIND = { izin: 'Izin', jadwal: 'Jadwal', di_luar_jadwal: 'Di luar jadwal' };
@@ -902,8 +918,10 @@ async function recapPart(p, opts) {
     </table></div>` : '<p class="muted">Belum ada akun staf.</p>'}
     <div class="notice" id="am-rc-msg" hidden></div>
     <button class="btn" type="button" id="am-xlsx" style="justify-self:start">Unduh .xlsx untuk gaji</button>
-    <p class="muted small">File berisi nomor rekening staf. Simpan di tempat pribadi dan jangan dibagikan di grup.</p>`;
+    <p class="muted small">File berisi nomor rekening staf. Simpan di tempat pribadi dan jangan dibagikan di grup.</p>
+    <div id="am-rc-gaji"></div>`;
   wireNames(body);
+  gajiPart($('#am-rc-gaji', p), opts);
   $('#am-xlsx', p).addEventListener('click', async (e) => {
     const b = e.currentTarget; busy(b, true, 'Menyiapkan…');
     try {
@@ -924,6 +942,58 @@ async function recapPart(p, opts) {
       if (lv.length) X.utils.book_append_sheet(wb, X.utils.json_to_sheet(lv), 'Izin');
       X.writeFile(wb, `presensi-${from}-sampai-${to}.xlsx`);
     } catch (err) { notice($('#am-rc-msg', p), err.message); }
+    busy(b, false);
+  });
+}
+
+/* ---------- Rekap bulanan in the payroll workbook layout (Glenn, 26 Nov 2026) */
+function gajiPart(p, opts) {
+  const top = hx(p) === 'h1';
+  p.innerHTML = `
+  <section class="${top ? 'panel stack' : 'stack-sm'}" aria-labelledby="am-gj-t">
+    <${top ? 'h1' : 'h3'} id="am-gj-t"${top ? '' : ' class="h-small"'}>Rekap bulanan</${top ? 'h1' : 'h3'}>
+    <p class="muted">File Excel dengan format absensi gaji untuk satu bulan atau tanggal pilihan sendiri: ON, OFF, A dan IZIN per tanggal untuk tiap staf, dikelompokkan per usaha, lalu sheet Gaji. Gaji pokok, staff meal, kasbon, bonus dan tarif lembur diisi sendiri di kolom kuning.</p>
+    <div class="row">
+      <label class="field"><span>Periode</span><select id="am-gj-mode"><option value="26-25">Tanggal 26 sampai 25</option><option value="kalender">Tanggal 1 sampai akhir bulan</option><option value="custom">Pilih tanggal sendiri</option></select></label>
+      <label class="field" id="am-gj-mf"><span>Bulan</span><input type="month" id="am-gj-month" value="${esc(gajiMonth())}"></label>
+      <label class="field" id="am-gj-ff" hidden><span>Dari</span><input type="date" id="am-gj-from"></label>
+      <label class="field" id="am-gj-tf" hidden><span>Sampai</span><input type="date" id="am-gj-to"></label>
+    </div>
+    <p class="muted small" id="am-gj-range"></p>
+    <div class="notice" id="am-gj-msg" hidden></div>
+    <button class="btn" type="button" id="am-gj-go" style="justify-self:start">Unduh rekap bulanan</button>
+    <p class="muted small">File berisi nomor rekening staf. Simpan di tempat pribadi dan jangan dibagikan di grup.</p>
+  </section>`;
+  // Any range the owner or a manager picks (Glenn, 26 Nov 2026), up to a year as att_recap_range allows.
+  const mode = () => $('#am-gj-mode', p).value;
+  const gjRange = () => mode() === 'custom' ? [$('#am-gj-from', p).value, $('#am-gj-to', p).value]
+    : monthPeriod($('#am-gj-month', p).value || gajiMonth(), mode());
+  const gjCheck = ([a, z]) => {
+    if (!a || !z) return 'Isi tanggal Dari dan Sampai.';
+    if (z < a) return 'Tanggal Sampai harus sesudah tanggal Dari.';
+    if (addDays(a, 366) < z) return 'Rentang paling lama 1 tahun.';
+    return '';
+  };
+  const gjShow = () => {
+    const c = mode() === 'custom';
+    $('#am-gj-mf', p).hidden = c; $('#am-gj-ff', p).hidden = !c; $('#am-gj-tf', p).hidden = !c;
+    if (c && !$('#am-gj-from', p).value) {
+      const [a, z] = monthPeriod($('#am-gj-month', p).value || gajiMonth());
+      $('#am-gj-from', p).value = a; $('#am-gj-to', p).value = z;
+    }
+    const r = gjRange(), bad = gjCheck(r);
+    $('#am-gj-range', p).textContent = bad || `Periode ${periodTitle(r[0], r[1])} · ${(new Date(r[1]) - new Date(r[0])) / 864e5 + 1} hari`;
+  };
+  ['#am-gj-month', '#am-gj-mode', '#am-gj-from', '#am-gj-to'].forEach((k) => $(k, p).addEventListener('change', gjShow)); gjShow();
+  $('#am-gj-go', p).addEventListener('click', async (e) => {
+    const b = e.currentTarget; busy(b, true, 'Menyiapkan…');
+    try {
+      const [a, z] = gjRange(), bad = gjCheck([a, z]);
+      if (bad) throw new Error(bad);
+      const [rec, staff] = await Promise.all([rpc('att_recap_range', { p_from: a, p_to: z, p_staff: null }), rpc('att_staff_list'), loadStyledSheetJS()]);
+      const wb = buildGajiBook(window.XLSX, { people: rec.people, staff, from: a, to: z, today: ymd() });
+      window.XLSX.writeFile(wb, `absensi-gaji-${a}-sampai-${z}.xlsx`);
+    } catch (err) { notice($('#am-gj-msg', p), err.message); }
     busy(b, false);
   });
 }

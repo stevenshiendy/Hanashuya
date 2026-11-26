@@ -44,7 +44,7 @@ const MENU = [
     ['t-boost', 'bonus-stempel', 'Bonus stempel'], ['t-wa', 'template-wa', 'Template WhatsApp'], ['t-join', 'qr-daftar', 'QR pendaftaran']]],
   // Per staf holds izin, rekap and profil for one person (Glenn, 12 Nov 2026); only these keep their own item.
   ['tim', 'team', 'Tim', [['t-staff', 'staf', 'Staf'], ['t-att', 'absensi', 'Presensi harian'], ['t-att-one', 'absen-staf', 'Per staf'],
-    ['t-att-ot', 'lembur', 'Lembur'], ['t-att-plan', 'jadwal', 'Jadwal'], ['t-komisi', 'komisi', 'Komisi'],
+    ['t-att-ot', 'lembur', 'Lembur'], ['t-att-plan', 'jadwal', 'Jadwal'], ['t-att-gaji', 'rekap-bulanan', 'Rekap bulanan'], ['t-komisi', 'komisi', 'Komisi'],
     ['t-kmd', 'dashboard-komisi', 'Dashboard komisi']]],
   // Transaksi (Glenn, 12 Nov 2026, like VireoPOS): purchase orders, stock in and out, adjustments, commission payouts, voids.
   ['transaksi', 'swap', 'Transaksi', [['t-po', 'purchase-order', 'Purchase Order'], ['t-recv', 'penerimaan-barang', 'Penerimaan barang'],
@@ -72,7 +72,9 @@ const MANAGER_VIEWS = new Set(['ringkasan', 'persetujuan', 'stok-laporan', 'lapo
   'dalam-perjalanan', 'proses-komisi', 'pembatalan', 'laporan-akunting',
   // Komisi: a manager may switch commission on or off per staff (Glenn, 14 Nov 2026); the rules stay owner-only.
   // Dashboard komisi (14 Nov 2026): managers see it and may mark payouts paid (not their own).
-  'komisi', 'dashboard-komisi']);
+  'komisi', 'dashboard-komisi',
+  // Rekap bulanan (Glenn, 26 Nov 2026): managers export the payroll recap too; att_recap_range allows them.
+  'rekap-bulanan']);
 const menuFor = (role) => (role === 'owner' ? MENU : MENU.map(([key, icon, title, items]) =>
   [key, icon, title, items.filter((i) => !isLink(i) && MANAGER_VIEWS.has(i[1]))]).filter(([, , , items]) => items.length));
 const viewsOf = (menu) => menu.flatMap(([, , group, items]) => items.filter((i) => !isLink(i)).map(([id, hash, label]) => ({ id, hash, label, group: group || 'Beranda' })));
@@ -177,6 +179,7 @@ async function boot() {
     staf: staff, absensi: () => mountOwnerAbsensi(P('p-att'), { part: 'hari' }),
     lembur: () => mountOwnerAbsensi(P('p-att-ot'), { part: 'lembur' }), 'absen-staf': () => mountOwnerAbsensi(P('p-att-one'), { part: 'staf' }),
     jadwal: () => mountOwnerAbsensi(P('p-att-plan'), { part: 'jadwal' }),
+    'rekap-bulanan': () => mountOwnerAbsensi(P('p-att-gaji'), { part: 'gaji' }),
     'bonus-stempel': () => mountStampBoosts(P('p-boost'), { rpc }), 'template-wa': () => mountWaTemplates(P('p-wa'), { rpc }),
     komisi: () => mountCommission(P('p-komisi'), { rpc, owner: !READ_ONLY }),
     'dashboard-komisi': () => mountCommissionDashboard(P('p-kmd'), { rpc }),
