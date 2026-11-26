@@ -72,7 +72,7 @@ function loyalty(name, a) {
 // ?as=manager (13 Nov 2026): the page as a manager sees it. Like the SQL, only the read-only report
 // calls answer; anything else is refused, so a view that still asks for owner data shows up at once.
 const AS_MANAGER = new URLSearchParams(location.search).get('as') === 'manager';
-const MANAGER_OK = /^(whoami|report_dashboard|owner_pos_stats|owner_pos_report|owner_pos_profit|owner_laporan|owner_shift_detail|owner_purchase_report|owner_other_report|acc_(sync|accounts|journals|ledger|trial|pnl|balance_sheet|balance_monthly|journal_lines)|pos_void_overview|pos_commission_payouts|commission_(settings|dashboard|set_enabled|set_staff|set_schedule)|pos_commission_mark_paid|stock_[a-z_]+|staff_daily_summary|pos_void_list|manager_pending_undo|pos_decide_void|owner_decide_undo)$/;
+const MANAGER_OK = /^(whoami|report_dashboard|owner_pos_stats|owner_pos_report|owner_pos_profit|owner_laporan|owner_shift_detail|owner_purchase_report|owner_other_report|acc_(sync|accounts|journals|ledger|trial|pnl|balance_sheet|balance_monthly|journal_lines)|pos_void_overview|pos_commission_payouts|commission_(settings|dashboard|set_enabled|set_staff|set_schedule)|pos_commission_mark_paid|stock_[a-z_]+|staff_daily_summary|pos_void_list|manager_pending_undo|pos_decide_void|owner_decide_undo|att_recap_range|att_staff_list)$/;
 export async function rpc(name, args = {}) {
   if (AS_MANAGER && !MANAGER_OK.test(name)) throw new Error('Halaman ini hanya untuk pemilik.');
   if (name === 'whoami') return AS_MANAGER ? { id: 'm-ranny', role: 'manager', full_name: 'Manajer Uji', whatsapp: '6281444444444' }
@@ -111,7 +111,7 @@ export async function rpc(name, args = {}) {
   if (trx !== undefined) return trx;
   const mine = ownerFake(name, args);
   if (mine !== undefined) return mine;
-  if (name.startsWith('att_')) return attRpc(name, args);
+  if (name.startsWith('att_') || name === 'owner_pay_list' || name === 'owner_set_pay') return attRpc(name, args);
   if (name.startsWith('stock_') || name.startsWith('owner_stock')) return stockRpc(name, args);
   return office(name, args);
 }

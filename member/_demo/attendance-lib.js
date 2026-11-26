@@ -56,6 +56,14 @@ D.att_my_schedule = () => ({ today, weekday: dow(today), weekly: V.setup().weekl
   leave: SD.leaves.filter((l) => l.staff_id === meId && l.status === 'disetujui' && l.end >= today && l.start <= addD(today, 13)) });
 // Jadwal saya day by day and the profile lock (12 Nov 2026). ?prof=baru = profile not saved yet,
 // ?prof=menunggu = a change request waiting, ?prof=ditolak = the last request was refused.
+// Jam kerja saya and Gaji per staf (26 Nov 2026).
+D.att_my_hours = () => ({ from: today.slice(0, 8) + '01', to: today, today, employer: 'Kaaramel Juice', target_min: 360,
+  days_worked: 18, worked_min: 18 * 360 - 95, short_days: 3, short_min: 95, over_min: 0,
+  days: [{ date: today, worked_min: 0, worked: true, working: true }, ...Array.from({ length: 6 }, (_, i) => ({ date: addD(today, -1 - i),
+    worked_min: [372, 330, 365, 360, 305, 361][i], worked: true, working: false }))] });
+const PAY = {};
+D.owner_pay_list = () => STAFF.map((s) => ({ staff_id: s.id, base_salary: 0, meal_per_day: 0, transport: 0, overtime_rate: 0, join_date: null, job_title: null, ...PAY[s.id] }));
+D.owner_set_pay = (a) => { PAY[a.p_staff] = { base_salary: a.p_base, meal_per_day: a.p_meal, transport: a.p_transport, overtime_rate: a.p_overtime_rate, join_date: a.p_join, job_title: a.p_title }; return null; };
 D.att_my_days = (a) => {
   const out = []; for (let d = a.p_from; d <= a.p_to; d = addD(d, 1)) out.push({ date: d, leave: SD.onLeave(meId, d),
     blocks: SD.blocksOf(meId, d).map(({ kind, start, end, shift }) => ({ kind, start, end, shift, changed: SD.oneOff.some((e) => e.staff_id === meId && e.date === d) })) });

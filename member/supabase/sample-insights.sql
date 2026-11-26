@@ -199,3 +199,28 @@ end $$;
 
 revoke all on function public._sample_matches(date, date), public._sample_advice(int, date), public._sample_hours() from public, anon, authenticated;
 grant execute on function public.sample_quota_now(), public.owner_sample_dashboard(date, date), public.owner_sample_set_quota(int, jsonb) to authenticated;
+
+-- Sampel hari ini on the till dashboard (Glenn, 26 Nov 2026: staff could not see how many
+-- samples they had given). Today's pieces in total, per person (Dilayani oleh, else whoever
+-- saved it) and per product, plus today's quota (the sum of today's hourly quotas, null when
+-- none are set). Staff, managers and the owner.
+create or replace function public.sample_today() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  me uuid := public._require(array['staff', 'owner'], 'Hanya staf, manajer atau pemilik.');
+  t timestamp := public._local(now()); d date := t::date; dw int := extract(isodow from t)::int;
+begin
+  return (with x as (
+      select coalesce(s.served_by, s.created_by) as who, e->>'product' as product, coalesce((e->>'qty')::int, 0) as qty
+      from stock_samples s cross join jsonb_array_elements(s.items) e where s.day = d)
+    select json_build_object('day', d,
+      'given', (select coalesce(sum(qty), 0) from x),
+      'quota', (select sum(qty) from sample_quotas where dow = dw),
+      'by_person', coalesce((select json_agg(json_build_object('name', coalesce(public._first_name(p.full_name), 'Lainnya'),
+          'is_me', y.who = me, 'qty', y.q) order by y.q desc)
+        from (select who, sum(qty) as q from x group by who) y left join profiles p on p.id = y.who), '[]'),
+      'by_product', coalesce((select json_agg(json_build_object('product', z.product, 'name', case z.product when 'mini8' then 'Mini choux' when 'sig1' then 'Signature' else z.product end, 'qty', z.q) order by z.q desc)
+        from (select product, sum(qty) as q from x group by product) z), '[]')));
+end $$;
+grant execute on function public.sample_today() to authenticated;

@@ -491,6 +491,14 @@ function openLow() {
     actions: '<button class="btn tl-btn" type="button" data-act="low-request">Buat permintaan barang</button>',
   });
 }
+// Sampel hari ini (Glenn, 26 Nov 2026): staff see how many samples have been given today,
+// against today's quota (Laporan sampel), and by whom. Hidden until sample_today() exists.
+function samplesTileHtml() {
+  const x = S.samplesToday; if (!x) return '';
+  const who = x.by_person.map((p) => `${p.is_me ? 'Saya' : p.name} ${p.qty}`).join(' · ');
+  return `<div class="hm-kpi"><span class="hm-l">Sampel hari ini</span><span class="hm-v num">${x.given} pcs</span>
+    <span class="hm-s num">${x.quota != null ? `Kuota hari ini ${x.quota} pcs${x.given > x.quota ? ' · lewat kuota' : ` · sisa ${x.quota - x.given}`}` : 'Kuota belum diatur'}${who ? `<br>${esc(who)}` : ''}</span></div>`;
+}
 function homeLeft(h) {
   if (!h) return '<div class="hm-dash" aria-busy="true"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
   const topMax = Math.max(1, ...h.top_products.map((x) => x.qty));
@@ -505,6 +513,7 @@ function homeLeft(h) {
         <span class="hm-s num">${(h.cancelled_count ?? h.cancelled) ? `${rupiah(h.cancelled_amount || 0)} batal dan refund` : 'Tidak ada'}</span></div>
       <button class="hm-kpi is-tap${(h.pending_count ?? h.waiting) ? ' is-due' : ''}" type="button" data-act="home-pending"><span class="hm-l">Tagihan gantung</span><span class="hm-v num">${h.pending_count ?? h.waiting ?? 0}</span>
         <span class="hm-s num">${(h.pending_count ?? h.waiting) ? `${rupiah(h.pending_amount || 0)} belum dibayar` : 'Semua sudah dibayar'}</span></button>
+      ${samplesTileHtml()}
       ${targetHtml(h.target)}
     </div>
     ${chartHtml(h)}
@@ -546,10 +555,11 @@ async function loadHome() {
   try {
     // Managers and the owner also get every request waiting for them (loadRequests); from
     // 20.00 WIB, whether today's stok opname is in.
-    const [h, , low, count] = await Promise.all([rpc('pos_home'), loadRequests(),
-      rpc('stock_low').catch(() => null), wibHour() >= 20 ? rpc('stock_count_today').catch(() => null) : null]);
+    const [h, , low, count, smp] = await Promise.all([rpc('pos_home'), loadRequests(),
+      rpc('stock_low').catch(() => null), wibHour() >= 20 ? rpc('stock_count_today').catch(() => null) : null,
+      rpc('sample_today').catch(() => null)]);
     if (n !== homeSeq) return;
-    S.home = h; S.low = low; S.opname = count;
+    S.home = h; S.low = low; S.opname = count; S.samplesToday = smp;
   } catch (e) {
     if (n !== homeSeq || S.screen !== 'home') return;
     const m = off.isNetError(e) ? 'Tidak ada internet. Angka hari ini muncul lagi saat internet kembali. Penjualan tanpa kartu member tetap bisa lewat Mode penjualan.' : e.message;

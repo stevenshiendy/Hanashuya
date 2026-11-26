@@ -9,7 +9,7 @@
 import { configured, $, $$, esc, rpc, busy, notice, toast, time, mountLogin, setupMissing, session, signOut, tabs, prettyPhone, qrSvg } from './lib.js';
 import { parseScheduleRows, WEEKDAYS } from './schedule.js';
 import { formDialog, confirmDialog } from './data-table.js';
-import { buildGajiBook, monthPeriod, periodTitle } from './att-gaji-xlsx.js';
+import { buildGajiBook, monthPeriod, periodTitle, employerOf, employerMode } from './att-gaji-xlsx.js';
 
 const TZ = 'Asia/Jakarta';
 const ACTION = { masuk: 'Masuk', istirahat: 'Istirahat', kembali: 'Kembali', pulang: 'Pulang' };
@@ -954,7 +954,7 @@ function gajiPart(p, opts) {
     <${top ? 'h1' : 'h3'} id="am-gj-t"${top ? '' : ' class="h-small"'}>Rekap bulanan</${top ? 'h1' : 'h3'}>
     <p class="muted">File Excel dengan format absensi gaji untuk satu bulan atau tanggal pilihan sendiri: ON, OFF, A dan IZIN per tanggal untuk tiap staf, dikelompokkan per usaha, lalu sheet Gaji. Gaji pokok, staff meal, kasbon, bonus dan tarif lembur diisi sendiri di kolom kuning.</p>
     <div class="row">
-      <label class="field"><span>Periode</span><select id="am-gj-mode"><option value="26-25">Tanggal 26 sampai 25</option><option value="kalender">Tanggal 1 sampai akhir bulan</option><option value="custom">Pilih tanggal sendiri</option></select></label>
+      <label class="field"><span>Periode</span><select id="am-gj-mode"><option value="usaha">Ikut usaha (Hanashuya 1 sampai akhir bulan, Kaaramel Juice 26 sampai 25)</option><option value="26-25">Semua tanggal 26 sampai 25</option><option value="kalender">Semua tanggal 1 sampai akhir bulan</option><option value="custom">Pilih tanggal sendiri</option></select></label>
       <label class="field" id="am-gj-mf"><span>Bulan</span><input type="month" id="am-gj-month" value="${esc(gajiMonth())}"></label>
       <label class="field" id="am-gj-ff" hidden><span>Dari</span><input type="date" id="am-gj-from"></label>
       <label class="field" id="am-gj-tf" hidden><span>Sampai</span><input type="date" id="am-gj-to"></label>
@@ -965,9 +965,14 @@ function gajiPart(p, opts) {
     <p class="muted small">File berisi nomor rekening staf. Simpan di tempat pribadi dan jangan dibagikan di grup.</p>
   </section>`;
   // Any range the owner or a manager picks (Glenn, 26 Nov 2026), up to a year as att_recap_range allows.
+  // "Ikut usaha" (default): each employer's own payroll month (employerMode in att-gaji-xlsx.js).
   const mode = () => $('#am-gj-mode', p).value;
-  const gjRange = () => mode() === 'custom' ? [$('#am-gj-from', p).value, $('#am-gj-to', p).value]
-    : monthPeriod($('#am-gj-month', p).value || gajiMonth(), mode());
+  const month = () => $('#am-gj-month', p).value || gajiMonth();
+  const rangeFor = (emp) => mode() === 'custom' ? [$('#am-gj-from', p).value, $('#am-gj-to', p).value]
+    : monthPeriod(month(), mode() === 'usaha' ? employerMode(emp) : mode());
+  const gjRange = () => rangeFor('Hanashuya');
+  let staffList = null;
+  const employers = () => [...new Set((staffList || []).map(employerOf))].sort((a, b) => (a === 'Hanashuya' ? -1 : b === 'Hanashuya' ? 1 : a.localeCompare(b)));
   const gjCheck = ([a, z]) => {
     if (!a || !z) return 'Isi tanggal Dari dan Sampai.';
     if (z < a) return 'Tanggal Sampai harus sesudah tanggal Dari.';
@@ -982,17 +987,31 @@ function gajiPart(p, opts) {
       $('#am-gj-from', p).value = a; $('#am-gj-to', p).value = z;
     }
     const r = gjRange(), bad = gjCheck(r);
-    $('#am-gj-range', p).textContent = bad || `Periode ${periodTitle(r[0], r[1])} · ${(new Date(r[1]) - new Date(r[0])) / 864e5 + 1} hari`;
+    const line = (a, z) => `${periodTitle(a, z)} · ${(new Date(z) - new Date(a)) / 864e5 + 1} hari`;
+    $('#am-gj-range', p).textContent = bad || (mode() === 'usaha'
+      ? (employers().length ? employers() : ['Hanashuya', 'Kaaramel Juice']).map((emp) => `${emp}: ${line(...rangeFor(emp))}`).join('. ')
+      : `Periode ${line(r[0], r[1])}`);
   };
   ['#am-gj-month', '#am-gj-mode', '#am-gj-from', '#am-gj-to'].forEach((k) => $(k, p).addEventListener('change', gjShow)); gjShow();
+  rpc('att_staff_list').then((l) => { staffList = l; gjShow(); }).catch(() => {});
   $('#am-gj-go', p).addEventListener('click', async (e) => {
     const b = e.currentTarget; busy(b, true, 'Menyiapkan…');
     try {
       const [a, z] = gjRange(), bad = gjCheck([a, z]);
       if (bad) throw new Error(bad);
-      const [rec, staff] = await Promise.all([rpc('att_recap_range', { p_from: a, p_to: z, p_staff: null }), rpc('att_staff_list'), loadStyledSheetJS()]);
-      const wb = buildGajiBook(window.XLSX, { people: rec.people, staff, from: a, to: z, today: ymd() });
-      window.XLSX.writeFile(wb, `absensi-gaji-${a}-sampai-${z}.xlsx`);
+      const [staff] = await Promise.all([rpc('att_staff_list'), loadStyledSheetJS()]);
+      staffList = staff;
+      const emps = employers(), byId = Object.fromEntries(staff.map((x) => [x.id, x]));
+      // One att_recap_range call per distinct range, then each employer takes its own people.
+      const ranges = [...new Set(emps.map((emp) => rangeFor(emp).join('|')))];
+      const recs = Object.fromEntries(await Promise.all(ranges.map(async (k) => {
+        const [f, t] = k.split('|'); return [k, await rpc('att_recap_range', { p_from: f, p_to: t, p_staff: null })]; })));
+      const groups = emps.map((emp) => { const [f, t] = rangeFor(emp);
+        return { employer: emp, from: f, to: t, people: recs[`${f}|${t}`].people.filter((x) => employerOf(byId[x.id]) === emp) }; });
+      // Pay is owner-only (owner_pay_list); a manager gets the sheet with pay cells to fill in.
+      const pay = Object.fromEntries((await rpc('owner_pay_list').catch(() => [])).map((x) => [x.staff_id, x]));
+      const wb = buildGajiBook(window.XLSX, { groups, staff, today: ymd(), pay });
+      window.XLSX.writeFile(wb, mode() === 'custom' ? `absensi-gaji-${a}-sampai-${z}.xlsx` : `absensi-gaji-${month()}.xlsx`);
     } catch (err) { notice($('#am-gj-msg', p), err.message); }
     busy(b, false);
   });
@@ -1083,6 +1102,9 @@ async function profilePart(p, opts) {
   try { list = await rpc('att_staff_list'); } catch (e) { return errBox(p, e); }
   // Profile change requests (12 Nov 2026); hidden until attendance.sql with them has run.
   try { reqs = await rpc('att_profile_requests'); } catch { reqs = []; }
+  // Gaji per staf (26 Nov 2026), owner only: null for a manager or before the SQL has run.
+  let pay = null;
+  if (opts?.owner) try { pay = Object.fromEntries((await rpc('owner_pay_list')).map((x) => [x.staff_id, x])); } catch { pay = null; }
   if (opts?.only) list = list.filter((s) => s.id === opts.only);
   const mine = reqs.filter((r) => !opts?.only || r.staff_id === opts.only);
   const others = opts?.only ? reqs.filter((r) => r.status === 'menunggu' && r.staff_id !== opts.only) : [];
@@ -1105,6 +1127,7 @@ async function profilePart(p, opts) {
       <br><span class="muted small">${s.device_bound ? `HP presensi: ${esc(s.device_label || 'terdaftar')}, terakhir scan ${esc(dmy(ymd(new Date(s.device_last_seen_at))))} ${esc(time(s.device_last_seen_at))}` : 'HP presensi belum terdaftar (terdaftar saat scan pertama)'}</span></span>
       ${s.device_bound && !s.is_me ? `<button class="btn btn-text" type="button" data-dev-reset="${i}" aria-label="Reset HP presensi ${esc(s.full_name || s.name)}">Reset HP presensi</button>` : ''}
       ${opts.owner || !s.full_name ? `<button class="btn btn-quiet" type="button" data-prof-edit="${i}" aria-label="Ubah profil ${esc(s.full_name || s.name)}">Ubah</button>` : ''}
+      ${pay ? `<button class="btn btn-quiet" type="button" data-pay="${i}" aria-label="Gaji ${esc(s.full_name || s.name)}">Gaji</button>` : ''}
       <div class="att-prof-form" hidden></div></li>`).join('')}</ul>
   </section>`;
   wireNames(p);
@@ -1131,6 +1154,25 @@ async function profilePart(p, opts) {
     const li = b.closest('li'), box = $('.att-prof-form', li), s = list[Number(b.dataset.profEdit)];
     b.hidden = true; box.hidden = false;
     bankForm(box, s, (saved) => { if (saved) return profilePart(p, opts); box.hidden = true; box.innerHTML = ''; b.hidden = false; b.focus(); }, !!opts.owner);
+  }));
+  $$('[data-pay]', p).forEach((b) => b.addEventListener('click', async () => {
+    const s = list[Number(b.dataset.pay)], x = pay[s.id] || {};
+    const num = (name, label, v, hint) => `<label class="field"><span>${label}${hint ? ` <span class="hint">${hint}</span>` : ''}</span>
+      <input type="number" inputmode="numeric" min="0" step="1000" name="${name}" value="${v || 0}"></label>`;
+    const done = await formDialog({ title: `Gaji ${s.full_name || s.name}`, submitLabel: 'Simpan',
+      html: `${num('base', 'Gaji pokok per bulan', x.base_salary, 'dibagi jumlah hari periode')}
+        ${num('meal', 'Staff meal per hari masuk', x.meal_per_day)}
+        ${num('transport', 'Transportasi tambahan per bulan', x.transport)}
+        ${num('ot', 'Tarif lembur per jam', x.overtime_rate)}
+        <label class="field"><span>Tanggal mulai kerja</span><input type="date" name="join" value="${esc(x.join_date || '')}"></label>
+        <label class="field"><span>Jabatan <span class="hint">kosong = Staff</span></span><input type="text" name="title" maxlength="40" value="${esc(x.job_title || '')}"></label>
+        <p class="muted small">Hanya terlihat oleh pemilik. Dipakai di sheet Gaji pada Rekap bulanan.</p>`,
+      onSubmit: async (f) => {
+        const n = (k) => Math.round(Number(f.elements[k].value) || 0);
+        await rpc('owner_set_pay', { p_staff: s.id, p_base: n('base'), p_meal: n('meal'), p_transport: n('transport'), p_overtime_rate: n('ot'),
+          p_join: f.elements.join.value || null, p_title: f.elements.title.value });
+      } });
+    if (done) { toast('Gaji tersimpan'); profilePart(p, opts); }
   }));
   // One phone per account: after a reset, the person's next scan binds their new phone.
   $$('[data-dev-reset]', p).forEach((b) => b.addEventListener('click', async () => {
@@ -1319,7 +1361,9 @@ async function scanTab() {
     ${s.today_scans.length ? `<ul class="list">${s.today_scans.map((e) => `<li><span class="grow">${ACTION[e.action]}${e.via === 'koreksi' ? ' <span class="muted small">(koreksi)</span>' : ''}</span><span class="num">${esc(time(e.at))}</span></li>`).join('')}</ul>` : '<p class="muted">Belum ada.</p>'}
     ${s.today_report.map((r) => flags(r.flags.filter((f) => !f.startsWith('sedang_')))).join(' ')}
   </section>
+  <section class="panel stack" id="ab-hours" aria-labelledby="ab-hours-title" hidden></section>
   <section class="panel stack" id="ab-sched" aria-labelledby="ab-sched-title"></section>`;
+  drawHours($('#ab-hours', p));
   drawSchedule($('#ab-sched', p), s, sched);
   if (msg) notice($('#ab-note', p), msg);
   $$('[data-act]', p).forEach((b) => b.addEventListener('click', async () => {
@@ -1426,6 +1470,33 @@ function askLocation(p) {
 // sub-header per week. Data: att_my_days; without it (older database) the 14 days of att_status.
 const mondayOf = (iso) => addDays(iso, -((new Date(iso + 'T00:00:00Z').getUTCDay() + 6) % 7));
 const shortDay = (iso) => new Intl.DateTimeFormat('id-ID', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(iso + 'T00:00:00Z'));
+// Jam kerja saya (Glenn, 26 Nov 2026): the staff member's own hours against their daily quota
+// (Per staf > Jam kerja per hari) for this payroll month, from att_my_hours. Hidden until that
+// SQL has run. Breaks don't count; a day counts once Pulang is scanned.
+async function drawHours(box) {
+  let h;
+  try { h = await rpc('att_my_hours'); } catch { return; }
+  const q = h.target_min, today = h.days.find((d) => d.date === h.today);
+  const todayLine = !today ? 'Belum ada presensi hari ini.' : today.izin ? 'Hari ini izin.'
+    : today.working ? `Sedang bekerja. Jam hari ini dihitung setelah scan Pulang.`
+    : today.worked ? `Hari ini ${hm(today.worked_min)} dari ${(q / 60).toLocaleString('id-ID')} jam${today.worked_min < q ? `, kurang ${hm(q - today.worked_min)}` : ', kuota terpenuhi'}.`
+    : 'Belum ada presensi hari ini.';
+  const rows = h.days.filter((d) => d.worked && !d.working).slice(0, 7);
+  box.hidden = false;
+  box.innerHTML = `<h2 id="ab-hours-title">Jam kerja saya</h2>
+    <p>Kuota <strong>${(q / 60).toLocaleString('id-ID')} jam</strong> per hari kerja, di luar istirahat.</p>
+    <p class="att-today">${esc(todayLine)}</p>
+    <div class="stats" style="grid-template-columns:repeat(2, minmax(0, 1fr))">
+      <div class="stat"><b>${h.days_worked}</b><span>Hari kerja</span></div>
+      <div class="stat"><b>${hm(h.worked_min)}</b><span>Total jam</span></div>
+      <div class="stat"><b>${h.short_days}</b><span>Hari kurang dari kuota</span></div>
+      <div class="stat"><b>${hm(h.short_min)}</b><span>Total kurang</span></div>
+    </div>
+    <p class="muted small">Periode ${esc(longRange(h.from, h.to))}.</p>
+    ${rows.length ? `<ul class="list att-sched">${rows.map((d) => `<li><span class="grow">${esc(dmy(d.date))}</span>
+      <span class="small">${hm(d.worked_min)}${d.worked_min < q ? ` <span class="tag tag-warn">kurang ${hm(q - d.worked_min)}</span>` : ''}</span></li>`).join('')}</ul>` : ''}`;
+}
+
 async function drawSchedule(box, s, sched) {
   const today = s.today || sched?.today || ymd();
   const mon = mondayOf(today);

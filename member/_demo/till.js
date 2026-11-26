@@ -315,7 +315,9 @@ async function fake(name, a) {
       promos: { bogo_active: new URLSearchParams(location.search).has('bogo'), bogo_from: '19.00', tebus_murah_ktp: 'KTP Bandung', custom: q.get('promos') === '0' ? [] : customPromos,
         malam50_active: q.has('malam'), malam50_from: '19.00', instructors: INSTRUCTORS } };
     case 'pos_quote': return price(a.p_order, tk(a.p_order.ticket));
-    case 'sample_quota_now': return { hour: 15, quota: 2, given: 1 };   // Laporan sampel kuota (14 Nov 2026)
+    case 'sample_quota_now': return { hour: 15, quota: 2, given: 1 };
+    case 'sample_today': return { day: '2026-11-26', given: 7, quota: 12, by_person: [{ name: 'Ranny', is_me: true, qty: 4 }, { name: 'Fajar', is_me: false, qty: 3 }],
+      by_product: [{ product: 'mini8', name: 'Mini choux', qty: 5 }, { product: 'sig1', name: 'Signature', qty: 2 }] };   // 26 Nov 2026   // Laporan sampel kuota (14 Nov 2026)
     case 'stock_sample': { const n = (a.p_sample.items || []).reduce((t, x) => t + x.qty, 0); if (!n) fail('Pilih produk untuk sampel.'); return { id: a.p_sample.id, pieces: n, items: [], served_by: 'Ranny' }; }
     case 'pos_checkout': {
       // As pos.sql (13 Nov 2026): a payment for an order cancelled meanwhile, or with a batal

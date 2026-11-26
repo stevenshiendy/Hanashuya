@@ -324,10 +324,12 @@ begin
 end $$;
 
 -- First day of real presensi scans: the POS and QR presensi went live on 14 Nov 2026 (Glenn,
--- 19 Nov 2026). Scheduled days before it count as present, see _att_day.
+-- 19 Nov 2026). Scheduled days before it count as present, see _att_day. 14 Nov itself also
+-- counts as present for everyone scheduled (Glenn, 26 Nov 2026: its scans were feature tests),
+-- so the cut-off is 15 Nov.
 create or replace function public._att_pos_start() returns date
 language sql immutable set search_path = public
-as $$ select date '2026-11-14' $$;
+as $$ select date '2026-11-15' $$;
 
 -- One person's day, one row per scheduled work block (kind 'jadwal'), plus a row for
 -- any work outside the schedule ('di_luar_jadwal'), or one 'izin' row on approved leave.
@@ -1379,6 +1381,92 @@ begin
           'end', to_char(b.end_time, 'HH24:MI'), 'shift', b.shift, 'note', b.note, 'changed', b.one_off)) from public._att_blocks(me, d::date) b), '[]'))
         order by d)
       from generate_series(p_from, p_to, interval '1 day') d));
+end $$;
+
+-- Jam kerja saya (Glenn, 26 Nov 2026): the signed-in staff member's own hours against their
+-- daily quota (profiles.work_target_min, 9 hours unless set), for the staff page. The period
+-- is their payroll month so far: Hanashuya from the 1st, other employers (Kaaramel Juice)
+-- from the 26th of the month before, up to today. p_month 'YYYY-MM' picks an earlier month.
+create or replace function public.att_my_hours(p_month text default null) returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._att_me('Halaman presensi untuk akun staf. Masuk dengan akun staf Anda sendiri.');
+  pr profiles := public._att_staff(me); today date := public._att_today();
+  kj boolean := coalesce(pr.employer, 'Hanashuya') <> 'Hanashuya';
+  m date; m0 date; m1 date; tgt int := coalesce(pr.work_target_min, 540);
+begin
+  if p_month is not null and p_month !~ '^\d{4}-\d{2}$' then raise exception 'Bulan tidak valid.'; end if;
+  -- The current payroll month: for 26-25 employers, from the 26th the next month has started.
+  m := coalesce(to_date(p_month, 'YYYY-MM'),
+    date_trunc('month', case when kj and extract(day from today) > 25 then today + 7 else today end)::date);
+  m0 := case when kj then (m - interval '1 month')::date + 25 else m end;
+  m1 := least(case when kj then m + 24 else (m + interval '1 month' - interval '1 day')::date end, today);
+  if m0 < today - 400 then raise exception 'Bulan terlalu lama.'; end if;
+  return (with dd as (select x.* from generate_series(m0, greatest(m1, m0), interval '1 day') g
+              cross join lateral public._att_day(me, g::date, now()) x where m1 >= m0),
+    days as (select work_date, sum(worked_min)::int as w, bool_or(masuk is not null) as worked,
+                    bool_or('tidak_hadir' = any (flags)) as absent, bool_or(kind = 'izin') as izin,
+                    bool_or('sedang_bekerja' = any (flags) or 'sedang_istirahat' = any (flags)) as working
+             from dd group by work_date)
+  select json_build_object('from', m0, 'to', m1, 'month', to_char(m, 'YYYY-MM'), 'today', today,
+    'employer', coalesce(pr.employer, 'Hanashuya'), 'target_min', tgt,
+    'days_worked', (select count(*) from days where worked),
+    'worked_min', (select coalesce(sum(w), 0) from days where worked),
+    'short_days', (select count(*) from days where worked and not working and w < tgt),
+    'short_min', (select coalesce(sum(greatest(tgt - w, 0)), 0) from days where worked and not working),
+    'over_min', (select coalesce(sum(greatest(w - tgt, 0)), 0) from days where worked),
+    'days', coalesce((select json_agg(json_build_object('date', work_date, 'worked_min', w, 'worked', worked,
+        'absent', absent, 'izin', izin, 'working', working) order by work_date desc) from days), '[]')));
+end $$;
+
+-- Gaji per staf (Glenn, 26 Nov 2026: "the gaji is not calculated in the export"): the owner
+-- saves each person's pay once; Tim > Rekap bulanan fills the Gaji sheet from it. Owner only,
+-- because salaries are private (managers get the sheet with empty pay columns).
+create table if not exists public.att_pay (
+  staff_id uuid primary key references public.profiles (id) on delete cascade,
+  base_salary int not null default 0 check (base_salary between 0 and 1000000000),
+  meal_per_day int not null default 0 check (meal_per_day between 0 and 10000000),
+  transport int not null default 0 check (transport between 0 and 100000000),
+  overtime_rate int not null default 0 check (overtime_rate between 0 and 10000000),
+  join_date date,
+  job_title text check (length(job_title) <= 40),
+  updated_at timestamptz not null default now(),
+  updated_by uuid references public.profiles (id) on delete set null
+);
+alter table public.att_pay enable row level security;
+revoke all on public.att_pay from anon, authenticated;
+
+create or replace function public.owner_pay_list() returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Hanya pemilik.');
+begin
+  return coalesce((select json_agg(json_build_object('staff_id', p.id, 'base_salary', coalesce(a.base_salary, 0),
+      'meal_per_day', coalesce(a.meal_per_day, 0), 'transport', coalesce(a.transport, 0), 'overtime_rate', coalesce(a.overtime_rate, 0),
+      'join_date', a.join_date, 'job_title', a.job_title, 'updated_at', a.updated_at))
+    from profiles p left join att_pay a on a.staff_id = p.id
+    where p.role in ('staff', 'manager') and p.deleted_at is null), '[]');
+end $$;
+
+create or replace function public.owner_set_pay(p_staff uuid, p_base int, p_meal int, p_transport int, p_overtime_rate int,
+  p_join date, p_title text) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare me uuid := public._require(array['owner'], 'Hanya pemilik.');
+begin
+  if not exists (select 1 from profiles where id = p_staff and role in ('staff', 'manager') and deleted_at is null) then
+    raise exception 'Staf tidak ditemukan.';
+  end if;
+  if least(coalesce(p_base, 0), coalesce(p_meal, 0), coalesce(p_transport, 0), coalesce(p_overtime_rate, 0)) < 0 then
+    raise exception 'Angka tidak boleh minus.';
+  end if;
+  insert into att_pay (staff_id, base_salary, meal_per_day, transport, overtime_rate, join_date, job_title, updated_at, updated_by)
+  values (p_staff, coalesce(p_base, 0), coalesce(p_meal, 0), coalesce(p_transport, 0), coalesce(p_overtime_rate, 0), p_join,
+          nullif(trim(p_title), ''), now(), me)
+  on conflict (staff_id) do update set base_salary = excluded.base_salary, meal_per_day = excluded.meal_per_day,
+    transport = excluded.transport, overtime_rate = excluded.overtime_rate, join_date = excluded.join_date,
+    job_title = excluded.job_title, updated_at = now(), updated_by = me;
+  perform public._log('gaji_staf', jsonb_build_object('staff', p_staff));
 end $$;
 
 -- ---------------------------------------------------------------- profile change requests
