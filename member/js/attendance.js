@@ -24,6 +24,10 @@ const FLAG = {
   // Scheduled days before the POS started on 14 Nov 2026 count as present (Glenn, 19 Nov 2026).
   hadir_sebelum_pos: ['Hadir', 'tag-ok'],
 };
+// Lembur tabs (Glenn, 26 Nov 2026): pending, approved and rejected each in its own tab; the pick survives a reload of the panel.
+const OT_TABS = [['menunggu', 'Menunggu'], ['disetujui', 'Disetujui'], ['ditolak', 'Ditolak']];
+const OT_EMPTY = { menunggu: 'Tidak ada lembur yang menunggu.', disetujui: 'Belum ada lembur yang disetujui.', ditolak: 'Belum ada lembur yang ditolak.' };
+let otTab = 'menunggu';
 const LEAVE = { menunggu: ['Menunggu', 'tag-warn'], disetujui: ['Disetujui', 'tag-ok'], ditolak: ['Ditolak', 'tag-bad'], dibatalkan: ['Dibatalkan', 'tag'] };
 
 const ymd = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
@@ -476,6 +480,7 @@ async function approvePart(p, opts, which) {
   }
   const pending = leave.filter((l) => l.status === 'menunggu');
   const otOpen = ot.filter((o) => o.status === 'menunggu');
+  const otShown = ot.filter((o) => o.status === otTab);
   p.innerHTML = `
   ${lv ? `<section class="panel stack" aria-labelledby="am-lv">
     <${hl} id="am-lv">Izin menunggu (${pending.length})</${hl}>
@@ -488,14 +493,18 @@ async function approvePart(p, opts, which) {
   ${ov ? `<section class="panel stack" aria-labelledby="am-ot">
     <${hl} id="am-ot">Lembur 14 hari terakhir</${hl}>
     <p class="muted small">Lembur dihitung dari jam selesai jadwal, kalau pulang 1 jam atau lebih setelahnya. Baru dihitung setelah disetujui.</p>
-    ${ot.length ? `<ul class="list">${ot.map((o) => `<li><span class="grow"><strong>${esc(o.name)}</strong>, ${esc(dmy(o.date))}, jadwal ${esc(o.start)} sampai ${esc(o.end)}<br>
+    <div class="tabs" role="tablist" aria-label="Status lembur">${OT_TABS.map(([k, label]) => `<button type="button" role="tab" id="am-ot-tab-${k}" aria-controls="am-ot-list" aria-selected="${k === otTab}" tabindex="${k === otTab ? 0 : -1}" data-ottab="${k}">${label} (${ot.filter((o) => o.status === k).length})</button>`).join('')}</div>
+    <div id="am-ot-list" role="tabpanel" aria-labelledby="am-ot-tab-${otTab}">
+    ${otShown.length ? `<ul class="list">${otShown.map((o) => `<li><span class="grow"><strong>${esc(o.name)}</strong>, ${esc(dmy(o.date))}, jadwal ${esc(o.start)} sampai ${esc(o.end)}<br>
       <span class="muted small">Pulang ${esc(time(o.pulang))}, lembur ${hm(o.minutes)}${o.status !== 'menunggu' ? `. ${o.status === 'disetujui' ? `Disetujui ${hm(o.approved_min)}` : 'Ditolak'} oleh ${esc(o.decided_by || '')}` : ''}</span></span>
-      ${o.is_me ? '<span class="muted small">Lembur Anda sendiri</span>' : `<span class="row ap-actions">
-        <label class="field"><span class="visually-hidden">Menit disetujui</span><input type="number" min="0" max="${o.minutes}" value="${o.approved_min ?? o.minutes}" data-otmin="${esc(o.staff_id + o.date + o.start)}" style="width:6rem" inputmode="numeric"></label>
+      ${o.is_me ? `${o.status !== 'menunggu' ? tag(LEAVE[o.status] || [o.status, 'tag']) : ''}<span class="muted small">Lembur Anda sendiri</span>` : `${o.status !== 'menunggu' ? `<span class="row ap-actions" data-otview>${tag(LEAVE[o.status] || [o.status, 'tag'])}<button class="btn btn-quiet ap-btn" type="button" data-otedit>Ubah</button></span>` : ''}
+      <span class="row ap-actions" data-oteditor ${o.status !== 'menunggu' ? 'hidden' : ''}>
+        <label class="row" style="gap:.4rem;align-items:center"><span class="visually-hidden">Menit disetujui</span><input type="number" min="0" max="${o.minutes}" value="${o.status === 'disetujui' ? (o.approved_min ?? o.minutes) : o.minutes}" data-otmin="${esc(o.staff_id + o.date + o.start)}" style="width:6rem" inputmode="numeric"><span aria-hidden="true">menit</span></label>
         <button class="btn ap-btn" type="button" data-ot="1" data-s="${esc(o.staff_id)}" data-d="${esc(o.date)}" data-b="${esc(o.start)}">Setujui</button>
-        <button class="btn btn-quiet ap-btn" type="button" data-ot="0" data-s="${esc(o.staff_id)}" data-d="${esc(o.date)}" data-b="${esc(o.start)}">Tolak</button></span>`}</li>`).join('')}</ul>`
-      : '<p class="muted">Tidak ada lembur.</p>'}
-    ${otOpen.length ? `<p class="small">${otOpen.length} lembur belum diputuskan.</p>` : ''}
+        <button class="btn btn-quiet ap-btn" type="button" data-ot="0" data-s="${esc(o.staff_id)}" data-d="${esc(o.date)}" data-b="${esc(o.start)}">Tolak</button>
+        ${o.status !== 'menunggu' ? '<button class="btn btn-quiet ap-btn" type="button" data-otcancel>Batal</button>' : ''}</span>`}</li>`).join('')}</ul>`
+      : `<p class="muted">${OT_EMPTY[otTab]}</p>`}
+    </div>
     <div class="notice" id="am-ot-msg" hidden></div>
   </section>` : ''}
   ${lv ? `<form class="panel stack" id="am-addlv" novalidate aria-labelledby="am-addlv-t">
@@ -520,6 +529,25 @@ async function approvePart(p, opts, which) {
     try { await rpc('att_decide_leave', { p_id: Number(b.dataset.leave), p_approve: b.dataset.ok === '1', p_note: null }); toast(b.dataset.ok === '1' ? 'Izin disetujui' : 'Izin ditolak'); again(); }
     catch (e) { notice($('#am-lv-msg', p), e.message); busy(b, false); }
   }));
+  const otTabs = $$('[data-ottab]', p);
+  otTabs.forEach((b, i) => {
+    b.addEventListener('click', () => { otTab = b.dataset.ottab; again(); });
+    b.addEventListener('keydown', (e) => {
+      const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      e.preventDefault();
+      otTab = otTabs[(i + step + otTabs.length) % otTabs.length].dataset.ottab;
+      again();
+    });
+  });
+  // A decided lembur can be changed (Glenn, 26 Nov 2026): Ubah opens the same box and buttons; the server overwrites the decision.
+  const otToggle = (li, open) => {
+    $('[data-otview]', li).hidden = open;
+    $('[data-oteditor]', li).hidden = !open;
+    (open ? $('[data-otmin]', li) : $('[data-otedit]', li))?.focus();
+  };
+  $$('[data-otedit]', p).forEach((b) => b.addEventListener('click', () => otToggle(b.closest('li'), true)));
+  $$('[data-otcancel]', p).forEach((b) => b.addEventListener('click', () => otToggle(b.closest('li'), false)));
   $$('[data-ot]', p).forEach((b) => b.addEventListener('click', async () => {
     const mins = Number($(`[data-otmin="${CSS.escape(b.dataset.s + b.dataset.d + b.dataset.b)}"]`, p)?.value);
     busy(b, true);
