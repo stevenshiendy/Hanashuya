@@ -259,10 +259,13 @@ function quotaSheet(groups, today) {
         const worked = rows.reduce((a, x) => a + (x.worked_min || 0), 0);
         const plan = rows.filter((x) => x.start).map((x) => `${x.shift ? x.shift + ' ' : ''}${x.start.replace(':', '.')}-${x.end.replace(':', '.')}`).join(', ');
         const ins = rows.map((x) => x.masuk).filter(Boolean).sort(), outs = rows.map((x) => x.pulang).filter(Boolean).sort();
-        const on = mark === 'ON', R = r + 1;
+        // Today has not passed yet (Glenn, 26 Nov 2026): its hours so far are shown, but it is not
+        // judged against the quota and stays out of the totals until the day is over.
+        const open = mark === 'ON' && d >= today;
+        const on = mark === 'ON' && !open, R = r + 1;
         const short = on && worked / 60 < quota;
         const fill = mark === 'A' ? C.magenta : short ? C.yellow : null;
-        const note = mark === 'ON' ? (short ? 'Kurang dari kuota' : 'Cukup') : mark === 'A' ? 'Tidak hadir' : mark === 'IZIN' ? 'Izin' : mark === 'OFF' ? 'Libur' : 'Belum lewat';
+        const note = open ? 'Hari ini, belum selesai' : mark === 'ON' ? (short ? 'Kurang dari kuota' : 'Cukup') : mark === 'A' ? 'Tidak hadir' : mark === 'IZIN' ? 'Izin' : mark === 'OFF' ? 'Libur' : 'Belum lewat';
         const w = new Date(d + 'T00:00:00Z').getUTCDay();
         put(r, 0, d.split('-').reverse().join('/'), st(fill));
         put(r, 1, HARI[w], st(fill, { left: true }));
@@ -278,10 +281,10 @@ function quotaSheet(groups, today) {
       const bot = r;
       const sumRow = (label, v, f, z = H) => { put(r, 5, label, st(null, { b: true, left: true })); put(r, 6, v, st(null, { b: true }), f, z); r++; };
       const ds = (p.days || []).filter((x) => x.date >= from && x.date <= to);
-      const workedDays = new Set(ds.filter((x) => x.masuk).map((x) => x.date));
+      const workedDays = new Set(ds.filter((x) => x.masuk && x.date < today).map((x) => x.date));
       const perDay = [...workedDays].map((d) => ds.filter((x) => x.date === d).reduce((a, x) => a + (x.worked_min || 0), 0) / 60);
       sumRow('Hari kerja', workedDays.size, `COUNTIF(J${top}:J${bot},"Cukup")+COUNTIF(J${top}:J${bot},"Kurang dari kuota")`, '0');
-      sumRow('Total jam kerja', jam(perDay.reduce((a, x) => a + x * 60, 0)), `SUM(G${top}:G${bot})`);
+      sumRow('Total jam kerja', jam(perDay.reduce((a, x) => a + x * 60, 0)), `SUMIF(J${top}:J${bot},"Cukup",G${top}:G${bot})+SUMIF(J${top}:J${bot},"Kurang dari kuota",G${top}:G${bot})`);
       sumRow('Total kuota', workedDays.size * quota, `SUM(H${top}:H${bot})`);
       sumRow('Total kurang', perDay.reduce((a, x) => a + Math.max(quota - x, 0), 0), `-SUMIF(I${top}:I${bot},"<0")`);
       sumRow('Total lebih', perDay.reduce((a, x) => a + Math.max(x - quota, 0), 0), `SUMIF(I${top}:I${bot},">0")`);
