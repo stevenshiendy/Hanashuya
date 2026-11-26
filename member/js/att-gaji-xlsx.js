@@ -50,6 +50,22 @@ export function dayMark(rows, date, today) {
 }
 
 const col = (n) => { let s = ''; n += 1; while (n) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; };
+// Every row gets an explicit height (26 Nov 2026): without one, the iPhone and Mac preview
+// (Quick Look, opening the file from WhatsApp) guessed a giant first row and showed a blank page.
+// Wrapped headers get room for their lines, everything else 16 pt.
+function setRowHeights(sheet) {
+  const m = /:([A-Z]+)(\d+)$/.exec(sheet['!ref'] || ''); if (!m) return;
+  const widths = (sheet['!cols'] || []).map((c) => c.wch || 9);
+  const colIdx = (letters) => [...letters].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+  const rows = Array.from({ length: Number(m[2]) }, () => ({ hpt: 16 }));
+  for (const [ref, cell] of Object.entries(sheet)) {
+    if (ref[0] === '!' || !cell?.s?.alignment?.wrapText) continue;
+    const [, letters, row] = /^([A-Z]+)(\d+)$/.exec(ref);
+    const lines = Math.ceil(String(cell.v ?? '').length / Math.max(1, (widths[colIdx(letters)] || 9) - 1));
+    rows[row - 1].hpt = Math.max(rows[row - 1].hpt, lines * 13 + 4);
+  }
+  sheet['!rows'] = rows;
+}
 const jam = (min) => Math.round(((min || 0) / 60) * 100) / 100;
 const ROLE = { staff: 'Staff', manager: 'Manajer' };
 
@@ -124,7 +140,6 @@ export function buildGajiBook(X, { groups: groupList, staff = [], today, pay = {
   ws['!ref'] = `A1:${col(c0 + maxDays + totalCols.length - 1)}${Math.max(r, 1)}`;
   ws['!merges'] = merges;
   ws['!cols'] = [{ wch: 5 }, { wch: 24 }, ...Array.from({ length: maxDays }, () => ({ wch: 5.5 })), { wch: 9 }, { wch: 10 }, { wch: 7 }, { wch: 9 }, { wch: 6 }, { wch: 7 }, { wch: 5 }, { wch: 6 }];
-  ws['!rows'] = [];
 
   // Gaji sheet, same columns as the uploaded file.
   const gs = {}, gm = [];
@@ -205,10 +220,12 @@ export function buildGajiBook(X, { groups: groupList, staff = [], today, pay = {
   gs['!cols'] = [{ wch: 5 }, { wch: 26 }, { wch: 11 }, { wch: 9 }, { wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 7 }, { wch: 6 }, { wch: 7 }, { wch: 8 }, { wch: 6 },
     { wch: 11 }, { wch: 12 }, { wch: 7 }, { wch: 8 }, { wch: 12 }, { wch: 11 }, { wch: 13 }, { wch: 11 }, { wch: 16 }];
 
+  const quota = quotaSheet(groups, today);
+  [ws, gs, quota].forEach(setRowHeights);
   const wb = X.utils.book_new();
   X.utils.book_append_sheet(wb, ws, 'Absensi');
   if (withPay) X.utils.book_append_sheet(wb, gs, 'Gaji');
-  X.utils.book_append_sheet(wb, quotaSheet(groups, today), 'Kuota jam');
+  X.utils.book_append_sheet(wb, quota, 'Kuota jam');
   return wb;
 }
 
