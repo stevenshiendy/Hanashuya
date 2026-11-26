@@ -952,7 +952,7 @@ function gajiPart(p, opts) {
   p.innerHTML = `
   <section class="${top ? 'panel stack' : 'stack-sm'}" aria-labelledby="am-gj-t">
     <${top ? 'h1' : 'h3'} id="am-gj-t"${top ? '' : ' class="h-small"'}>Rekap bulanan</${top ? 'h1' : 'h3'}>
-    <p class="muted">File Excel dengan format absensi gaji untuk satu bulan atau tanggal pilihan sendiri: ON, OFF, A dan IZIN per tanggal untuk tiap staf, dikelompokkan per usaha, lalu sheet Gaji. Gaji pokok, staff meal, kasbon, bonus dan tarif lembur diisi sendiri di kolom kuning.</p>
+    <p class="muted">File Excel dengan format absensi gaji untuk satu bulan atau tanggal pilihan sendiri: ON, OFF, A dan IZIN per tanggal untuk tiap staf, dikelompokkan per usaha, lalu sheet Gaji dan Kuota jam. Gaji pokok, staff meal, transportasi dan tarif lembur diambil dari Per staf > Gaji; bonus dan kasbon diisi di file.</p>
     <div class="row">
       <label class="field"><span>Periode</span><select id="am-gj-mode"><option value="usaha">Ikut usaha (Hanashuya 1 sampai akhir bulan, Kaaramel Juice 26 sampai 25)</option><option value="26-25">Semua tanggal 26 sampai 25</option><option value="kalender">Semua tanggal 1 sampai akhir bulan</option><option value="custom">Pilih tanggal sendiri</option></select></label>
       <label class="field" id="am-gj-mf"><span>Bulan</span><input type="month" id="am-gj-month" value="${esc(gajiMonth())}"></label>
@@ -961,8 +961,11 @@ function gajiPart(p, opts) {
     </div>
     <p class="muted small" id="am-gj-range"></p>
     <div class="notice" id="am-gj-msg" hidden></div>
-    <button class="btn" type="button" id="am-gj-go" style="justify-self:start">Unduh rekap bulanan</button>
-    <p class="muted small">File berisi nomor rekening staf. Simpan di tempat pribadi dan jangan dibagikan di grup.</p>
+    <div class="row">
+      <button class="btn" type="button" id="am-gj-go">Unduh rekap bulanan</button>
+      <button class="btn btn-quiet" type="button" id="am-gj-staf">Unduh untuk staf (tanpa gaji)</button>
+    </div>
+    <p class="muted small">Rekap bulanan berisi gaji dan nomor rekening staf: simpan di tempat pribadi. File untuk staf hanya berisi Absensi dan Kuota jam, tanpa sheet Gaji, untuk dicek staf.</p>
   </section>`;
   // Any range the owner or a manager picks (Glenn, 26 Nov 2026), up to a year as att_recap_range allows.
   // "Ikut usaha" (default): each employer's own payroll month (employerMode in att-gaji-xlsx.js).
@@ -994,8 +997,10 @@ function gajiPart(p, opts) {
   };
   ['#am-gj-month', '#am-gj-mode', '#am-gj-from', '#am-gj-to'].forEach((k) => $(k, p).addEventListener('change', gjShow)); gjShow();
   rpc('att_staff_list').then((l) => { staffList = l; gjShow(); }).catch(() => {});
-  $('#am-gj-go', p).addEventListener('click', async (e) => {
-    const b = e.currentTarget; busy(b, true, 'Menyiapkan…');
+  // Two downloads (Glenn, 26 Nov 2026): the full file, and a copy for staff to check with no
+  // Gaji sheet (no salaries, no rekening): Absensi and Kuota jam only.
+  const download = async (b, forStaff) => {
+    busy(b, true, 'Menyiapkan…');
     try {
       const [a, z] = gjRange(), bad = gjCheck([a, z]);
       if (bad) throw new Error(bad);
@@ -1012,14 +1017,17 @@ function gajiPart(p, opts) {
       // A manager is refused ("Hanya pemilik") and gets 0 in the pay cells; any other failure is
       // shown, so an owner's file never comes out with empty salaries without saying why.
       let payErr = '';
-      const pay = Object.fromEntries((await rpc('owner_pay_list').catch((e) => { if (!/pemilik/i.test(e.message)) payErr = e.message; return []; }))
+      const pay = forStaff ? {} : Object.fromEntries((await rpc('owner_pay_list').catch((e) => { if (!/pemilik/i.test(e.message)) payErr = e.message; return []; }))
         .map((x) => [x.staff_id, x]));
       if (payErr) notice($('#am-gj-msg', p), `Gaji staf tidak terbaca, kolom gaji di file kosong: ${payErr}`, 'warn');
-      const wb = buildGajiBook(window.XLSX, { groups, staff, today: ymd(), pay });
-      window.XLSX.writeFile(wb, mode() === 'custom' ? `absensi-gaji-${a}-sampai-${z}.xlsx` : `absensi-gaji-${month()}.xlsx`);
+      const wb = buildGajiBook(window.XLSX, { groups, staff, today: ymd(), pay, withPay: !forStaff });
+      const base = forStaff ? 'absensi' : 'absensi-gaji';
+      window.XLSX.writeFile(wb, mode() === 'custom' ? `${base}-${a}-sampai-${z}.xlsx` : `${base}-${month()}.xlsx`);
     } catch (err) { notice($('#am-gj-msg', p), err.message); }
     busy(b, false);
-  });
+  };
+  $('#am-gj-go', p).addEventListener('click', (e) => download(e.currentTarget, false));
+  $('#am-gj-staf', p).addEventListener('click', (e) => download(e.currentTarget, true));
 }
 
 /* ---------- one staff member: today, weekly pattern, totals, days, leave, bank */

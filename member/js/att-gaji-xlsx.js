@@ -63,7 +63,8 @@ export const employerMode = (emp) => (emp === 'Hanashuya' ? 'kalender' : '26-25'
 // groups: [{ employer, from, to, people }] (people from att_recap_range for that range).
 // pay: { staff_id: { base_salary, meal_per_day, transport, overtime_rate, join_date, job_title } }
 // from owner_pay_list (owner only; empty for a manager, then the pay cells stay 0 to type in).
-export function buildGajiBook(X, { groups: groupList, staff = [], today, pay = {} }) {
+// withPay false: the copy for staff (Absensi and Kuota jam only, no Gaji sheet).
+export function buildGajiBook(X, { groups: groupList, staff = [], today, pay = {}, withPay = true }) {
   const byId = Object.fromEntries(staff.map((s) => [s.id, s]));
   const groups = groupList.filter((g) => g.people.length);
   const people = groups.flatMap((g) => g.people);
@@ -206,7 +207,7 @@ export function buildGajiBook(X, { groups: groupList, staff = [], today, pay = {
 
   const wb = X.utils.book_new();
   X.utils.book_append_sheet(wb, ws, 'Absensi');
-  X.utils.book_append_sheet(wb, gs, 'Gaji');
+  if (withPay) X.utils.book_append_sheet(wb, gs, 'Gaji');
   X.utils.book_append_sheet(wb, quotaSheet(groups, today), 'Kuota jam');
   return wb;
 }
