@@ -1009,7 +1009,12 @@ function gajiPart(p, opts) {
       const groups = emps.map((emp) => { const [f, t] = rangeFor(emp);
         return { employer: emp, from: f, to: t, people: recs[`${f}|${t}`].people.filter((x) => employerOf(byId[x.id]) === emp) }; });
       // Pay is owner-only (owner_pay_list); a manager gets the sheet with pay cells to fill in.
-      const pay = Object.fromEntries((await rpc('owner_pay_list').catch(() => [])).map((x) => [x.staff_id, x]));
+      // A manager is refused ("Hanya pemilik") and gets 0 in the pay cells; any other failure is
+      // shown, so an owner's file never comes out with empty salaries without saying why.
+      let payErr = '';
+      const pay = Object.fromEntries((await rpc('owner_pay_list').catch((e) => { if (!/pemilik/i.test(e.message)) payErr = e.message; return []; }))
+        .map((x) => [x.staff_id, x]));
+      if (payErr) notice($('#am-gj-msg', p), `Gaji staf tidak terbaca, kolom gaji di file kosong: ${payErr}`, 'warn');
       const wb = buildGajiBook(window.XLSX, { groups, staff, today: ymd(), pay });
       window.XLSX.writeFile(wb, mode() === 'custom' ? `absensi-gaji-${a}-sampai-${z}.xlsx` : `absensi-gaji-${month()}.xlsx`);
     } catch (err) { notice($('#am-gj-msg', p), err.message); }
