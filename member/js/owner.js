@@ -15,6 +15,7 @@ import { mountTransaksi } from './owner-transaksi.js';
 import { mountAkunting } from './owner-akunting.js';
 import { mountProduksi } from './owner-produksi.js';
 import { mountReservasi } from './owner-reservasi.js';
+import { mountPaketAcara } from './owner-paket-acara.js';
 import { mountReportHub } from './owner-laporan2.js';
 import * as rail from './side-rail.js';
 import { rangeHtml, wireRange, presetRange, KEYS } from './owner-range.js';
@@ -46,6 +47,9 @@ const MENU = [
   ['tim', 'team', 'Tim', [['t-staff', 'staf', 'Staf'], ['t-att', 'absensi', 'Presensi harian'], ['t-att-one', 'absen-staf', 'Per staf'],
     ['t-att-ot', 'lembur', 'Lembur'], ['t-att-plan', 'jadwal', 'Jadwal'], ['t-att-gaji', 'rekap-bulanan', 'Rekap bulanan'], ['t-komisi', 'komisi', 'Komisi'],
     ['t-kmd', 'dashboard-komisi', 'Dashboard komisi']]],
+  // Paket Acara (Glenn, 27 Nov 2026): bulk orders for events (the printed A4 document), invoices and website leads. Owner only.
+  ['acara', 'doc', 'Paket Acara', [['t-pa-inv', 'paket-acara', 'Invoice'], ['t-pa-lead', 'peminat-acara', 'Peminat'],
+    ['t-pa-prod', 'produk-acara', 'Produk dan harga'], ['t-pa-set', 'pengaturan-acara', 'Pengaturan paket']]],
   // Transaksi (Glenn, 12 Nov 2026, like VireoPOS): purchase orders, stock in and out, adjustments, commission payouts, voids.
   ['transaksi', 'swap', 'Transaksi', [['t-po', 'purchase-order', 'Purchase Order'], ['t-recv', 'penerimaan-barang', 'Penerimaan barang'],
     ['t-in', 'stok-masuk', 'Stok masuk'], ['t-out', 'stok-keluar', 'Stok keluar'], ['t-op2', 'opname-transaksi', 'Stok opname'],
@@ -183,6 +187,8 @@ async function boot() {
     'bonus-stempel': () => mountStampBoosts(P('p-boost'), { rpc }), 'template-wa': () => mountWaTemplates(P('p-wa'), { rpc }),
     komisi: () => mountCommission(P('p-komisi'), { rpc, owner: !READ_ONLY }),
     'dashboard-komisi': () => mountCommissionDashboard(P('p-kmd'), { rpc }),
+    'paket-acara': () => mountPaketAcara(P('p-pa-inv'), { rpc, part: 'invoice' }), 'peminat-acara': () => mountPaketAcara(P('p-pa-lead'), { rpc, part: 'peminat' }),
+    'produk-acara': () => mountPaketAcara(P('p-pa-prod'), { rpc, part: 'produk' }), 'pengaturan-acara': () => mountPaketAcara(P('p-pa-set'), { rpc, part: 'pengaturan' }),
     cadangan: backupView, 'nota-antrian': queueSlipView, 'pajak-service': chargesView,
   };
   // Laporan hubs (13 Nov 2026): each Laporan item lists its sub-reports; the old views are its last item.

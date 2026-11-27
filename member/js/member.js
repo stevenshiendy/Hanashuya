@@ -428,6 +428,11 @@ function viewCard(c, ready, fresh) {
       <h2 id="promo-title">Promo</h2>
       <div id="promo" class="stack-sm"><div class="skeleton" style="height:72px"></div></div>
     </section>
+    <section class="panel-sunk stack-sm" aria-labelledby="acara-title">
+      <h2 id="acara-title">Paket Acara</h2>
+      <p>Pesan box untuk ulang tahun, arisan atau acara kantor. Mulai 10 box, hemat hingga 25%, diantar tim kami.</p>
+      <a class="btn btn-quiet" href="/acara/">Lihat Paket Acara</a>
+    </section>
     <p class="help-line">Ada pertanyaan? <a href="${esc(waLink(helpText(c)))}" target="_blank" rel="noopener">Chat Hanashuya di WhatsApp</a></p>
   </div>`;
 }

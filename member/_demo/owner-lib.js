@@ -9,6 +9,7 @@ import { transaksiFake } from './transaksi.js';
 import { akuntingFake } from './akunting.js';
 import { produksiFake } from './produksi-data.js';
 import { reservasiFake } from './reservasi-data.js';
+import { paketAcaraFake } from './paket-acara-data.js';
 import { laporan2Fake } from './laporan2-data.js';
 import { sampleFake } from './sample-quota-data.js';
 import { komisiFake, schedule, komisiAnchor, komisiToday, komisiDue, komisiEnd } from './komisi-data.js';
@@ -101,6 +102,7 @@ export async function rpc(name, args = {}) {
   if (name === 'pos_queue_slip') return !!globalThis.__queueSlip;
   if (name === 'owner_set_queue_slip') { globalThis.__queueSlip = !!args.p_on; return globalThis.__queueSlip; }
   // Laporan hubs, transfers/produksi and pesanan di muka (12 Nov 2026): the agents' demo fakes.
+  if (/^bulk_/.test(name)) return paketAcaraFake(name, args);
   const lap = await laporan2Fake(name, args); if (lap !== undefined) return lap;
   const prd = produksiFake(name, args); if (prd !== undefined) return prd;
   if (/^pos_(reservation|deposit|stamp|member_search|catalog$)/.test(name)) { const rs = await reservasiFake(name, args); if (rs !== undefined) return rs; }

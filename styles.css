@@ -306,3 +306,7 @@ address { font-style: normal; }
 @media (hover: hover) { .member .btn:hover { color: var(--frosting); } }
 /* Header: "Pesan" is the one filled button, "Daftar / Masuk" a plain link beside it.
    The location section and footer carry the Maps link. */
+
+/* Paket Acara teaser (27 Nov 2026): the member band's cream look, one column. */
+.acara .member-grid { grid-template-columns: minmax(0, 1fr); max-width: 980px; }
+.acara .rewards li { grid-template-columns: 110px minmax(0, 1fr); }

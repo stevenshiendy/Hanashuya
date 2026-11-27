@@ -1,0 +1,36 @@
+/* Paket Acara page (27 Nov 2026): red stage on top, cream band for the prices, the form on red. */
+.pa-hero { padding: calc(var(--section) + 64px) 0 var(--section); }
+.pa-hero h1 { max-width: 14em; }
+.pa-lead { margin: 20px 0 8px; font-size: var(--text-lead); max-width: 34em; }
+.pa-save { display: flex; align-items: baseline; gap: 14px; margin: 8px 0 32px; font-family: var(--heading); color: var(--head); }
+.pa-save span { font-size: var(--text-h3); }
+.pa-save b { font-weight: 500; font-size: var(--text-statement); line-height: 1; }
+.pa-band { padding-block: var(--section); background: var(--band); color: var(--band-ink); }
+.pa-band h2 { color: var(--band-head); margin-bottom: 16px; }
+.pa-band p { max-width: 34em; }
+.pa-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: clamp(32px, 6vw, 96px); }
+.pa-band .rewards { margin-top: 24px; }
+.pa-tiers li { grid-template-columns: 140px minmax(0, 1fr); }
+.pa-tiers b, .pa-boxes li span:last-child { font-weight: 500; font-variant-numeric: tabular-nums; }
+.pa-boxes li { grid-template-columns: minmax(0, 1fr) auto; }
+.pa-band .small { margin-top: 20px; font-size: 16px; }
+.pa-form-wrap { padding-block: var(--section); }
+.pa-form-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: clamp(32px, 6vw, 96px); align-items: start; }
+.pa-form-grid > div p { margin-top: 16px; font-size: var(--text-lead); max-width: 26em; }
+.pa-form { display: grid; gap: 18px; }
+.pa-form label { display: grid; gap: 6px; font-weight: 500; }
+.pa-form i { font-style: normal; font-weight: 400; color: var(--muted); }
+.pa-form input, .pa-form textarea { width: 100%; min-height: 52px; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 2px; background: var(--well); color: var(--ink); font: 400 17px/1.4 var(--body); }
+.pa-form input:focus-visible, .pa-form textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.pa-form .btn { justify-self: start; border: 0; cursor: pointer; font: 500 17px var(--body); }
+.pa-form .btn:disabled { opacity: .6; cursor: progress; }
+.pa-form .small { font-size: 15px; color: var(--muted); }
+.pa-two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.pa-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.pa-msg { padding: 14px 18px; border-radius: 2px; background: var(--frosting); color: var(--altar-wine); font-weight: 500; }
+.pa-msg.is-error { background: var(--well); color: var(--ink); border: 1px solid var(--frosting); }
+@media (max-width: 860px) {
+  .pa-grid, .pa-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .pa-two { grid-template-columns: minmax(0, 1fr); }
+  .pa-tiers li { grid-template-columns: 110px minmax(0, 1fr); }
+}
