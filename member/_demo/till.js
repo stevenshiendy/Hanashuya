@@ -8,6 +8,13 @@ import { localCharges, mixSplit } from '../js/till-offline.js';
 // ?pajak=1 turns on service charge 5% and PBJT 10% added on top; ?pajak=inc puts PBJT inside the price.
 const CHARGES = (() => { const v = new URLSearchParams(location.search).get('pajak'); return v ? { service_on: true, service_pct: 5, pbjt_on: true, pbjt_pct: 10, pbjt_included: v === 'inc' } : null; })();
 import { data as sampleData, addD } from './sample-data.js';
+// Sakusaku (27 Nov 2026): the reject-shell stock and the packs, with Mini Choux leftovers kept in Kulit afkir at closing.
+const sakuItems = (items) => {
+  const mini = items.find((i) => i.code === 'mini');
+  return [...items.map((i) => (i.code === 'mini' ? { ...i, afkir_to: 901 } : i)),
+    { id: 901, code: 'kulit_afkir', name: 'Kulit afkir Mini', unit: 'pcs', low_level: null, closes_at_zero: false, qty: 35, active: true, afkir_of: mini && mini.id },
+    { id: 902, code: 'sakusaku', name: 'Sakusaku Choux', unit: 'pack', low_level: 3, closes_at_zero: false, qty: 4, active: true }];
+};
 export const configured = true;
 export const $ = (s, el = document) => el.querySelector(s);
 export const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -430,8 +437,8 @@ async function fake(name, a) {
     case 'att_on_duty': return V.onDuty();
     case 'att_tablet_location': return a.p_acc > 200 ? { saved: false, acc_m: Math.round(a.p_acc), location_set: true } : { saved: true, acc_m: Math.round(a.p_acc), location_set: true };
     case 'att_qr_token': if (!(role === 'staff' && q.get('akun') !== 'staf')) fail('QR absen hanya tampil di akun kasir tablet. Keluar, lalu masuk dengan akun kasir tablet dari pemilik.'); { const w = Math.floor(Date.now() / 20000); return { kind: a.p_kind || 'absen', token: `${a.p_kind === 'istirahat' ? 'HSB1' : 'HSA1'}.${w}.demo0000demo0000`, seconds: 20, expires_in: 20 - (Math.floor(Date.now() / 1000) % 20) }; }
-    case 'stock_catalog': return { role, items: V.stockItems(), suppliers: [{ id: 1, name: 'Hanashuya' }, { id: 2, name: 'Toko Sejati' }], staff: staff.map((x) => ({ id: x.id, name: x.name, is_me: x.is_me })) };
-    case 'stock_now': return V.stockItems().map((i) => (i.id in minSet ? { ...i, low_level: minSet[i.id], low: minSet[i.id] != null && i.qty <= minSet[i.id] } : i));
+    case 'stock_catalog': return { role, items: sakuItems(V.stockItems()), suppliers: [{ id: 1, name: 'Hanashuya' }, { id: 2, name: 'Toko Sejati' }], staff: staff.map((x) => ({ id: x.id, name: x.name, is_me: x.is_me })) };
+    case 'stock_now': return sakuItems(V.stockItems()).map((i) => (i.id in minSet ? { ...i, low_level: minSet[i.id], low: minSet[i.id] != null && i.qty <= minSet[i.id] } : i));
     case 'stock_today': return V.stockToday();
     // Stok minimum (12 Nov 2026): the Dashboard warning, and a manager or the owner setting it.
     case 'stock_low': return V.stockItems().map((i) => (i.id in minSet ? { ...i, low_level: minSet[i.id] } : i))

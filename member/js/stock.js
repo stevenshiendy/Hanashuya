@@ -225,8 +225,10 @@ function waButton(root) {
 
 /* ---------------------------------------------------------------- forms */
 // Item groups for the long tables (Glenn, 14 Nov 2026: choux first, packaging below).
-const GROUPS = [['choux', 'Choux'], ['isian', 'Isian'], ['kemasan', 'Kemasan dan lainnya']];
-const groupOf = (i) => (i.closes_at_zero ? 'choux' : /^(g|kg|ml|l)$/i.test(i.unit || '') ? 'isian' : 'kemasan');
+// Sakusaku (27 Nov 2026): the reject shells and the packs have their own group.
+const GROUPS = [['choux', 'Choux'], ['sakusaku', 'Sakusaku'], ['isian', 'Isian'], ['kemasan', 'Kemasan dan lainnya']];
+const groupOf = (i) => (i.closes_at_zero ? 'choux' : i.afkir_of || i.code === 'sakusaku' ? 'sakusaku'
+  : /^(g|kg|ml|l)$/i.test(i.unit || '') ? 'isian' : 'kemasan');
 const grouped = (items) => GROUPS.map(([k, l]) => [l, items.filter((i) => groupOf(i) === k)]).filter(([, list]) => list.length);
 const isOwnKitchen = (list, id) => (list || []).some((x) => String(x.id) === String(id) && x.name.trim().toLowerCase() === 'hanashuya');
 
@@ -436,9 +438,11 @@ function linerForm(box, { items, now }, done) {
 }
 
 // Stok opname, any time of day. Stok sistem comes from stock_now; staff write the stok fisik.
-// At closing, the choux rows ask for what is left, which is recorded as thrown away.
+// At closing, the choux rows ask for what is left, which is recorded as thrown away. A choux with a
+// Kulit afkir item (Mini Choux) also asks how many of those are kept for Sakusaku (27 Nov 2026).
 function opnameForm(box, { items, now, cat }, done) {
   const sys = Object.fromEntries(now.map((n) => [n.id, Number(n.qty)]));
+  const nameOf = Object.fromEntries(items.map((i) => [i.id, i.name]));
   const form = document.createElement('form');
   form.className = 'stack'; form.noValidate = true;
   form.innerHTML = `
@@ -446,10 +450,12 @@ function opnameForm(box, { items, now, cat }, done) {
     <label class="check"><input type="checkbox" data-close${hourNow() >= 20 ? ' checked' : ''}><span>Stok opname tutup booth: choux yang tersisa dicatat sebagai dibuang</span></label>
     <div class="table-wrap"><table class="sk-count"><thead><tr><th>Barang</th><th class="num">Stok sistem</th><th>Stok fisik ${REQ}</th><th class="num">Selisih</th></tr></thead>
     ${grouped(items).map(([g, list]) => `<tbody><tr class="sk-group"><th colspan="4" scope="colgroup">${esc(g)}</th></tr>
-    ${list.map((i) => `<tr data-item="${i.id}" data-zero="${i.closes_at_zero ? 1 : 0}"><td>${esc(i.name)}
+    ${list.map((i) => `<tr data-item="${i.id}" data-zero="${i.closes_at_zero ? 1 : 0}"${i.afkir_of ? ' data-afkir-of' : ''}><td>${esc(i.name)}
         <span class="muted small" data-lbl></span></td>
       <td class="num">${withUnit(sys[i.id] ?? 0, i.unit)}</td>
-      <td><input type="text" inputmode="decimal" autocomplete="off" aria-label="Stok fisik ${esc(i.name)}"></td>
+      <td><input type="text" inputmode="decimal" autocomplete="off" aria-label="Stok fisik ${esc(i.name)}" data-qty>
+        ${i.afkir_to ? `<label class="field" data-keep hidden><span class="small">Untuk Sakusaku (dari sisa)</span>
+          <input type="text" inputmode="numeric" autocomplete="off" data-kept aria-label="${esc(i.name)} untuk Sakusaku, ke ${esc(nameOf[i.afkir_to] || 'Kulit afkir')}"></label>` : ''}</td>
       <td class="num" data-diff></td></tr>`).join('')}</tbody>`).join('')}
     </table></div>
     ${staffChips(cat.staff)}
@@ -461,32 +467,44 @@ function opnameForm(box, { items, now, cat }, done) {
   const rows = $$('tbody tr[data-item]', form);
   // Selisih = stok fisik - stok sistem; at closing a choux row is "left, thrown away" (fisik 0).
   const refresh = () => rows.forEach((tr) => {
-    const zero = closeBox.checked && tr.dataset.zero === '1';
-    $('[data-lbl]', tr).textContent = zero ? '(sisa, dibuang)' : '';
-    const q = parseQty($('input', tr).value), s = sys[tr.dataset.item] ?? 0;
+    const zero = closeBox.checked && tr.dataset.zero === '1', keep = $('[data-keep]', tr);
+    if (keep) keep.hidden = !zero;
+    $('[data-lbl]', tr).textContent = zero ? (keep ? '(sisa: dibuang atau untuk Sakusaku)' : '(sisa, dibuang)')
+      : closeBox.checked && tr.hasAttribute('data-afkir-of') ? '(termasuk yang disimpan hari ini)' : '';
+    const q = parseQty($('[data-qty]', tr).value), s = sys[tr.dataset.item] ?? 0;
     $('[data-diff]', tr).innerHTML = q === null || Number.isNaN(q) ? '' : diffTag(zero ? q - s : q - s);
   });
   closeBox.addEventListener('change', refresh);
-  rows.forEach((tr) => $('input', tr).addEventListener('input', refresh));
+  rows.forEach((tr) => $('[data-qty]', tr).addEventListener('input', refresh));
   refresh();
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('button[type="submit"]', form), msg = $('[data-msg]', form);
     const lines = [];
     // Every row must be counted (Glenn, 14 Nov 2026), so a daily count is never half done.
-    const empty = rows.filter((tr) => parseQty($('input', tr).value) === null);
-    rows.forEach((tr) => $('input', tr).toggleAttribute('aria-invalid', empty.includes(tr)));
+    const empty = rows.filter((tr) => parseQty($('[data-qty]', tr).value) === null);
+    rows.forEach((tr) => $('[data-qty]', tr).toggleAttribute('aria-invalid', empty.includes(tr)));
     if (empty.length) {
-      $('input', empty[0]).focus();
+      $('[data-qty]', empty[0]).focus();
       return notice(msg, empty.length === 1 ? `${$('td', empty[0]).firstChild.textContent.trim()} belum diisi. Tulis 0 kalau habis.`
         : `${empty.length} barang belum diisi. Tulis 0 kalau habis.`);
     }
     for (const tr of rows) {
-      const input = $('input', tr), q = parseQty(input.value);
+      const input = $('[data-qty]', tr), q = parseQty(input.value);
       if (!(q >= 0)) { input.setAttribute('aria-invalid', 'true'); input.focus(); return notice(msg, 'Ada angka yang tidak valid.'); }
       input.removeAttribute('aria-invalid');
       const thrownAway = closeBox.checked && tr.dataset.zero === '1';
-      lines.push({ item: Number(tr.dataset.item), counted: thrownAway ? 0 : q, thrown: thrownAway ? q : 0 });
+      // Kept for Sakusaku: part of what is left, whole shells only.
+      const keptIn = thrownAway && $('[data-kept]', tr), kept = keptIn ? (parseQty(keptIn.value) ?? 0) : 0;
+      if (keptIn) {
+        const bad = !(kept >= 0) || !Number.isInteger(kept) || kept > q;
+        keptIn.toggleAttribute('aria-invalid', bad);
+        if (bad) {
+          keptIn.focus();
+          return notice(msg, kept > q ? `Untuk Sakusaku tidak bisa lebih dari sisa ${$('td', tr).firstChild.textContent.trim()}.` : 'Isi untuk Sakusaku dengan angka bulat.');
+        }
+      }
+      lines.push({ item: Number(tr.dataset.item), counted: thrownAway ? 0 : q, thrown: thrownAway ? q - kept : 0, kept });
     }
     if (!lines.length) return notice(msg, 'Isi minimal satu barang.');
     const who = pickedStaff(form);
@@ -692,13 +710,14 @@ function nowTable(rows) {
 
 // The lines of one stok opname: stok sistem, stok fisik, selisih, stok aktual (and dibuang at closing).
 function opnameTable(c) {
-  const thrown = c.lines.some((l) => Number(l.thrown));
+  const thrown = c.lines.some((l) => Number(l.thrown)), kept = c.lines.some((l) => Number(l.kept));
   const v = (l, k, old) => l[k] ?? l[old];
   return `<div class="table-wrap"><table><thead><tr><th>Barang</th><th class="num">Stok sistem</th><th class="num">Stok fisik</th>
-      ${thrown ? '<th class="num">Dibuang</th>' : ''}<th class="num">Selisih</th><th class="num">Stok aktual</th></tr></thead><tbody>
+      ${thrown ? '<th class="num">Dibuang</th>' : ''}${kept ? '<th class="num">Untuk Sakusaku</th>' : ''}<th class="num">Selisih</th><th class="num">Stok aktual</th></tr></thead><tbody>
     ${c.lines.map((l) => { const a = l.actual !== undefined ? l.actual : (c.status === 'diterima' ? l.counted : null);
       return `<tr><td>${esc(l.item)}</td><td class="num">${withUnit(v(l, 'system', 'expected'), l.unit)}</td><td class="num">${withUnit(v(l, 'physical', 'counted'), l.unit)}</td>
       ${thrown ? `<td class="num">${Number(l.thrown) ? withUnit(l.thrown, l.unit) : ''}</td>` : ''}
+      ${kept ? `<td class="num">${Number(l.kept) ? withUnit(l.kept, l.unit) : ''}</td>` : ''}
       <td class="num">${diffTag(v(l, 'selisih', 'difference'))}</td>
       <td class="num">${a === null ? '<span class="muted">menunggu</span>' : withUnit(a, l.unit)}</td></tr>`; }).join('')}
   </tbody></table></div>`;

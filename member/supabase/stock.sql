@@ -31,6 +31,9 @@ create table if not exists public.stock_items (
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
+-- Sakusaku (27 Nov 2026): a reject-shell item names the choux it is kept from (Kulit afkir Mini
+-- -> Mini Choux). Leftovers of that choux can be kept in it at closing instead of thrown away.
+alter table public.stock_items add column if not exists afkir_of int references public.stock_items (id);
 
 -- Glenn's starting items (11 Nov 2026). Low-stock levels are a first guess; the owner
 -- changes them in the owner page, Stok > Barang.
@@ -168,6 +171,8 @@ create table if not exists public.stock_count_lines (
   thrown numeric(12, 2) not null default 0 check (thrown >= 0),
   primary key (count_id, item_id)
 );
+-- Sakusaku (27 Nov 2026): leftover choux kept for Sakusaku at closing (see stock_submit_count).
+alter table public.stock_count_lines add column if not exists kept numeric(12, 2) not null default 0 check (kept >= 0);
 
 -- ---------------------------------------------------------------- the ledger
 create table if not exists public.stock_moves (
@@ -406,7 +411,7 @@ as $$
     'decided_by', (select public._first_name(full_name) from profiles where id = c.decided_by),
     'decided_at', c.decided_at, 'decision_note', c.decision_note,
     'lines', coalesce((select json_agg(json_build_object('item_id', l.item_id, 'item', i.name, 'unit', i.unit,
-        'expected', l.expected, 'counted', l.counted, 'thrown', l.thrown, 'difference', l.counted - l.expected,
+        'expected', l.expected, 'counted', l.counted, 'thrown', l.thrown, 'kept', l.kept, 'difference', l.counted - l.expected,
         'system', l.expected, 'physical', l.counted, 'selisih', l.counted - l.expected,
         'actual', case c.status when 'diterima' then l.counted when 'menunggu' then null else l.expected end)
         order by i.sort, i.id)
@@ -475,7 +480,11 @@ begin
     'suppliers', coalesce((select json_agg(json_build_object('id', s.id, 'name', s.name) order by lower(s.name))
       from stock_suppliers s where s.active), '[]'),
     'items', coalesce((select json_agg(json_build_object('id', i.id, 'code', i.code, 'name', i.name, 'unit', i.unit,
-        'low_level', i.low_level, 'closes_at_zero', i.closes_at_zero) order by i.sort, i.id)
+        'low_level', i.low_level, 'closes_at_zero', i.closes_at_zero,
+        -- Sakusaku (sakusaku.sql, 27 Nov 2026): afkir_of = the choux this reject-shell item is kept from,
+        -- afkir_to = the reject-shell item this choux's leftovers can be kept in at closing.
+        'afkir_of', i.afkir_of, 'afkir_to', (select a.id from stock_items a where a.afkir_of = i.id and a.active order by a.id limit 1))
+        order by i.sort, i.id)
       from stock_items i where i.active), '[]'),
     'staff', coalesce((select json_agg(json_build_object('id', p.id, 'name', public._first_name(p.full_name), 'is_me', p.id = me,
         'role', p.role, 'on_duty', p.id = any (duty))
@@ -732,8 +741,11 @@ begin
 end $$;
 
 -- Stok opname (until 11 Nov 2026 "hitung stok"), any time of day. p_lines: [{item, counted,
--- thrown}]. "thrown" is recorded as buang first (choux left at closing), and "counted" is
--- what stays after that. p_responsible: the staff member responsible (required).
+-- thrown, kept}]. "thrown" is recorded as buang first (choux left at closing), and "counted" is
+-- what stays after that. "kept" (Sakusaku, 27 Nov 2026): leftover choux set aside for Sakusaku
+-- at closing. They leave the choux as buang ("Disimpan untuk Sakusaku", so the shells' harga
+-- pokok is still booked as waste) and come into its Kulit afkir item as masuk (harga pokok 0).
+-- p_responsible: the staff member responsible (required).
 -- p_closing: the count at closing. A new opname replaces one that is still waiting.
 drop function if exists public.stock_submit_count(jsonb, text);
 create or replace function public.stock_submit_count(p_lines jsonb, p_note text, p_responsible uuid, p_closing boolean default false) returns json
@@ -741,7 +753,7 @@ language plpgsql volatile security definer set search_path = public
 as $$
 declare
   me uuid := public._require(array['staff', 'owner'], public._stock_staff_msg());
-  ln jsonb; i stock_items; c numeric; t numeric; cid bigint; seen int[] := '{}'; v_day date := public._stock_today();
+  ln jsonb; i stock_items; c numeric; t numeric; k numeric; ak stock_items; cid bigint; seen int[] := '{}'; v_day date := public._stock_today();
   rb uuid := public._stock_responsible(p_responsible);
 begin
   if jsonb_typeof(p_lines) is distinct from 'array' or jsonb_array_length(p_lines) = 0 then
@@ -755,16 +767,25 @@ begin
     begin
       i := public._stock_item((ln->>'item')::int);
       c := (ln->>'counted')::numeric; t := coalesce(nullif(ln->>'thrown', '')::numeric, 0);
+      k := coalesce(nullif(ln->>'kept', '')::numeric, 0);
     exception when invalid_text_representation then raise exception 'Angka stok opname tidak valid.';
     end;
     if i.id = any (seen) then raise exception '% tertulis dua kali.', i.name; end if;
     seen := seen || i.id;
-    c := public._stock_qty(c, true); t := public._stock_qty(t, true);
+    c := public._stock_qty(c, true); t := public._stock_qty(t, true); k := public._stock_qty(k, true);
     if t > 0 then
       insert into stock_moves (item_id, kind, qty, day, count_id, reason, responsible_id, created_by)
       values (i.id, 'buang', -t, v_day, cid, 'Sisa saat tutup', rb, me);
     end if;
-    insert into stock_count_lines (count_id, item_id, expected, counted, thrown) values (cid, i.id, 0, c, t);
+    if k > 0 then
+      if not coalesce(p_closing, false) then raise exception 'Choux untuk Sakusaku hanya dicatat di stok opname tutup booth.'; end if;
+      select * into ak from stock_items a where a.afkir_of = i.id and a.active order by a.id limit 1;
+      if ak.id is null then raise exception '% tidak bisa disimpan untuk Sakusaku.', i.name; end if;
+      insert into stock_moves (item_id, kind, qty, day, count_id, reason, responsible_id, created_by) values
+        (i.id, 'buang', -k, v_day, cid, 'Disimpan untuk Sakusaku', rb, me),
+        (ak.id, 'masuk', k, v_day, cid, 'Sisa ' || i.name || ' saat tutup', rb, me);
+    end if;
+    insert into stock_count_lines (count_id, item_id, expected, counted, thrown, kept) values (cid, i.id, 0, c, t, k);
   end loop;
   update stock_counts set last_move_id = coalesce((select max(id) from stock_moves), 0) where id = cid;
   update stock_count_lines l set expected = public._stock_balance(l.item_id, (select last_move_id from stock_counts where id = cid))
@@ -1538,6 +1559,10 @@ begin
     raise exception 'Catatan barang keluar tidak ditemukan.';
   end if;
   if exists (select 1 from stock_moves where reverses_id = m.id) then raise exception 'Catatan ini sudah dibatalkan.'; end if;
+  -- Choux kept for Sakusaku at closing went into Kulit afkir too: only cancelling the opname undoes both.
+  if m.count_id is not null and m.reason = 'Disimpan untuk Sakusaku' then
+    raise exception 'Choux ini disimpan untuk Sakusaku dari stok opname tutup. Batalkan stok opname-nya.';
+  end if;
   select * into i from stock_items where id = m.item_id;
   insert into stock_moves (item_id, kind, qty, day, reason, responsible_id, created_by, reverses_id)
   values (m.item_id, m.kind, -m.qty, m.day, 'Batal barang keluar: ' || r, m.responsible_id, p_by, m.id) returning id into rid;
